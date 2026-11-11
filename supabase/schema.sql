@@ -210,3 +210,25 @@ alter table wa_conversas add column if not exists bot_atualizado_em timestamptz;
 alter table wa_conversas add column if not exists humano_ate timestamptz;      -- até quando o robô fica em silêncio
 alter table wa_mensagens add column if not exists bot boolean not null default false;
 insert into ajustes (chave, publico) values ('atendimento', false) on conflict do nothing;
+
+-- ---------------- Aviso por e-mail a cada pedido novo ----------------
+-- O banco chama a função "aviso-lead" (Edge Function) quando entra um lead.
+-- A função relê o lead e só manda e-mail se ele for novo e ainda não avisado.
+alter table leads add column if not exists aviso_enviado_em timestamptz;
+create extension if not exists pg_net with schema extensions;
+
+create or replace function avisar_lead_novo() returns trigger
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform net.http_post(
+    url := 'https://ywlnsaypcghizwyhaual.supabase.co/functions/v1/aviso-lead',
+    body := jsonb_build_object('record', jsonb_build_object('id', new.id)),
+    headers := jsonb_build_object('Content-Type', 'application/json')
+  );
+  return new;
+exception when others then
+  return new; -- o aviso nunca impede o pedido de ser gravado
+end $$;
+
+drop trigger if exists aviso_lead_novo on leads;
+create trigger aviso_lead_novo after insert on leads for each row execute function avisar_lead_novo();

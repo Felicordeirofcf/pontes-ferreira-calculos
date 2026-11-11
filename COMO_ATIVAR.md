@@ -31,6 +31,12 @@ O site está na Vercel, ligado ao GitHub (pasta `site`), no domínio **pontesfer
 ## 4.1 Primeiro login
 Entre com **adm@pontesferreiracalculos.com** e a senha temporária criada no passo 2. O painel pede para trocar a senha na hora. Depois, use **Trocar senha** no rodapé do menu sempre que quiser.
 
+## 4.1.1 Aviso por e-mail a cada pedido
+1. Supabase > Edge Functions > Deploy a new function > Via Editor: nome **`aviso-lead`**, cole `supabase/functions/aviso-lead/index.ts`. **Desligue "Enforce JWT verification"**.
+2. Edge Functions > Secrets: `SMTP_USER` = adm@pontesferreiracalculos.com · `SMTP_PASS` = senha dessa caixa de e-mail (Locaweb).
+3. Rode o `schema.sql` de novo: ele cria o gatilho que chama a função a cada pedido.
+4. Teste: faça um pedido pelo site; o e-mail chega em 1 minuto, com link para responder no WhatsApp e o PDF.
+
 ## 4.2 Tráfego pago
 Painel > **Tráfego pago** > **1. Ativação**: siga os 8 passos (contas, códigos, ligar no site, testar, metas e campanhas). As campanhas prontas para copiar ficam na aba **3**.
 > Se você rodou o `schema.sql` antes desta área existir, rode o arquivo de novo (é seguro rodar mais de uma vez) para criar a tabela `ajustes`.
