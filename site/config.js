@@ -4,8 +4,8 @@
 //   SUPABASE_ANON_KEY -> chave "anon public" (pode ficar no site; a segurança é feita pelas regras do banco)
 // Enquanto estiver vazio, o painel roda em MODO DEMONSTRAÇÃO e o site manda os pedidos pelo WhatsApp.
 window.PF_CONFIG = {
-  SUPABASE_URL: '',
-  SUPABASE_ANON_KEY: '',
+  SUPABASE_URL: 'https://ywlnsaypcghizwyhaual.supabase.co',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3bG5zYXlwY2doaXp3eWhhdWFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0MjIwNzgsImV4cCI6MjEwOTk5ODA3OH0.rD8ZAHchKudQjxTAOohOv1g84rCE83l0MRoutzEFBJE',
   WHATSAPP: '5521987708652',
 
   // WhatsApp dentro do painel (API oficial da Meta). Mude para true depois de seguir o passo 5 do COMO_ATIVAR.md
