@@ -39,6 +39,8 @@ Painel > **Tráfego pago** > **1. Ativação**: siga os 8 passos (contas, códig
 
 ## 5. WhatsApp dentro do painel (API oficial da Meta)
 
+> **Hoje o atendimento é manual**, pelo app WhatsApp Business do celular. No painel, o botão **💬 WhatsApp** de cada lead abre o seu WhatsApp com a saudação pronta e registra o contato no CRM. A tela de WhatsApp e o robô só aparecem quando `WA_ATIVO` for `true` no `config.js`. Tentativa de 11/11/2026: a Meta não aceitou o 98770-8652 (nem na coexistência, nem na migração: "already in use by another WhatsApp account"). Para ligar no futuro, use um chip novo ou abra um chamado na Meta.
+
 **Antes de começar, sobre o número:**
 - Se o (21) 98770-8652 está no **WhatsApp Business** (app), dá para conectar mantendo o app no celular (recurso de *coexistência*: as mensagens aparecem nos dois lugares).
 - Se está no WhatsApp comum, migre antes para o WhatsApp Business, ou use outro número só para o painel.

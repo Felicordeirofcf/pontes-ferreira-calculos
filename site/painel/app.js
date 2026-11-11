@@ -16,6 +16,7 @@ const CANAIS_DESPESA = ['Google Ads', 'Meta Ads', 'Outros anúncios', 'Software'
 const CANAIS_ADS = ['Google Ads', 'Meta Ads', 'Outros anúncios'];
 const PERIODOS = { mes: 'Este mês', '30': 'Últimos 30 dias', '90': 'Últimos 90 dias', ano: 'Este ano', tudo: 'Tudo' };
 const MIN_RESPOSTA = 15; // minutos para responder um lead novo
+const WA_PAINEL = () => DEMO || !!(window.PF_CONFIG || {}).WA_ATIVO; // false = atendimento manual pelo app do celular
 
 const TABELAS = ['leads', 'calculos', 'clientes', 'despesas', 'atividades', 'wa_conversas'];
 const S = {
@@ -770,7 +771,19 @@ async function abrirConversa(waId) {
     render();
   });
 }
+/* atendimento manual: abre o WhatsApp do celular/computador com a saudação pronta e registra o contato no CRM */
+async function whatsManual(l) {
+  const nome = (l.nome || '').split(' ').slice(0, 2).join(' ');
+  const proc = l.numero_processo ? ` do processo ${l.numero_processo}` : '';
+  const txt = `Olá, ${nome}! Aqui é da Pontes Ferreira Cálculos Judiciais. Recebemos seu pedido de cálculo${proc} e já vamos analisar. 😊`;
+  window.open(waLink(l.whatsapp, txt), '_blank');
+  const agora = new Date().toISOString();
+  await atualizar('leads', l.id, { ultimo_contato: agora, ...(l.respondido_em ? {} : { respondido_em: agora }) });
+  await registrar(l.id, 'whatsapp', 'Contato pelo WhatsApp (app)', l.cliente_id || null);
+  render(); if (fichaId) renderFicha();
+}
 async function conversaParaLead(l) {
+  if (!WA_PAINEL()) return whatsManual(l);
   let c = conversaDoLead(l);
   if (!c) {
     let wa = digitos(l.whatsapp); if (wa.length <= 11) wa = '55' + wa;
@@ -1407,7 +1420,7 @@ function exportMeta() {
 
 /* ---------------- shell, rotas e eventos ---------------- */
 const ROTAS = { painel: ['Painel', telaPainel], leads: ['Leads · CRM', telaLeads], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro], trafego: ['Tráfego pago', telaTrafego] };
-const rota = () => { const r = location.hash.slice(1); return ROTAS[r] ? r : 'painel'; };
+const rota = () => { const r = location.hash.slice(1); return ROTAS[r] && (r !== 'whatsapp' || WA_PAINEL()) ? r : 'painel'; };
 const CAMPOS_FOCO = ['busca', 'buscaLeads', 'buscaWa', 'waTexto'];
 
 function render() {
@@ -1420,7 +1433,7 @@ function render() {
   const pill = n => n ? `<span class="pill">${n}</span>` : '';
   $('#raiz').innerHTML = `<div class="app"><nav>
     <div class="marca">Pontes Ferreira<span>Cálculos Judiciais</span></div>
-    ${Object.entries(ROTAS).map(([k, [rot]]) => `<a href="#${k}" class="${k === r ? 'on' : ''}">${rot}${k === 'leads' ? pill(pendentes) : k === 'whatsapp' ? pill(naoLidas) : k === 'calculos' ? pill(atras) : ''}</a>`).join('')}
+    ${Object.entries(ROTAS).filter(([k]) => k !== 'whatsapp' || WA_PAINEL()).map(([k, [rot]]) => `<a href="#${k}" class="${k === r ? 'on' : ''}">${rot}${k === 'leads' ? pill(pendentes) : k === 'whatsapp' ? pill(naoLidas) : k === 'calculos' ? pill(atras) : ''}</a>`).join('')}
     <div class="rodape">${DEMO ? 'Modo demonstração' : `Conectado<br><button data-acao="trocarSenha">Trocar senha</button> · <button data-acao="sair">Sair</button>`}</div></nav>
     <main class="${r === 'whatsapp' ? 'main-wa' : ''}">${DEMO ? `<div class="demo"><span><b>Modo demonstração:</b> dados de exemplo, salvos só neste navegador. Conecte o Supabase em <code>config.js</code> para usar de verdade.</span><button class="btn mini sec" data-acao="limparDemo">Limpar exemplos</button></div>` : ''}
     ${ROTAS[r][1]()}</main></div>`;
