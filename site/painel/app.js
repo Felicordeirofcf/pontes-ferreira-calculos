@@ -22,7 +22,9 @@ const S = {
   leads: [], calculos: [], clientes: [], despesas: [], atividades: [], wa_conversas: [], wa_mensagens: {},
   periodo: localGet('pf_periodo') || 'mes', filtroCalc: 'abertos', busca: '',
   vistaLeads: localGet('pf_vista') || 'funil', filtroLeads: { status: '', canal: '', temp: '', q: '' },
-  conversa: null, buscaWa: ''
+  conversa: null, buscaWa: '',
+  ajustes: {}, abaTrafego: localGet('pf_aba_trafego') || 'ativacao', rascRast: {},
+  utm: { source: 'instagram', medium: 'post', campaign: '', content: '', ancora: '' }
 };
 const TEMPERATURAS = { quente: '🔥 Quente', morno: '🌤 Morno', frio: '❄ Frio' };
 const TIPOS_ATIV = { nota: '📝 Nota', ligacao: '📞 Ligação', whatsapp: '💬 WhatsApp', email: '✉ E-mail', reuniao: '🤝 Reunião', status: '🔄 Status' };
@@ -77,6 +79,8 @@ const noPeriodo = (data, ini = inicioPeriodo()) => !!data && dia(data) >= ini;
 function canalLead(l) {
   const o = (l.origem || '').toLowerCase(), u = (l.utm_source || '').toLowerCase();
   if (CANAIS.includes(l.origem)) return l.origem;
+  const med = (l.utm_medium || '').toLowerCase();
+  if (!l.gclid && !l.fbclid && /organico|bio|post|story|grupo|assinatura/.test(med)) return /instagram|\big\b/.test(u) ? 'Instagram orgânico' : /indicacao/.test(u) ? 'Indicação' : 'Site orgânico';
   if (l.gclid || /google|gads|adwords/.test(u + ' ' + o)) return 'Google Ads';
   if (l.fbclid || /meta|facebook|instagram|\bfb\b|\big\b/.test(u + ' ' + o)) return 'Meta Ads';
   if (!o || o === 'organico' || o === 'site') return 'Site orgânico';
@@ -135,11 +139,12 @@ async function seguro(fn) { try { return await fn(); } catch (e) { console.error
 async function carregar() {
   const dados = await Promise.all(TABELAS.map(t => db.list(t).catch(e => { console.warn(t, e); return []; })));
   TABELAS.forEach((t, i) => S[t] = dados[i]);
+  S.ajustes = await ajustesDb.ler().catch(e => { console.warn('ajustes', e); return {}; });
 }
 
 /* ---------------- dados de demonstração ---------------- */
 function semearDemo() {
-  if (localGet('pf_semeado') === '2') return;
+  if (localGet('pf_semeado') === '3') return;
   let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const pick = a => a[Math.floor(rnd() * a.length)];
   const nomes = ['Dra. Ana Lima', 'Dr. Bruno Teixeira', 'Dra. Carla Mendes', 'Dr. Diego Rocha', 'Dra. Elisa Prado', 'Dr. Fábio Nunes', 'Dra. Gabriela Reis', 'Dr. Henrique Alves', 'Dra. Isabela Costa', 'Dr. João Pires', 'Dra. Karen Souza', 'Dr. Lucas Barros'];
@@ -158,6 +163,8 @@ function semearDemo() {
       id: uid(), created_at: d.toISOString(), nome, whatsapp: '2198' + String(1000000 + Math.floor(rnd() * 8999999)),
       tipo: pick(TIPOS.slice(0, 4)), prazo: pick(['Mais de 5 dias', '3 a 5 dias', 'Até 48h (urgente)']), modo: pick(['pdf', 'numero']),
       numero_processo: cnj(proc), origem: canal, gclid: canal === 'Google Ads' ? 'demo' : null, status,
+      utm_campaign: canal === 'Google Ads' ? (rnd() < .85 ? 'google_pesquisa_calculo' : 'google_remarketing') : canal === 'Meta Ads' ? pick(['meta_topo_reels', 'meta_topo_reels', 'meta_remarketing']) : null,
+      utm_term: canal === 'Google Ads' ? pick(['cálculo de liquidação trabalhista', 'pje calc', 'calculista trabalhista', 'impugnação aos cálculos trabalhista', 'liquidação de sentença trabalhista']) : null,
       valor_orcado: 150 + Math.floor(rnd() * 4) * 50, respondido_em: status === 'novo' ? null : new Date(d.getTime() + (5 + rnd() * 90) * 6e4).toISOString(),
       motivo_perda: status === 'perdido' ? pick(['Preço', 'Fez internamente', 'Sem resposta', 'Prazo']) : null
     };
@@ -183,8 +190,9 @@ function semearDemo() {
   }
   for (let m = 0; m < 6; m++) {
     const d = new Date(agora.getFullYear(), agora.getMonth() - m, 5);
-    despesas.push({ id: uid(), created_at: d.toISOString(), data: isoLocal(d), canal: 'Google Ads', descricao: 'Campanha Pesquisa', valor: 450 + Math.round(rnd() * 150) });
-    despesas.push({ id: uid(), created_at: d.toISOString(), data: isoLocal(d), canal: 'Meta Ads', descricao: 'Reels + remarketing', valor: 200 + Math.round(rnd() * 80) });
+    despesas.push({ id: uid(), created_at: d.toISOString(), data: isoLocal(d), canal: 'Google Ads', descricao: 'Campanha Pesquisa', campanha: 'google_pesquisa_calculo', valor: 450 + Math.round(rnd() * 150) });
+    despesas.push({ id: uid(), created_at: d.toISOString(), data: isoLocal(d), canal: 'Meta Ads', descricao: 'Reels', campanha: 'meta_topo_reels', valor: 140 + Math.round(rnd() * 60) });
+    despesas.push({ id: uid(), created_at: d.toISOString(), data: isoLocal(d), canal: 'Meta Ads', descricao: 'Remarketing', campanha: 'meta_remarketing', valor: 60 + Math.round(rnd() * 40) });
   }
   // CRM: temperatura, próximo contato e histórico
   const atividades = [], wa_conversas = [], wa_mensagens = [];
@@ -218,7 +226,7 @@ function semearDemo() {
   const ord = a => a.sort((x, y) => y.created_at.localeCompare(x.created_at));
   L.set('leads', ord(leads)); L.set('calculos', ord(calculos)); L.set('clientes', ord(clientes)); L.set('despesas', ord(despesas));
   L.set('atividades', ord(atividades)); L.set('wa_conversas', ord(wa_conversas)); L.set('wa_mensagens', wa_mensagens);
-  localSet('pf_semeado', '2');
+  localSet('pf_semeado', '3');
 }
 function limparDemo() {
   if (!confirm('Apagar todos os dados de exemplo deste navegador?')) return;
@@ -305,7 +313,8 @@ const camposDespesa = () => [
   { k: 'data', rot: 'Data', tipo: 'date', padrao: hoje(), req: true },
   { k: 'canal', rot: 'Categoria', tipo: 'select', opcoes: CANAIS_DESPESA, req: true, vazio: false },
   { k: 'valor', rot: 'Valor (R$)', tipo: 'number', req: true },
-  { k: 'descricao', rot: 'Descrição' }
+  { k: 'campanha', rot: 'Campanha (anúncios)', tipo: 'select', opcoes: campanhasConhecidas() },
+  { k: 'descricao', rot: 'Descrição', full: true }
 ];
 function normalizarCalculo(v) {
   if (v.status === 'entregue' && !v.data_entrega) v.data_entrega = hoje();
@@ -905,8 +914,424 @@ function telaFinanceiro() {
   </div>`;
 }
 
+/* ---------------- Tráfego pago ---------------- */
+const SITE_URL = 'https://pontesferreiracalculos.com/';
+const ABAS_TRAFEGO = { ativacao: '1. Ativação', resultados: '2. Resultados', campanhas: '3. Campanhas prontas', links: '4. Links UTM', offline: '5. Conversões offline' };
+const VALIDA_RAST = {
+  ga4_id: [v => /^G-[A-Z0-9]{6,14}$/.test(v), 'Formato: G-XXXXXXXXXX'],
+  gads_id: [v => /^AW-\d{8,12}$/.test(v), 'Formato: AW-1234567890'],
+  gads_label: [v => /^[A-Za-z0-9_-]{6,40}$/.test(v), 'Só o rótulo, sem o AW- (ex.: AbCdEfGh123)'],
+  meta_pixel_id: [v => /^\d{14,17}$/.test(v), 'Só números (15 ou 16 dígitos)']
+};
+const UTM_GOOGLE = c => `utm_source=google&utm_medium=cpc&utm_campaign=${c}&utm_term={keyword}&utm_content={creative}`;
+const UTM_META = 'utm_source=meta&utm_medium=paid_social&utm_campaign={{campaign.name}}&utm_content={{ad.name}}&utm_term={{adset.name}}';
+
+/* Kit das campanhas (vem da ESTRATEGIA_ADS.md), pronto para copiar e colar */
+const KIT = [
+  {
+    id: 'google_pesquisa_calculo', canal: 'Google Ads', nome: 'Pesquisa | Cálculo Trabalhista', diaria: 50, verbaMes: 1500,
+    resumo: 'Canal principal: aparece para quem pesquisa o serviço no Google, com o problema na mão.',
+    config: [
+      ['Objetivo', 'Leads → tipo Pesquisa (desmarque "Rede de Display" e "Parceiros de pesquisa")'],
+      ['Conversão', 'Use só a ação "Lead do site" (a que você criou na Ativação)'],
+      ['Locais', 'Brasil (ou seus estados) · "Presença: pessoas no local ou que estão regularmente nele"'],
+      ['Idioma', 'Português'],
+      ['Lances', 'Semanas 1–2: Maximizar cliques com CPC máximo R$ 5 · depois de ~30 conversões: Maximizar conversões · depois: CPA desejado'],
+      ['Orçamento', 'R$ 50/dia (≈ R$ 1.500/mês)'],
+      ['Programação', 'Seg a sex 8h–20h · sáb 8h–12h'],
+      ['Sufixo do URL final', UTM_GOOGLE('google_pesquisa_calculo')],
+      ['URL final', SITE_URL]
+    ],
+    grupos: [
+      ['Liquidação', ['cálculo de liquidação trabalhista', 'liquidação de sentença trabalhista', 'cálculo liquidação pje calc', 'cálculo de liquidação de sentença']],
+      ['PJe-Calc', ['pje calc', 'fazer cálculo pje calc', 'calculista pje calc', 'serviço pje calc', 'cálculo no pje calc']],
+      ['Impugnação', ['impugnação aos cálculos trabalhista', 'impugnar cálculo perito', 'contador para impugnação de cálculos', 'impugnação de cálculos']],
+      ['Calculista', ['calculista trabalhista', 'perito contador trabalhista', 'contador trabalhista para advogados', 'cálculos trabalhistas para advogados']],
+      ['Inicial', ['cálculo para petição inicial trabalhista', 'liquidação dos pedidos inicial', 'cálculo da inicial trabalhista']]
+    ],
+    negativas: ['grátis', 'gratis', 'gratuito', 'online grátis', 'calculadora', 'rescisão', 'curso', 'apostila', 'download', 'baixar', 'como fazer', 'tutorial', 'vaga', 'emprego', 'concurso', 'salário de calculista', 'quanto ganha', 'meus direitos', 'fgts saque', 'seguro desemprego', 'planilha', 'modelo', 'pdf', 'manual', 'treinamento'],
+    titulos: ['Cálculo Trabalhista R$ 150', 'Só Informe o Nº do Processo', 'Envie o PDF, Nós Calculamos', 'Cálculo Trabalhista em 48h', 'Liquidação no PJe-Calc', 'Entrega do Arquivo .PJC', 'Para Advogados Trabalhistas', 'Prazo Correndo? Fale Agora', 'Orçamento em 1 Hora Útil', 'Impugnação de Cálculos', 'Preço Fechado Antes', 'Pontes Ferreira Cálculos', 'Todos os TRTs do Brasil', 'Resumo do Que Foi Deferido', 'Orçamento pelo WhatsApp'],
+    descricoes: ['A partir de R$ 150. Envie o PDF ou só o número do processo. Entrega do .PJC em 48h.', 'Leitura de sentença, acórdão e embargos. Você recebe .PJC, relatório PDF e resumo.', 'Prazo de liquidação correndo? Envie o processo e receba o orçamento ainda hoje.', 'Cálculos para advogados trabalhistas de todo o Brasil. Preço fechado antes de começar.'],
+    sitelinks: [['Preços', 'A partir de R$ 150', 'Preço fechado antes de começar', SITE_URL + '#precos'], ['Enviar o processo', 'PDF ou só o número', 'Orçamento em 1 hora útil', SITE_URL + '#form'], ['Serviços', 'Liquidação e impugnação', 'Inicial, atualização e parecer', SITE_URL + '#servicos'], ['Como funciona', 'Quatro passos', 'Sem reunião, tudo online', SITE_URL + '#como-funciona']],
+    destaques: ['Entrega em 48h', 'Arquivo .PJC incluso', 'Todos os TRTs', 'Orçamento em 1h', 'Preço fechado', 'Envie só o nº']
+  },
+  {
+    id: 'google_remarketing', canal: 'Google Ads', nome: 'Remarketing | Display', diaria: 5, verbaMes: 150,
+    resumo: 'Mostra banners para quem visitou o site e não pediu orçamento. Só funciona depois de ~100 visitantes na lista.',
+    config: [
+      ['Antes', 'Ferramentas > Gerenciador de públicos > Segmentos: crie "Visitantes do site – 30 dias" (fonte: tag do Google)'],
+      ['Objetivo', 'Leads → tipo Display'],
+      ['Segmento', 'Visitantes do site – 30 dias · desmarque "segmentação otimizada"'],
+      ['Lances', 'Maximizar conversões'],
+      ['Orçamento', 'R$ 5/dia'],
+      ['Frequência', 'Máximo de 3 impressões por dia por pessoa'],
+      ['Sufixo do URL final', UTM_GOOGLE('google_remarketing')],
+      ['URL final', SITE_URL + '#form']
+    ],
+    titulos: ['Seu Prazo Ainda Está Correndo?', 'Cálculo Trabalhista R$ 150', 'Envie Só o Nº do Processo', 'Entrega do .PJC em 48h', 'Orçamento em 1 Hora Útil'],
+    descricoes: ['Ainda precisa do cálculo? Envie o PDF ou o número do processo e receba o orçamento hoje.', 'Cálculo no PJe-Calc a partir de R$ 150, com relatório e resumo do que foi deferido.'],
+    extra: 'Imagens: suba o logotipo (quadrado e horizontal) e 2–3 imagens (1200×628 e 1200×1200) com o texto "Cálculo trabalhista em 48h · a partir de R$ 150".'
+  },
+  {
+    id: 'meta_topo_reels', canal: 'Meta Ads', nome: 'Topo | Clique para WhatsApp', diaria: 13, verbaMes: 400,
+    resumo: 'Coloca a marca na memória do advogado e abre conversa direto no WhatsApp. O lead cai sozinho no painel com origem Meta Ads.',
+    config: [
+      ['Objetivo', 'Engajamento → Mensagens → WhatsApp (número (21) 98770-8652)'],
+      ['Nome da campanha', 'meta_topo_reels (o painel usa o nome para separar os resultados)'],
+      ['Público', 'Brasil (ou sua UF) · 25–60 anos · interesses: Advocacia, Direito do trabalho, Ordem dos Advogados do Brasil, Processo do trabalho, Jusbrasil · cargo: Advogado(a)'],
+      ['Teste A/B', 'Conjunto 2 com Advantage+ público aberto (sem interesses)'],
+      ['Posicionamentos', 'Advantage+ (automático)'],
+      ['Orçamento', 'R$ 13/dia na campanha (≈ R$ 400/mês)'],
+      ['Mensagem inicial', 'Olá! Vim pelo anúncio e quero um orçamento de cálculo trabalhista.']
+    ],
+    criativos: [
+      ['Reels 20s: "Intimado para apresentar cálculos?"', 'Tela do PJe-Calc gravada + legenda grande.', 'Intimado para apresentar os cálculos e sem tempo para o PJe-Calc? 📄\n\nEnvie o PDF ou só o número do processo. Em até 48h você recebe o arquivo .PJC, o relatório e o resumo do que foi deferido.\n\nA partir de R$ 150. Orçamento em 1 hora útil pelo WhatsApp.', 'Cálculo trabalhista em 48h'],
+      ['Carrossel: "5 erros na liquidação que custam caro"', 'Cards: 1) índice errado (ADC 58) · 2) termo inicial da prescrição · 3) reflexos em cascata · 4) base do intervalo · 5) INSS cota empregado · 6) "Quer que a gente confira a sua conta?"', 'Um erro de índice ou de reflexo pode custar milhares de reais na liquidação. Veja os 5 mais comuns 👉\n\nQuer que a gente confira a sua conta? Chame no WhatsApp.', 'Confira sua conta de liquidação'],
+      ['Imagem: antes × depois', 'Conta do perito × conta revisada (valores ilustrativos).', 'R$ 23 mil de diferença numa impugnação. Revisamos a conta do perito e entregamos a impugnação com o .PJC.\n\nA partir de R$ 150.', 'Impugnação de cálculos']
+    ]
+  },
+  {
+    id: 'meta_remarketing', canal: 'Meta Ads', nome: 'Remarketing | Lead', diaria: 10, verbaMes: 300,
+    resumo: 'Fala de novo com quem já viu o site ou os vídeos. É a verba mais barata por lead.',
+    config: [
+      ['Antes', 'Públicos > Criar público personalizado: (1) Site – todos os visitantes 30 dias · (2) Vídeo – 50% dos Reels, 60 dias · (3) Instagram – engajou com o perfil, 60 dias'],
+      ['Objetivo', 'Leads → site, evento de conversão "Lead" (Pixel)'],
+      ['Nome da campanha', 'meta_remarketing'],
+      ['Público', 'Os 3 públicos acima · exclua quem já é cliente (suba a lista da aba Conversões offline)'],
+      ['Orçamento', 'R$ 10/dia (≈ R$ 300/mês)'],
+      ['Parâmetros de URL', UTM_META],
+      ['URL do site', SITE_URL + '#form']
+    ],
+    criativos: [
+      ['Oferta de 1º cálculo', 'Imagem simples com a oferta.', 'Seu prazo de cálculo ainda está correndo? ⏳\n\nNo primeiro cálculo com a Pontes Ferreira você tem 20% de desconto. Envie o PDF ou só o número do processo.', 'Primeiro cálculo com 20% off'],
+      ['Revisão grátis da conta do perito', 'Imagem com "Revisão grátis".', 'Recebeu a conta do perito? Fazemos uma revisão gratuita e dizemos se vale impugnar.', 'Revisão grátis da conta do perito']
+    ]
+  }
+];
+const campanhasConhecidas = () => [...new Set([...KIT.map(k => k.id), ...S.leads.map(l => l.utm_campaign).filter(Boolean), ...S.despesas.map(d => d.campanha).filter(Boolean)])];
+
+/* ajustes (Supabase "ajustes" ou localStorage no modo demonstração) */
+const ajustesDb = {
+  async ler() {
+    if (DEMO) { try { return JSON.parse(localGet('pf_ajustes')) || {}; } catch { return {}; } }
+    const { data, error } = await sb.from('ajustes').select('chave,valor');
+    if (error) throw error; return Object.fromEntries((data || []).map(r => [r.chave, r.valor || {}]));
+  },
+  async salvar(chave, valor) {
+    if (DEMO) { const a = await ajustesDb.ler(); a[chave] = valor; localSet('pf_ajustes', JSON.stringify(a)); return; }
+    const { error } = await sb.from('ajustes').upsert({ chave, valor, publico: chave === 'rastreamento', updated_at: new Date().toISOString() });
+    if (error) throw error;
+  }
+};
+const rast = () => S.ajustes.rastreamento || (S.ajustes.rastreamento = {});
+const traf = () => S.ajustes.trafego || (S.ajustes.trafego = {});
+const feito = k => !!(traf().feito || {})[k];
+async function salvarTrafego(patch) { S.ajustes.trafego = { ...traf(), ...patch }; await ajustesDb.salvar('trafego', S.ajustes.trafego); }
+
+/* copiar para a área de transferência */
+let COPIAS = [];
+const btnCopiar = (txt, rot = 'Copiar') => { COPIAS.push(String(txt)); return `<button class="btn mini sec" data-copiar="${COPIAS.length - 1}">📋 ${esc(rot)}</button>`; };
+async function copiarTexto(txt) {
+  try { await navigator.clipboard.writeText(txt); }
+  catch { const t = document.createElement('textarea'); t.value = txt; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); }
+  toast('Copiado');
+}
+function baixarArquivo(nome, conteudo, tipo = 'text/csv;charset=utf-8') {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + conteudo], { type: tipo })); a.download = nome; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+const csv = linhas => linhas.map(l => l.map(v => { const s = String(v ?? ''); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(',')).join('\n');
+
+/* números da área de tráfego */
+const ehAds = l => ['Google Ads', 'Meta Ads'].includes(canalLead(l));
+const campanhaDoLead = l => l.utm_campaign || (ehAds(l) ? `(${canalLead(l)} sem campanha)` : null);
+function valorDoLead(l) { const cs = S.calculos.filter(c => c.lead_id === l.id); return cs.length ? soma(cs, c => c.valor_cobrado) : (l.status === 'fechado' ? Number(l.valor_orcado) || 0 : 0); }
+function metricasTrafego() {
+  const ini = inicioPeriodo();
+  const leads = S.leads.filter(l => noPeriodo(l.created_at, ini) && ehAds(l));
+  const gastos = S.despesas.filter(d => noPeriodo(d.data, ini) && CANAIS_ADS.includes(d.canal));
+  const gasto = soma(gastos, d => d.valor);
+  const fechados = leads.filter(l => l.status === 'fechado');
+  const faturado = soma(fechados, valorDoLead);
+  const ticket = Number(traf().ticket_medio) || (() => { const e = S.calculos.filter(c => c.valor_cobrado); return e.length ? soma(e, c => c.valor_cobrado) / e.length : 150; })();
+  const porCamp = {};
+  const linha = k => porCamp[k] || (porCamp[k] = { k, canal: '', leads: 0, orc: 0, fech: 0, gasto: 0, fat: 0 });
+  leads.forEach(l => { const r = linha(campanhaDoLead(l)); r.canal = canalLead(l); r.leads++; if (l.status !== 'novo') r.orc++; if (l.status === 'fechado') { r.fech++; r.fat += valorDoLead(l); } });
+  gastos.forEach(d => { const r = linha(d.campanha || `(${d.canal} sem campanha)`); r.canal = r.canal || d.canal; r.gasto += Number(d.valor) || 0; });
+  const termos = {};
+  leads.filter(l => l.utm_term).forEach(l => { const t = l.utm_term.toLowerCase(); (termos[t] = termos[t] || { t, n: 0, f: 0 }); termos[t].n++; if (l.status === 'fechado') termos[t].f++; });
+  return { ini, leads, gastos, gasto, fechados, faturado, ticket, campanhas: Object.values(porCamp).sort((a, b) => b.gasto - a.gasto || b.leads - a.leads), termos: Object.values(termos).sort((a, b) => b.n - a.n).slice(0, 12) };
+}
+function ritmoVerba() {
+  const d = new Date(), ini = isoLocal(new Date(d.getFullYear(), d.getMonth(), 1));
+  const diasMes = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(), fracao = d.getDate() / diasMes;
+  return [['Google Ads', Number(traf().verba_google) || 0], ['Meta Ads', Number(traf().verba_meta) || 0]].map(([canal, verba]) => {
+    const gasto = soma(S.despesas.filter(x => x.canal === canal && x.data >= ini), x => x.valor);
+    return { canal, verba, gasto, esperado: verba * fracao, pct: verba ? gasto / verba : 0 };
+  });
+}
+function alertasTrafego(t) {
+  const a = [], cacMax = Number(traf().cac_maximo) || 0;
+  t.campanhas.forEach(c => {
+    if (c.gasto >= 3 * t.ticket && !c.fech) a.push(['crit', `<b>${esc(c.k)}</b>: ${brl0(c.gasto)} investidos e nenhum cliente fechado. Revise os termos de pesquisa e os anúncios ou pause.`]);
+    else if (cacMax && c.fech && c.gasto / c.fech > cacMax) a.push(['warn', `<b>${esc(c.k)}</b>: custo por cliente ${brl0(c.gasto / c.fech)}, acima do máximo de ${brl0(cacMax)}.`]);
+    if (c.leads >= 5 && c.orc / c.leads < .6) a.push(['warn', `<b>${esc(c.k)}</b>: só ${pct(c.orc / c.leads)} dos leads receberam orçamento. Lead de anúncio esfria rápido: responda em até ${MIN_RESPOSTA} min.`]);
+  });
+  ritmoVerba().forEach(r => {
+    if (!r.verba) return;
+    if (r.gasto > r.esperado * 1.15 && r.gasto > 50) a.push(['warn', `${r.canal}: gasto do mês (${brl0(r.gasto)}) acima do ritmo da verba (${brl0(r.esperado)} até hoje).`]);
+  });
+  const semUtm = t.leads.filter(l => !l.utm_campaign && !l.gclid && !l.fbclid).length;
+  if (semUtm >= 3) a.push(['warn', `${semUtm} leads de anúncio sem identificação de campanha. Confira o sufixo do URL (Google) e os parâmetros de URL (Meta) na aba Campanhas prontas.`]);
+  const ga = S.leads.filter(l => canalLead(l) === 'Google Ads' && l.status === 'fechado' && l.gclid && l.gclid !== 'demo');
+  if (ga.length && !feito('offline_' + new Date().toISOString().slice(0, 7))) a.push(['azul', `${ga.length} cliente(s) do Google com gclid. Envie as conversões offline (aba 5) para o Google aprender quem fecha.`]);
+  return a;
+}
+
+/* telas */
+function telaTrafego() {
+  COPIAS = [];
+  const aba = ABAS_TRAFEGO[S.abaTrafego] ? S.abaTrafego : 'ativacao';
+  const r = rast();
+  const status = r.ativo && (r.ga4_id || r.gads_id || r.meta_pixel_id) ? '<span class="tag t-good">● Rastreamento ligado</span>' : '<span class="tag t-neutro">○ Rastreamento desligado</span>';
+  const corpo = { ativacao: trafegoAtivacao, resultados: trafegoResultados, campanhas: trafegoCampanhas, links: trafegoLinks, offline: trafegoOffline }[aba]();
+  return `<div class="topo"><h1>Tráfego pago</h1><div class="acoes">${status}${aba === 'resultados' ? seletorPeriodo() : ''}<button class="btn" data-acao="novoGasto">+ Lançar gasto</button></div></div>
+  <div class="seg" style="margin-bottom:16px;flex-wrap:wrap">${Object.entries(ABAS_TRAFEGO).map(([k, v]) => `<button class="${k === aba ? 'on' : ''}" data-aba-trafego="${k}">${v}</button>`).join('')}</div>${corpo}`;
+}
+
+function passo(chave, titulo, corpo, auto) {
+  const ok = auto === undefined ? feito(chave) : auto;
+  return `<div class="card larga passo ${ok ? 'ok' : ''}"><div class="passo-topo">
+    ${auto === undefined ? `<input type="checkbox" data-feito="${chave}" ${ok ? 'checked' : ''} title="Marcar como feito">` : `<span class="passo-auto">${ok ? '✅' : '⏳'}</span>`}
+    <h2>${titulo}</h2></div><div class="passo-corpo">${corpo}</div></div>`;
+}
+function campoRast(k, rot, ph) {
+  const v = S.rascRast[k] ?? rast()[k] ?? '';
+  const ruim = v && VALIDA_RAST[k] && !VALIDA_RAST[k][0](v);
+  return `<div><label class="rotulo" for="rast_${k}">${rot}</label><input class="f" style="width:100%" id="rast_${k}" data-rast="${k}" value="${esc(v)}" placeholder="${esc(ph)}" autocomplete="off">
+    ${ruim ? `<div style="color:var(--crit);font-size:12px;margin-top:3px">${esc(VALIDA_RAST[k][1])}</div>` : ''}</div>`;
+}
+function trafegoAtivacao() {
+  const r = rast(), t = traf();
+  const temGoogle = !!(r.ga4_id && r.gads_id && r.gads_label), temMeta = !!r.meta_pixel_id;
+  const criadas = KIT.filter(k => feito('camp_' + k.id)).length;
+  const prontos = [temGoogle || temMeta, r.ativo, criadas > 0].filter(Boolean).length;
+  return `<div class="demo" style="background:#eef4fc;border-color:var(--s1)"><span>Siga os passos na ordem. Tudo que depende de você está marcado com ☐; o resto o painel confere sozinho. <b>${prontos}/3</b> etapas principais concluídas.</span></div>
+  ${DEMO ? '<div class="demo"><span><b>Modo demonstração:</b> os códigos ficam salvos só neste navegador e o site ainda não os usa. Ligue o Supabase e salve de novo para valer no site.</span></div>' : ''}
+  <div class="grade">
+  ${passo('contas', '1. Criar as contas (uma vez)', `<ol>
+    <li><b>Google Ads</b>: <a href="https://ads.google.com" target="_blank">ads.google.com</a> → entre com o Google da empresa → clique em <b>"Mudar para o modo especialista"</b> e depois em <b>"Criar conta sem campanha"</b>. Fuso: São Paulo · Moeda: BRL.</li>
+    <li><b>Google Analytics 4</b>: <a href="https://analytics.google.com" target="_blank">analytics.google.com</a> → Administrador → Criar propriedade "Pontes Ferreira" → Fluxo de dados <b>Web</b> com <code>pontesferreiracalculos.com</code>.</li>
+    <li><b>Meta Business</b>: <a href="https://business.facebook.com" target="_blank">business.facebook.com</a> → crie o portfólio com o <b>CNPJ 51.362.258/0001-79</b> e ligue a página do Facebook e o Instagram da marca.</li>
+    <li>Cadastre a <b>forma de pagamento</b> nas duas contas (cartão ou Pix/boleto pré-pago).</li></ol>`)}
+  ${passo('ids', '2. Colar os códigos de rastreamento', `
+    <ol><li><b>GA4</b>: Administrador → Fluxos de dados → seu site → copie o <b>ID da métrica</b> (G-…).</li>
+    <li><b>Google Ads</b>: Metas → Conversões → <b>+ Nova ação de conversão</b> → Site → digite <code>pontesferreiracalculos.com</code> → <b>"Adicionar uma ação de conversão manualmente"</b>:
+      categoria <b>Enviar formulário de lead</b>, nome <b>Lead do site</b>, valor <b>"Usar valores diferentes"</b> (padrão R$ ${Number(r.valor_lead) || 150}), contagem <b>Uma</b>. Concluir → <b>"Usar a tag do Google"</b> → copie o trecho <code>send_to: 'AW-…/…'</code> e cole abaixo (pode colar inteiro no primeiro campo que eu separo).</li>
+    <li><b>Meta Pixel</b>: Gerenciador de Eventos → <b>Conectar fontes de dados</b> → Web → nome "Pontes Ferreira" → copie o <b>ID do conjunto de dados/Pixel</b>.</li></ol>
+    <div class="form-trafego" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:10px">
+      ${campoRast('ga4_id', 'ID do Google Analytics 4', 'G-XXXXXXXXXX')}
+      ${campoRast('gads_id', 'ID do Google Ads', 'AW-1234567890')}
+      ${campoRast('gads_label', 'Rótulo da conversão "Lead do site"', 'AbCdEfGhIjK123')}
+      ${campoRast('meta_pixel_id', 'ID do Meta Pixel', '123456789012345')}
+      ${campoRast('valor_lead', 'Valor estimado de cada lead (R$)', '150')}
+    </div>
+    <div class="linha" style="margin-top:12px"><button class="btn" data-acao="salvarRast">Salvar códigos</button>
+    <span style="color:var(--ink-2);font-size:13px">Google: ${temGoogle ? '✅ completo' : '⏳ faltando'} · Meta: ${temMeta ? '✅ completo' : '⏳ faltando'}</span></div>`, temGoogle || temMeta)}
+  ${passo('ligar', '3. Ligar no site', `<p>Com os códigos salvos, ligue a chave. O site passa a carregar o Google e o Meta e a registrar como conversão cada pedido de orçamento (formulário e botões de WhatsApp). Não precisa mexer no código nem publicar de novo.</p>
+    <label class="linha" style="font-size:15px;font-weight:600;margin-top:8px"><input type="checkbox" id="rastAtivo" ${r.ativo ? 'checked' : ''} ${(temGoogle || temMeta) ? '' : 'disabled'}> Rastreamento ligado no site</label>
+    ${(temGoogle || temMeta) ? '' : '<div class="desc">Salve pelo menos um código no passo 2 para liberar.</div>'}`, !!r.ativo)}
+  ${passo('testar', '4. Testar', `<ol>
+    <li>Abra <a href="${SITE_URL}?pf_teste=1" target="_blank">${SITE_URL}?pf_teste=1</a>: aparece um quadro no canto com o que está ligado.</li>
+    <li><b>Google</b>: abra <a href="https://tagassistant.google.com" target="_blank">tagassistant.google.com</a>, conecte o site, clique num botão de WhatsApp e veja o evento <b>conversion</b>. No Google Ads, a conversão muda de "Não verificada" para "Registrando conversões" em até 24h.</li>
+    <li><b>Meta</b>: Gerenciador de Eventos → seu Pixel → <b>Testar eventos</b> → abra o site pelo link indicado → clique em WhatsApp → deve aparecer <b>PageView</b> e <b>Lead</b>.</li>
+    <li>Faça um pedido de teste pelo formulário com <a href="${SITE_URL}?utm_source=teste&utm_campaign=teste_painel" target="_blank">este link</a> e confira em Leads se ele chegou com a campanha "teste_painel". Depois apague o lead de teste.</li></ol>`)}
+  ${passo('dominio_meta', '5. Verificar o domínio no Meta', `<p>Configurações do negócio → Segurança da marca → <b>Domínios</b> → Adicionar <code>pontesferreiracalculos.com</code> → método <b>Registro TXT no DNS</b>. Copie o TXT e crie na Zona DNS da Locaweb (tipo TXT, nome @). Sem isso o Meta pode limitar os anúncios para o site.</p>`)}
+  ${passo('metas', '6. Verba e metas', `<div class="form-trafego" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+      <div><label class="rotulo">Verba mensal Google Ads (R$)</label><input class="f" style="width:100%" type="number" data-traf="verba_google" value="${esc(t.verba_google ?? 1650)}"></div>
+      <div><label class="rotulo">Verba mensal Meta Ads (R$)</label><input class="f" style="width:100%" type="number" data-traf="verba_meta" value="${esc(t.verba_meta ?? 700)}"></div>
+      <div><label class="rotulo">Ticket médio por cliente (R$)</label><input class="f" style="width:100%" type="number" data-traf="ticket_medio" value="${esc(t.ticket_medio ?? '')}" placeholder="automático pelos cálculos"></div>
+      <div><label class="rotulo">Custo máximo por cliente (R$)</label><input class="f" style="width:100%" type="number" data-traf="cac_maximo" value="${esc(t.cac_maximo ?? 120)}"></div></div>
+    <div class="linha" style="margin-top:12px"><button class="btn" data-acao="salvarMetas">Salvar metas</button><span class="desc">Valores sugeridos pela estratégia (teste de 60 dias). O painel avisa quando o gasto sai do ritmo ou o custo por cliente passa do máximo.</span></div>`, !!(t.verba_google || t.verba_meta))}
+  ${passo('campanhas', '7. Criar as campanhas', `<p>Na aba <a href="#trafego" data-aba-trafego="campanhas">3. Campanhas prontas</a> está tudo para copiar e colar: palavras-chave, negativas, anúncios, públicos e links. Marque cada campanha como criada. <b>${criadas}/${KIT.length}</b> criadas.</p>
+    <p class="desc">Ordem recomendada: comece só com <b>Google Pesquisa</b>. Depois de 2 semanas, ligue o <b>Meta Topo</b>. Os remarketings entram quando houver ~100 visitantes no mês.</p>`, criadas > 0)}
+  ${passo('rotina', '8. Rotina (depois de ligar)', `<ul>
+    <li><b>Todo dia</b>: responda lead em até ${MIN_RESPOSTA} min · lance o gasto do dia (botão <b>+ Lançar gasto</b>) ou uma vez por semana com o total.</li>
+    <li><b>Semanas 1–2, todo dia</b>: Google Ads → Palavras-chave → <b>Termos de pesquisa</b>: negative o que não for advogado procurando cálculo.</li>
+    <li><b>Toda semana</b>: veja a aba Resultados; pause anúncio com CTR &lt; 3% (Google) ou custo por lead 2× acima da média (Meta).</li>
+    <li><b>Todo mês</b>: envie as conversões offline (aba 5) e mova verba para a campanha com menor custo por cliente.</li></ul>`)}
+  </div>`;
+}
+
+function trafegoResultados() {
+  const t = metricasTrafego(), cacMax = Number(traf().cac_maximo) || 0;
+  const cac = t.fechados.length ? t.gasto / t.fechados.length : NaN;
+  const equilibrio = t.ticket ? Math.ceil(t.gasto / t.ticket) : 0;
+  const alertas = alertasTrafego(t);
+  const semanas = Array.from({ length: 8 }, (_, i) => { const fim = somaDias(hoje(), -7 * (7 - i)); return { ini: somaDias(fim, -6), fim, rot: dataBR(fim).slice(0, 5) }; });
+  const porSemana = semanas.map(s => ({ rot: s.rot, valores: ['Google Ads', 'Meta Ads'].map(c => S.leads.filter(l => canalLead(l) === c && dia(l.created_at) >= s.ini && dia(l.created_at) <= s.fim).length) }));
+  const ritmo = ritmoVerba();
+  return `
+  ${alertas.length ? `<div class="card larga" style="margin-bottom:14px"><h2>O que fazer agora</h2>${alertas.map(([n, txt]) => `<div class="alerta-linha"><span class="tag t-${n}">${n === 'crit' ? '⚠ Urgente' : n === 'warn' ? '● Atenção' : 'ℹ Dica'}</span> ${txt}</div>`).join('')}</div>` : ''}
+  <div class="kpis">
+    ${kpi('Investido em anúncios', brl0(t.gasto), `${t.gastos.length} lançamento(s)`)}
+    ${kpi('Leads de anúncios', t.leads.length, `custo por lead ${t.leads.length && t.gasto ? brl0(t.gasto / t.leads.length) : '—'}`)}
+    ${kpi('Clientes fechados', t.fechados.length, `conversão ${t.leads.length ? pct(t.fechados.length / t.leads.length) : '—'}`)}
+    ${kpi('Custo por cliente', isFinite(cac) ? brl0(cac) : '—', cacMax ? `máximo: ${brl0(cacMax)}` : 'defina o máximo na Ativação', cacMax && cac > cacMax)}
+    ${kpi('Faturado com anúncios', brl0(t.faturado), 'cálculos dos clientes de anúncio')}
+    ${kpi('Retorno (ROAS)', t.gasto ? (t.faturado / t.gasto).toFixed(1).replace('.', ',') + 'x' : '—', 'faturado ÷ investido', t.gasto && t.faturado < t.gasto)}
+    ${kpi('Ponto de equilíbrio', equilibrio ? `${equilibrio} cálculos` : '—', `para pagar o investimento (ticket ${brl0(t.ticket)})`)}
+  </div>
+  <div class="grade">
+    <div class="card"><h2>Verba do mês</h2><div class="desc">Gasto lançado × verba planejada · a linha marca onde o gasto deveria estar hoje</div>
+      ${ritmo.map(r => `<div style="margin:12px 0"><div class="linha" style="justify-content:space-between"><b>${r.canal}</b><span>${brl0(r.gasto)} de ${r.verba ? brl0(r.verba) : '—'}</span></div>
+        <div class="verba"><div style="width:${Math.min(100, r.pct * 100).toFixed(1)}%;background:${r.gasto > r.esperado * 1.15 ? 'var(--warn)' : 'var(--s1)'}"></div>${r.verba ? `<i style="left:${Math.min(100, r.esperado / r.verba * 100).toFixed(1)}%"></i>` : ''}</div></div>`).join('')}
+      ${ritmo.some(r => r.verba) ? '' : '<div class="desc">Defina a verba no passo 6 da Ativação.</div>'}</div>
+    <div class="card"><h2>Leads de anúncio por semana</h2><div class="desc">Últimas 8 semanas</div>
+      <div class="legenda"><span><i style="background:var(--s1)"></i>Google Ads</span><span><i style="background:var(--s2)"></i>Meta Ads</span></div>
+      ${graficoColunas(porSemana, [{ nome: 'Google Ads', cor: 'var(--s1)' }, { nome: 'Meta Ads', cor: 'var(--s2)' }])}</div>
+    <div class="card larga"><h2>Por campanha</h2><div class="desc">${PERIODOS[S.periodo]} · o gasto entra pela campanha escolhida em "+ Lançar gasto"</div>
+      ${t.campanhas.length ? `<div class="tabela"><table><tr><th>Campanha</th><th>Canal</th><th class="n">Investido</th><th class="n">Leads</th><th class="n">Custo/lead</th><th class="n">Orçados</th><th class="n">Fechados</th><th class="n">Conversão</th><th class="n">Custo/cliente</th><th class="n">Faturado</th><th class="n">Retorno</th></tr>
+      ${t.campanhas.map(c => `<tr><td>${esc(c.k)}</td><td>${esc(c.canal)}</td><td class="n">${c.gasto ? brl0(c.gasto) : '—'}</td><td class="n">${c.leads}</td><td class="n">${c.gasto && c.leads ? brl0(c.gasto / c.leads) : '—'}</td><td class="n">${c.orc}</td><td class="n">${c.fech}</td><td class="n">${c.leads ? pct(c.fech / c.leads) : '—'}</td>
+        <td class="n">${c.gasto && c.fech ? `<span class="${cacMax && c.gasto / c.fech > cacMax ? 'tag t-crit' : ''}">${brl0(c.gasto / c.fech)}</span>` : '—'}</td><td class="n">${brl0(c.fat)}</td><td class="n">${c.gasto ? (c.fat / c.gasto).toFixed(1).replace('.', ',') + 'x' : '—'}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Ainda sem leads ou gastos de anúncios no período</div>'}</div>
+    <div class="card"><h2>Termos que trouxeram leads</h2><div class="desc">Palavra-chave do Google (utm_term) · use para decidir lances e negativas</div>
+      ${t.termos.length ? `<div class="tabela"><table><tr><th>Termo</th><th class="n">Leads</th><th class="n">Fechados</th></tr>${t.termos.map(x => `<tr><td>${esc(x.t)}</td><td class="n">${x.n}</td><td class="n">${x.f}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Aparece quando os leads chegarem com o sufixo do URL do Google</div>'}</div>
+    <div class="card"><h2>Gastos lançados</h2><div class="desc">${PERIODOS[S.periodo]} · clique para editar</div>
+      ${t.gastos.length ? `<div class="tabela"><table><tr><th>Data</th><th>Canal</th><th>Campanha</th><th class="n">Valor</th></tr>${[...t.gastos].sort((a, b) => b.data.localeCompare(a.data)).map(d => `<tr class="clic" data-despesa="${d.id}"><td>${dataBR(d.data)}</td><td>${esc(d.canal)}</td><td>${esc(d.campanha || '—')}</td><td class="n">${brl(d.valor)}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Nenhum gasto lançado</div>'}</div>
+  </div>`;
+}
+
+const lista = (itens, f = x => esc(x)) => `<ul class="kit">${itens.map(i => `<li>${f(i)}</li>`).join('')}</ul>`;
+const contaChars = (txt, max) => `<span class="${txt.length > max ? 'tag t-crit' : 'chars'}">${txt.length}/${max}</span>`;
+function trafegoCampanhas() {
+  return `<div class="demo" style="background:#eef4fc;border-color:var(--s1)"><span>Cada campanha tem as configurações na ordem em que aparecem nas telas do Google/Meta. Use os botões 📋 para copiar e colar. Marque "Criada" quando terminar.</span></div>
+  <div class="grade">${KIT.map(k => `<div class="card larga camp">
+    <div class="linha" style="justify-content:space-between"><h2>${k.canal === 'Google Ads' ? '🔎' : '📱'} ${esc(k.canal)} · ${esc(k.nome)}</h2>
+      <label class="linha"><input type="checkbox" data-feito="camp_${k.id}" ${feito('camp_' + k.id) ? 'checked' : ''}> <b>Criada</b></label></div>
+    <div class="desc">${esc(k.resumo)} · Verba sugerida: <b>${brl0(k.diaria)}/dia</b> (${brl0(k.verbaMes)}/mês) · nome no painel: <code>${k.id}</code> ${btnCopiar(k.id, 'nome')}</div>
+    <h3 class="sub">Configurações</h3>
+    <div class="tabela"><table>${k.config.map(([a, b]) => `<tr><td style="width:170px"><b>${esc(a)}</b></td><td>${esc(b)}</td><td style="width:90px">${/URL|Sufixo|Parâmetros|Mensagem|Nome/.test(a) ? btnCopiar(b) : ''}</td></tr>`).join('')}</table></div>
+    ${k.grupos ? `<h3 class="sub">Grupos de anúncios e palavras-chave <span class="desc">(cole em cada grupo; "aspas" = frase, [colchetes] = exata)</span></h3>
+      <div class="kit-grade">${k.grupos.map(([g, kws]) => { const txt = kws.flatMap(w => [`"${w}"`, `[${w}]`]).join('\n'); return `<div class="kit-bloco"><div class="linha" style="justify-content:space-between"><b>${esc(g)}</b>${btnCopiar(txt)}</div>${lista(kws)}</div>`; }).join('')}</div>` : ''}
+    ${k.negativas ? `<h3 class="sub">Palavras-chave negativas <span class="desc">(nível da campanha · essenciais para não pagar clique de trabalhador e estudante)</span> ${btnCopiar(k.negativas.join('\n'), 'Copiar todas')}</h3><div class="kit-tags">${k.negativas.map(n => `<span class="tag t-neutro">−${esc(n)}</span>`).join(' ')}</div>` : ''}
+    ${k.titulos ? `<h3 class="sub">Títulos (até 30 caracteres) ${btnCopiar(k.titulos.join('\n'), 'Copiar todos')}</h3><div class="kit-grade">${k.titulos.map(x => `<div class="kit-linha"><span>${esc(x)}</span>${contaChars(x, 30)}</div>`).join('')}</div>` : ''}
+    ${k.descricoes ? `<h3 class="sub">Descrições (até 90 caracteres) ${btnCopiar(k.descricoes.join('\n'), 'Copiar todas')}</h3>${k.descricoes.map(x => `<div class="kit-linha"><span>${esc(x)}</span>${contaChars(x, 90)}</div>`).join('')}` : ''}
+    ${k.sitelinks ? `<h3 class="sub">Sitelinks</h3><div class="tabela"><table><tr><th>Texto (25)</th><th>Linha 1 (35)</th><th>Linha 2 (35)</th><th>URL</th><th></th></tr>${k.sitelinks.map(s => `<tr><td>${esc(s[0])}</td><td>${esc(s[1])}</td><td>${esc(s[2])}</td><td><code>${esc(s[3])}</code></td><td>${btnCopiar(s[3], 'URL')}</td></tr>`).join('')}</table></div>` : ''}
+    ${k.destaques ? `<h3 class="sub">Frases de destaque ${btnCopiar(k.destaques.join('\n'), 'Copiar todas')}</h3><div class="kit-tags">${k.destaques.map(d => `<span class="tag t-azul">${esc(d)}</span>`).join(' ')}</div>
+      <p class="desc" style="margin-top:8px">Adicione também o recurso de <b>Ligação</b> e o de <b>WhatsApp/Mensagem</b> com o número (21) 98770-8652.</p>` : ''}
+    ${k.criativos ? `<h3 class="sub">Anúncios</h3><div class="kit-grade">${k.criativos.map(([titulo, arte, texto, manchete]) => `<div class="kit-bloco"><b>${esc(titulo)}</b><div class="desc">${esc(arte)}</div>
+      <div class="kit-texto">${esc(texto)}</div><div class="linha">${btnCopiar(texto, 'Texto principal')} ${btnCopiar(manchete, 'Título')}</div></div>`).join('')}</div>` : ''}
+    ${k.extra ? `<p class="desc" style="margin-top:10px">${esc(k.extra)}</p>` : ''}
+  </div>`).join('')}</div>`;
+}
+
+function urlUtm() {
+  const u = S.utm, params = new URLSearchParams();
+  if (u.source) params.set('utm_source', u.source); if (u.medium) params.set('utm_medium', u.medium);
+  if (u.campaign) params.set('utm_campaign', u.campaign.trim().toLowerCase().replace(/\s+/g, '_'));
+  if (u.content) params.set('utm_content', u.content.trim().toLowerCase().replace(/\s+/g, '_'));
+  return SITE_URL + (params.toString() ? '?' + params : '') + (u.ancora || '');
+}
+function trafegoLinks() {
+  const u = S.utm, url = urlUtm();
+  const prontos = [
+    ['Bio do Instagram', SITE_URL + '?utm_source=instagram&utm_medium=bio&utm_campaign=perfil'],
+    ['Assinatura de e-mail', SITE_URL + '?utm_source=email&utm_medium=assinatura&utm_campaign=assinatura'],
+    ['Google Meu Negócio', SITE_URL + '?utm_source=google&utm_medium=organico&utm_campaign=meu_negocio'],
+    ['Indicação de cliente', SITE_URL + '?utm_source=indicacao&utm_medium=whatsapp&utm_campaign=indicacao'],
+    ['Sufixo do Google Ads (Pesquisa)', UTM_GOOGLE('google_pesquisa_calculo')],
+    ['Parâmetros do Meta Ads', UTM_META]
+  ];
+  return `<div class="grade">
+  <div class="card larga"><h2>Gerador de link</h2><div class="desc">Use em qualquer lugar onde divulgar o site (post, grupo de advogados, e-mail). O lead chega no painel com a origem certa.</div>
+    <div class="form-trafego" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:10px">
+      <div><label class="rotulo">Origem</label><select class="f" style="width:100%" data-utm="source">${['google', 'meta', 'instagram', 'linkedin', 'email', 'whatsapp', 'indicacao', 'outro'].map(o => `<option ${o === u.source ? 'selected' : ''}>${o}</option>`).join('')}</select></div>
+      <div><label class="rotulo">Meio</label><select class="f" style="width:100%" data-utm="medium">${['cpc', 'paid_social', 'bio', 'post', 'story', 'grupo', 'assinatura', 'organico'].map(o => `<option ${o === u.medium ? 'selected' : ''}>${o}</option>`).join('')}</select></div>
+      <div><label class="rotulo">Campanha</label><input class="f" style="width:100%" data-utm="campaign" value="${esc(u.campaign)}" placeholder="ex.: post_erros_liquidacao"></div>
+      <div><label class="rotulo">Conteúdo (opcional)</label><input class="f" style="width:100%" data-utm="content" value="${esc(u.content)}" placeholder="ex.: carrossel_1"></div>
+      <div><label class="rotulo">Página</label><select class="f" style="width:100%" data-utm="ancora">${[['', 'Início'], ['#form', 'Formulário'], ['#precos', 'Preços'], ['#servicos', 'Serviços'], ['#faq', 'Perguntas']].map(([v, r]) => `<option value="${v}" ${v === u.ancora ? 'selected' : ''}>${r}</option>`).join('')}</select></div>
+    </div>
+    <div class="link-gerado"><code id="utmUrl">${esc(url)}</code><button class="btn mini sec" data-acao="copiarUtm">📋 Copiar</button><a class="btn mini sec" id="utmAbrir" href="${esc(url)}" target="_blank">Abrir</a></div></div>
+  <div class="card larga"><h2>Links prontos</h2><div class="tabela"><table>${prontos.map(([r, l]) => `<tr><td style="width:220px"><b>${esc(r)}</b></td><td><code style="word-break:break-all">${esc(l)}</code></td><td style="width:90px">${btnCopiar(l)}</td></tr>`).join('')}</table></div></div>
+  </div>`;
+}
+
+function leadsOfflineGoogle() {
+  return S.leads.filter(l => l.status === 'fechado' && l.gclid && l.gclid !== 'demo' && noPeriodo(l.created_at, somaDias(hoje(), -89))).map(l => {
+    const c = S.calculos.filter(x => x.lead_id === l.id).sort((a, b) => (a.data_entrada || '').localeCompare(b.data_entrada || ''))[0];
+    const quando = c?.data_entrada ? c.data_entrada + ' 12:00:00' : new Date(new Date(l.created_at).getTime() + 36e5).toISOString().slice(0, 19).replace('T', ' ');
+    return { l, quando, valor: valorDoLead(l) || Number(traf().ticket_medio) || 150 };
+  });
+}
+function trafegoOffline() {
+  const g = leadsOfflineGoogle();
+  const nomeConv = traf().conv_offline || 'Cliente fechado';
+  const clis = S.clientes.filter(c => c.whatsapp || c.email);
+  const mes = new Date().toISOString().slice(0, 7);
+  return `<div class="grade">
+  <div class="card larga"><h2>Google Ads · clientes que fecharam</h2>
+    <div class="desc">Ensina o Google a buscar quem paga, não só quem clica. Envie 1 vez por mês (o Google aceita cliques dos últimos 90 dias e ignora repetidos).</div>
+    <ol style="margin-top:8px"><li>No Google Ads: Metas → Conversões → <b>+ Nova ação</b> → <b>Importar</b> → "Outras fontes de dados ou CRMs" → "Rastrear conversões de cliques" → nome <b>${esc(nomeConv)}</b>, categoria <b>Compra</b>. (Só na primeira vez.)</li>
+    <li>Baixe o arquivo abaixo e envie em Ferramentas → <b>Envios</b> → <b>+</b> → selecione o arquivo → Aplicar.</li>
+    <li>Na ação <b>Lead do site</b>, mude "Meta da conta" para secundária depois de ~30 envios, deixando <b>${esc(nomeConv)}</b> como principal.</li></ol>
+    <div class="linha" style="margin:10px 0"><label class="rotulo" style="margin:0">Nome da conversão no Google:</label><input class="f" data-traf-direto="conv_offline" value="${esc(nomeConv)}" style="width:200px">
+      <button class="btn" data-acao="exportGoogle" ${g.length ? '' : 'disabled'}>⬇ Baixar CSV (${g.length})</button>
+      <label class="linha"><input type="checkbox" data-feito="offline_${mes}" ${feito('offline_' + mes) ? 'checked' : ''}> Enviado este mês</label></div>
+    ${g.length ? `<div class="tabela"><table><tr><th>Cliente</th><th>Campanha</th><th>Fechou em</th><th class="n">Valor</th></tr>${g.map(x => `<tr><td>${esc(x.l.nome || '—')}</td><td>${esc(x.l.utm_campaign || '—')}</td><td>${dataBR(x.quando.slice(0, 10))}</td><td class="n">${brl(x.valor)}</td></tr>`).join('')}</table></div>`
+      : '<div class="vazio">Nenhum cliente do Google com gclid nos últimos 90 dias. O gclid chega sozinho quando o "auto-tagging" do Google Ads está ligado (vem ligado por padrão).</div>'}</div>
+  <div class="card larga"><h2>Meta Ads · lista de clientes</h2>
+    <div class="desc">Use para (1) <b>excluir</b> quem já é cliente do remarketing e (2) criar um <b>público semelhante</b> (Lookalike 1%) quando tiver 50+ clientes.</div>
+    <ol style="margin-top:8px"><li>Gerenciador de Anúncios → Públicos → Criar público → <b>Público personalizado</b> → <b>Lista de clientes</b>.</li>
+    <li>Envie o arquivo abaixo (o Meta criptografa os dados antes de usar).</li>
+    <li>Depois: Criar público → <b>Público semelhante</b> → origem "Clientes Pontes Ferreira" → Brasil → 1%.</li></ol>
+    <div class="linha" style="margin-top:10px"><button class="btn" data-acao="exportMeta" ${clis.length ? '' : 'disabled'}>⬇ Baixar lista (${clis.length} clientes)</button></div></div>
+  </div>`;
+}
+
+async function novoGasto(d = null) {
+  const v = await abrirForm(d ? 'Editar gasto' : 'Lançar gasto com anúncios', [
+    { k: 'data', rot: 'Data', tipo: 'date', padrao: hoje(), req: true },
+    { k: 'canal', rot: 'Canal', tipo: 'select', opcoes: CANAIS_ADS, req: true, vazio: false },
+    { k: 'campanha', rot: 'Campanha', tipo: 'select', opcoes: campanhasConhecidas() },
+    { k: 'valor', rot: 'Valor (R$)', tipo: 'number', req: true },
+    { k: 'descricao', rot: 'Descrição', ph: 'ex.: semana 1, total do mês…', full: true }
+  ], d || {});
+  if (!v) return;
+  await seguro(async () => { await criar('despesas', v); toast('Gasto lançado'); render(); });
+}
+async function salvarRast() {
+  const r = { ...rast() };
+  Object.entries(S.rascRast).forEach(([k, v]) => { r[k] = String(v).trim(); });
+  const m = (r.gads_id || '').match(/(AW-\d+)\s*\/\s*([A-Za-z0-9_-]+)/); // colou o send_to inteiro
+  if (m) { r.gads_id = m[1]; r.gads_label = m[2]; }
+  r.ga4_id = (r.ga4_id || '').toUpperCase(); r.gads_id = (r.gads_id || '').toUpperCase(); r.meta_pixel_id = digitos(r.meta_pixel_id);
+  r.valor_lead = Number(String(r.valor_lead || '').replace(',', '.')) || 150;
+  const erros = Object.entries(VALIDA_RAST).filter(([k, [ok]]) => r[k] && !ok(r[k])).map(([k, [, msg]]) => msg);
+  if (erros.length) { S.rascRast = { ...r }; render(); return toast('Confira: ' + erros.join(' · ')); }
+  if (!(r.ga4_id || r.gads_id || r.meta_pixel_id)) r.ativo = false;
+  await seguro(async () => { await ajustesDb.salvar('rastreamento', r); S.ajustes.rastreamento = r; S.rascRast = {}; toast(r.ativo ? 'Códigos salvos · o site já usa os novos códigos' : 'Códigos salvos · agora ligue no passo 3'); render(); });
+}
+async function salvarMetas() {
+  const patch = {};
+  document.querySelectorAll('[data-traf]').forEach(el => { patch[el.dataset.traf] = el.value === '' ? null : Number(el.value); });
+  await seguro(async () => { await salvarTrafego(patch); toast('Metas salvas'); render(); });
+}
+function exportGoogle() {
+  const nome = traf().conv_offline || 'Cliente fechado';
+  const linhas = [['Google Click ID', 'Conversion Name', 'Conversion Time', 'Conversion Value', 'Conversion Currency'], ...leadsOfflineGoogle().map(x => [x.l.gclid, nome, x.quando, x.valor.toFixed(2), 'BRL'])];
+  baixarArquivo(`google-ads-conversoes-${hoje()}.csv`, 'Parameters:TimeZone=-0300\n' + csv(linhas));
+}
+function exportMeta() {
+  const linhas = [['phone', 'email', 'fn', 'ln', 'ct', 'country'], ...S.clientes.filter(c => c.whatsapp || c.email).map(c => {
+    let tel = digitos(c.whatsapp); if (tel && tel.length <= 11) tel = '55' + tel;
+    const partes = (c.nome || '').replace(/^(dra?\.?)\s+/i, '').split(/\s+/);
+    return [tel, (c.email || '').toLowerCase(), partes[0] || '', partes.length > 1 ? partes[partes.length - 1] : '', (c.cidade || '').split('/')[0], 'BR'];
+  })];
+  baixarArquivo(`meta-clientes-${hoje()}.csv`, csv(linhas));
+}
+
 /* ---------------- shell, rotas e eventos ---------------- */
-const ROTAS = { painel: ['Painel', telaPainel], leads: ['Leads · CRM', telaLeads], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro] };
+const ROTAS = { painel: ['Painel', telaPainel], leads: ['Leads · CRM', telaLeads], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro], trafego: ['Tráfego pago', telaTrafego] };
 const rota = () => { const r = location.hash.slice(1); return ROTAS[r] ? r : 'painel'; };
 const CAMPOS_FOCO = ['busca', 'buscaLeads', 'buscaWa', 'waTexto'];
 
@@ -921,7 +1346,7 @@ function render() {
   $('#raiz').innerHTML = `<div class="app"><nav>
     <div class="marca">Pontes Ferreira<span>Cálculos Judiciais</span></div>
     ${Object.entries(ROTAS).map(([k, [rot]]) => `<a href="#${k}" class="${k === r ? 'on' : ''}">${rot}${k === 'leads' ? pill(pendentes) : k === 'whatsapp' ? pill(naoLidas) : k === 'calculos' ? pill(atras) : ''}</a>`).join('')}
-    <div class="rodape">${DEMO ? 'Modo demonstração' : `Conectado<br><button data-acao="sair">Sair</button>`}</div></nav>
+    <div class="rodape">${DEMO ? 'Modo demonstração' : `Conectado<br><button data-acao="trocarSenha">Trocar senha</button> · <button data-acao="sair">Sair</button>`}</div></nav>
     <main class="${r === 'whatsapp' ? 'main-wa' : ''}">${DEMO ? `<div class="demo"><span><b>Modo demonstração:</b> dados de exemplo, salvos só neste navegador. Conecte o Supabase em <code>config.js</code> para usar de verdade.</span><button class="btn mini sec" data-acao="limparDemo">Limpar exemplos</button></div>` : ''}
     ${ROTAS[r][1]()}</main></div>`;
   document.title = `${(naoLidas + pendentes) ? `(${naoLidas + pendentes}) ` : ''}${ROTAS[r][0]} · Pontes Ferreira`;
@@ -930,9 +1355,12 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
+  if (d.copiar !== undefined) return copiarTexto(COPIAS[Number(d.copiar)]);
+  if (d.abaTrafego) { e.preventDefault(); S.abaTrafego = d.abaTrafego; localSet('pf_aba_trafego', d.abaTrafego); if (location.hash !== '#trafego') location.hash = 'trafego'; return render(); }
+  if (d.feito) return;
   if (d.pdf) { e.stopPropagation(); return abrirPdf(d.pdf); }
   if (d.pagar) { e.stopPropagation(); return seguro(async () => { await atualizar('calculos', d.pagar, { pago: true, data_pagamento: hoje() }); toast('Pagamento registrado'); render(); }); }
   if (d.fecharFicha !== undefined) return fecharFicha();
@@ -951,6 +1379,7 @@ document.addEventListener('click', e => {
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
     novaDespesa: () => editarDespesa(null), importarPJC, limparDemo, novaConversa,
+    novoGasto: () => novoGasto(), salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
     waEnviar: waEnviarTexto, waAnexar,
     waModelo: () => seguro(() => waEnviar({ template: CFG.WA_TEMPLATE || 'retomar_contato', idioma: CFG.WA_TEMPLATE_IDIOMA || 'pt_BR' })),
     addAtividade: () => seguro(async () => {
@@ -965,6 +1394,10 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => {
   const id = e.target.id;
+  if (e.target.dataset.feito) { const k = e.target.dataset.feito; return seguro(async () => { await salvarTrafego({ feito: { ...(traf().feito || {}), [k]: e.target.checked } }); render(); }); }
+  if (id === 'rastAtivo') return seguro(async () => { const r = { ...rast(), ativo: e.target.checked }; await ajustesDb.salvar('rastreamento', r); S.ajustes.rastreamento = r; toast(r.ativo ? 'Rastreamento LIGADO no site' : 'Rastreamento desligado'); render(); });
+  if (e.target.dataset.utm && e.target.tagName === 'SELECT') { S.utm[e.target.dataset.utm] = e.target.value; return render(); }
+  if (e.target.dataset.trafDireto) return seguro(() => salvarTrafego({ [e.target.dataset.trafDireto]: e.target.value.trim() || null }));
   if (id === 'periodo') { S.periodo = e.target.value; localSet('pf_periodo', S.periodo); render(); }
   if (id === 'filtroCalc') { S.filtroCalc = e.target.value; render(); }
   if (id === 'fStatus') { S.filtroLeads.status = e.target.value; render(); }
@@ -978,6 +1411,8 @@ document.addEventListener('change', e => {
 });
 document.addEventListener('input', e => {
   const id = e.target.id;
+  if (e.target.dataset.rast) S.rascRast[e.target.dataset.rast] = e.target.value;
+  if (e.target.dataset.utm && e.target.tagName === 'INPUT') { S.utm[e.target.dataset.utm] = e.target.value; const u = urlUtm(); $('#utmUrl').textContent = u; $('#utmAbrir').href = u; }
   if (id === 'busca') { S.busca = e.target.value; render(); }
   if (id === 'buscaLeads') { S.filtroLeads.q = e.target.value; render(); }
   if (id === 'buscaWa') { S.buscaWa = e.target.value; render(); }
@@ -988,7 +1423,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && fichaId) fecharFicha();
 });
 window.addEventListener('hashchange', render);
-setInterval(() => { if (!document.querySelector('.modal-fundo') && !CAMPOS_FOCO.includes(document.activeElement?.id)) render(); }, 60000);
+setInterval(() => { if (!document.querySelector('.modal-fundo') && !CAMPOS_FOCO.includes(document.activeElement?.id) && !document.activeElement?.closest?.('.form-trafego')) render(); }, 60000);
 
 /* ---------------- tempo real: lead novo e mensagens do WhatsApp ---------------- */
 function avisar(titulo, corpo) {
@@ -1036,12 +1471,36 @@ function telaLogin(erro = '') {
     iniciar();
   };
 }
+function trocarSenha(obrigatoria) {
+  if (DEMO) return toast('A troca de senha funciona depois de ligar o Supabase.');
+  const fundo = document.createElement('div'); fundo.className = obrigatoria ? 'login' : 'modal-fundo';
+  fundo.innerHTML = `<form class="${obrigatoria ? '' : 'modal'}" id="formSenha" style="${obrigatoria ? '' : 'max-width:420px'}"><h2>${obrigatoria ? 'Crie sua senha' : 'Trocar senha'}</h2>
+    <p style="color:var(--ink-2);margin:4px 0 8px">${obrigatoria ? 'Primeiro acesso: troque a senha temporária por uma só sua.' : 'Mínimo de 10 caracteres.'}</p>
+    <input type="password" id="senha1" placeholder="Nova senha (mín. 10 caracteres)" required minlength="10" autocomplete="new-password" style="width:100%;margin-bottom:8px">
+    <input type="password" id="senha2" placeholder="Repita a nova senha" required minlength="10" autocomplete="new-password" style="width:100%;margin-bottom:8px">
+    <p id="erroSenha" style="color:var(--crit);font-size:13px"></p>
+    <div class="linha" style="justify-content:flex-end">${obrigatoria ? '' : '<button type="button" class="btn sec" id="cancSenha">Cancelar</button>'}<button class="btn">Salvar senha</button></div></form>`;
+  if (obrigatoria) $('#raiz').replaceChildren(fundo); else document.body.appendChild(fundo);
+  $('#cancSenha')?.addEventListener('click', () => fundo.remove());
+  $('#formSenha').onsubmit = async e => {
+    e.preventDefault();
+    const a = $('#senha1').value, b = $('#senha2').value;
+    if (a.length < 10) return $('#erroSenha').textContent = 'Use pelo menos 10 caracteres.';
+    if (a !== b) return $('#erroSenha').textContent = 'As duas senhas não são iguais.';
+    const { error } = await sb.auth.updateUser({ password: a, data: { senha_definida: true } });
+    if (error) return $('#erroSenha').textContent = /different|same/i.test(error.message) ? 'A nova senha precisa ser diferente da atual.' : 'Não foi possível salvar: ' + error.message;
+    toast('Senha alterada');
+    if (obrigatoria) iniciar(); else fundo.remove();
+  };
+  setTimeout(() => $('#senha1')?.focus(), 30);
+}
 async function iniciar() {
   try {
     if (DEMO) semearDemo();
     else {
       const { data } = await sb.auth.getSession();
       if (!data.session) return telaLogin();
+      if (!data.session.user?.user_metadata?.senha_definida) return trocarSenha(true);
     }
     await carregar();
     render();

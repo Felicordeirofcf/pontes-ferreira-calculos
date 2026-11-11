@@ -12,26 +12,7 @@
 <meta property="og:description" content="Envie o PDF ou só o número do processo. Entrega do .PJC + relatório em até 48h.">
 <meta property="og:locale" content="pt_BR">
 
-<!-- ===== Google Ads / GA4 (troque AW-XXXXXXXXX e G-XXXXXXX) ===== -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXX"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-XXXXXXX');
-  gtag('config', 'AW-XXXXXXXXX');
-</script>
-
-<!-- ===== Meta Pixel (troque 000000000000000) ===== -->
-<script>
-  !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-  n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
-  n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
-  t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
-  document,'script','https://connect.facebook.net/en_US/fbevents.js');
-  fbq('init', '000000000000000');
-  fbq('track', 'PageView');
-</script>
+<!-- Google Analytics, Google Ads e Meta Pixel: configurados no painel (Tráfego pago > Ativação) e carregados no fim da página -->
 
 <style>
   :root{
@@ -265,7 +246,7 @@
 </section>
 
 <!-- SERVIÇOS -->
-<section class="services">
+<section class="services" id="servicos">
   <div class="wrap">
     <div class="eyebrow">Serviços</div>
     <h2>Todos os cálculos da fase de conhecimento à execução</h2>
@@ -281,7 +262,7 @@
 </section>
 
 <!-- COMO FUNCIONA -->
-<section>
+<section id="como-funciona">
   <div class="wrap">
     <div class="eyebrow">Como funciona</div>
     <h2>Quatro passos, sem reunião</h2>
@@ -350,7 +331,7 @@
 </section>
 
 <!-- FAQ -->
-<section style="padding-top:0">
+<section id="faq" style="padding-top:0">
   <div class="wrap">
     <div class="eyebrow">Dúvidas</div>
     <h2>Perguntas frequentes</h2>
@@ -385,7 +366,54 @@
 <script>
   // ===== CONFIGURAÇÃO =====
   const WHATSAPP = '5521987708652';             // número com DDI+DDD, só dígitos
-  const ADS_CONV = 'AW-XXXXXXXXX/YYYYYYYYYYYY';   // rótulo da conversão no Google Ads
+  const CFG = window.PF_CONFIG || {};
+  const SB = (CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY && window.supabase) ? window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY) : null;
+
+  // ===== Rastreamento de anúncios (Google Analytics 4, Google Ads, Meta Pixel) =====
+  // Os IDs vêm do painel (Tráfego pago > Ativação), gravados no Supabase. Sem Supabase, usa PF_CONFIG.RASTREAMENTO.
+  // Nada é carregado enquanto o rastreamento estiver desligado ou sem IDs.
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){ dataLayer.push(arguments); }
+  let RAST = { ativo:false };
+  function carregarScript(src){ const s=document.createElement('script'); s.async=true; s.src=src; document.head.appendChild(s); }
+  function ligarRastreamento(r){
+    RAST = r;
+    if(r.ga4_id || r.gads_id){
+      carregarScript('https://www.googletagmanager.com/gtag/js?id='+encodeURIComponent(r.ga4_id || r.gads_id));
+      gtag('js', new Date());
+      if(r.ga4_id) gtag('config', r.ga4_id);
+      if(r.gads_id) gtag('config', r.gads_id);
+    }
+    if(r.meta_pixel_id){
+      !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+      n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+      n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+      t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+      document,'script','https://connect.facebook.net/en_US/fbevents.js');
+      fbq('init', r.meta_pixel_id);
+      fbq('track', 'PageView');
+    }
+  }
+  const rastreioPronto = (async () => {
+    let r = CFG.RASTREAMENTO || {};
+    if(SB){
+      try{
+        const { data } = await SB.from('ajustes').select('valor').eq('chave','rastreamento').maybeSingle();
+        if(data && data.valor && Object.keys(data.valor).length) r = data.valor;
+      }catch(e){ console.warn('rastreamento', e); }
+    }
+    if(r.ativo) ligarRastreamento(r);
+    // ?pf_teste=1 na URL mostra um quadro com o estado do rastreamento (para conferir depois de ativar)
+    if(new URLSearchParams(location.search).has('pf_teste')){
+      const ok = v => v ? '✅ '+v : '— não configurado';
+      const box = document.createElement('div');
+      box.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:9999;background:#0f1c2e;color:#fff;font:13px/1.5 system-ui;padding:12px 14px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.35);max-width:340px';
+      box.innerHTML = '<b>Teste de rastreamento</b><br>Fonte: '+(SB?'painel (Supabase)':'config.js')+'<br>Status: '+(r.ativo?'🟢 LIGADO':'🔴 desligado')+
+        '<br>GA4: '+ok(r.ga4_id)+'<br>Google Ads: '+ok(r.gads_id)+'<br>Conversão: '+ok(r.gads_label)+'<br>Meta Pixel: '+ok(r.meta_pixel_id)+
+        '<br><small>Clique num botão de WhatsApp: o evento de conversão é disparado.</small>';
+      document.body.appendChild(box);
+    }
+  })();
 
   // guarda UTM/gclid/fbclid da URL para saber de qual campanha veio o lead
   const qs = new URLSearchParams(location.search);
@@ -393,15 +421,20 @@
   const mem = {};
   const guardar = (k,v)=>{ mem[k]=v; try{ sessionStorage.setItem(k,v) }catch(e){} };
   const ler = k=>{ try{ return sessionStorage.getItem(k) || mem[k] }catch(e){ return mem[k] } };
-  ['utm_source','utm_campaign','utm_term','gclid','fbclid'].forEach(k=>{
+  ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','gclid','fbclid'].forEach(k=>{
     if(qs.get(k)) guardar(k, qs.get(k));
   });
   const origemCampanha = () => ler('utm_campaign') || ler('utm_source') || 'organico';
 
-  function conversao(origem, valor){
-    gtag('event','conversion',{send_to:ADS_CONV, value:valor||1, currency:'BRL'});
-    gtag('event','generate_lead',{origem});
-    fbq('track','Lead',{content_name:origem});
+  // valor = valor estimado do lead em R$ (ajustável no painel)
+  function conversao(origem, peso){
+    rastreioPronto.then(() => {
+      if(!RAST.ativo) return;
+      const valor = (Number(RAST.valor_lead) || 150) * (peso || 1);
+      if(RAST.gads_id && RAST.gads_label) gtag('event','conversion',{send_to:RAST.gads_id+'/'+RAST.gads_label, value:valor, currency:'BRL'});
+      if(RAST.ga4_id) gtag('event','generate_lead',{origem, value:valor, currency:'BRL'});
+      if(RAST.meta_pixel_id && window.fbq) fbq('track','Lead',{content_name:origem, value:valor, currency:'BRL'});
+    });
   }
 
   function abrirWhats(texto){
@@ -422,9 +455,7 @@
   // ===== Formulário: PDF ou número do processo =====
   const $ = id => document.getElementById(id);
   const form = $('leadForm'), arquivo = $('arquivo'), numero = $('numero'), drop = $('drop');
-  // Com Supabase configurado (config.js) o pedido vai direto para o painel; senão usa Netlify Forms
-  const CFG = window.PF_CONFIG || {};
-  const SB = (CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY && window.supabase) ? window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY) : null;
+  // Com Supabase configurado (config.js) o pedido vai direto para o painel; senão cai no WhatsApp
   const LIMITE_UPLOAD_MB = SB ? 50 : 8; // acima disso o PDF vai pelo WhatsApp
   let modo = 'pdf';
 
@@ -514,6 +545,7 @@
           nome: $('nome').value.trim(), whatsapp: $('tel').value.trim(), tipo: $('tipo').value, prazo: $('prazo').value,
           modo, numero_processo: modo==='numero' ? numero.value : null, arquivo_path,
           origem: origemCampanha(), utm_source: ler('utm_source')||null, utm_campaign: ler('utm_campaign')||null,
+          utm_medium: ler('utm_medium')||null, utm_content: ler('utm_content')||null, utm_term: ler('utm_term')||null,
           gclid: ler('gclid')||null, fbclid: ler('fbclid')||null
         });
         if(ins.error) throw ins.error;

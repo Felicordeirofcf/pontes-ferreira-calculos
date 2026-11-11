@@ -41,7 +41,18 @@ async function guardarMidia(mediaId: string, waId: string, nome: string) {
   return path;
 }
 
-async function conversaDe(waId: string, nomePerfil: string) {
+// anúncio de clique para WhatsApp (Meta) manda "referral" na primeira mensagem
+function origemAnuncio(ref: any) {
+  if (!ref) return { origem: 'WhatsApp direto' };
+  return {
+    origem: 'Meta Ads', utm_source: 'meta', utm_medium: 'ctwa',
+    // mesmo nome da campanha no painel (Tráfego pago > Campanhas prontas); o anúncio vai em utm_content
+    utm_campaign: 'meta_topo_reels',
+    utm_content: (ref.headline || ref.source_id || '').toString().slice(0, 120) || null, fbclid: ref.ctwa_clid || null
+  };
+}
+
+async function conversaDe(waId: string, nomePerfil: string, referral?: any) {
   const { data: existente } = await db.from('wa_conversas').select('*').eq('wa_id', waId).maybeSingle();
   if (existente) return existente;
 
@@ -52,7 +63,7 @@ async function conversaDe(waId: string, nomePerfil: string) {
   const { data: leads } = await db.from('leads').select('id,whatsapp,status,created_at').order('created_at', { ascending: false }).limit(2000);
   let lead = (leads || []).find(l => ultimos9(l.whatsapp) === fim);
   if (!lead && !cliente) {
-    const { data } = await db.from('leads').insert({ nome: nomePerfil || waId, whatsapp: waId, modo: 'whatsapp', origem: 'WhatsApp direto', status: 'novo' }).select().single();
+    const { data } = await db.from('leads').insert({ nome: nomePerfil || waId, whatsapp: waId, modo: 'whatsapp', status: 'novo', ...origemAnuncio(referral) }).select().single();
     lead = data;
   }
   const { data: nova, error } = await db.from('wa_conversas').insert({
@@ -65,7 +76,7 @@ async function conversaDe(waId: string, nomePerfil: string) {
 async function processarMensagem(m: any, contatos: any[]) {
   const waId = digitos(m.from);
   const nome = contatos?.find((c: any) => digitos(c.wa_id) === waId)?.profile?.name || '';
-  const conv = await conversaDe(waId, nome);
+  const conv = await conversaDe(waId, nome, m.referral);
 
   let tipo = 'outro', texto = '', arquivo_path: string | null = null, arquivo_nome: string | null = null;
   try {

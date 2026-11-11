@@ -3,6 +3,7 @@
 | Parte | Custo | Tempo |
 |---|---|---|
 | 1–4. Banco, login, site e painel | grátis | ~30 min |
+| 4.2 Tráfego pago (Google e Meta) | só a verba dos anúncios | ~1 h |
 | 5. WhatsApp dentro do painel | grátis para responder clientes* | ~1 h + aprovação da Meta (1 a 3 dias) |
 
 \* Responder em até 24h depois da última mensagem do cliente não tem custo. Só os **modelos** enviados para retomar conversas paradas são cobrados pela Meta (centavos por mensagem).
@@ -24,10 +25,15 @@ Hoje o painel roda em **modo demonstração**, com dados de exemplo salvos só n
 ## 3. Ligar site e painel ao banco
 Em **Project Settings > API**, copie a **Project URL** e a chave **anon public** e cole em `site/config.js`.
 
-## 4. Publicar (Netlify)
-1. Em **netlify.com**, vá em **Add new site > Deploy manually** e arraste a **pasta `site`**.
-2. O site fica em `https://seu-site.netlify.app/` e o painel em `/painel/`.
-3. Em **Domain settings**, ligue o seu domínio.
+## 4. Publicação (Vercel) ✅ já feito
+O site está na Vercel, ligado ao GitHub (pasta `site`), no domínio **pontesferreiracalculos.com**. Cada alteração enviada ao GitHub publica sozinha. Painel: **pontesferreiracalculos.com/painel/**.
+
+## 4.1 Primeiro login
+Entre com **adm@pontesferreiracalculos.com** e a senha temporária criada no passo 2. O painel pede para trocar a senha na hora. Depois, use **Trocar senha** no rodapé do menu sempre que quiser.
+
+## 4.2 Tráfego pago
+Painel > **Tráfego pago** > **1. Ativação**: siga os 8 passos (contas, códigos, ligar no site, testar, metas e campanhas). As campanhas prontas para copiar ficam na aba **3**.
+> Se você rodou o `schema.sql` antes desta área existir, rode o arquivo de novo (é seguro rodar mais de uma vez) para criar a tabela `ajustes`.
 
 ---
 
@@ -72,7 +78,7 @@ Em **WhatsApp Manager > Modelos de mensagem > Criar modelo**:
 A aprovação costuma sair em minutos ou em até 24h.
 
 ### 5.5 Ativar no painel
-Em `site/config.js`, mude `WA_ATIVO: false` para `WA_ATIVO: true` e publique de novo no Netlify.
+Em `site/config.js`, mude `WA_ATIVO: false` para `WA_ATIVO: true` e envie ao GitHub (a Vercel publica sozinha).
 
 ---
 

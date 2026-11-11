@@ -12,5 +12,16 @@ window.PF_CONFIG = {
   WA_ATIVO: false,
   // Modelo aprovado na Meta para retomar conversa depois de 24h sem resposta do cliente
   WA_TEMPLATE: 'retomar_contato',
-  WA_TEMPLATE_IDIOMA: 'pt_BR'
+  WA_TEMPLATE_IDIOMA: 'pt_BR',
+
+  // Rastreamento de anúncios. Com o Supabase ligado, isto é configurado no painel (Tráfego pago > Ativação)
+  // e o que estiver aqui é ignorado. Sem Supabase, preencha aqui e mude ativo para true.
+  RASTREAMENTO: {
+    ativo: false,
+    ga4_id: '',          // G-XXXXXXXXXX
+    gads_id: '',         // AW-1234567890
+    gads_label: '',      // rótulo da conversão "Lead", ex.: AbCdEfGhIjKlMnOp
+    meta_pixel_id: '',   // 15 a 16 dígitos
+    valor_lead: 150      // valor estimado de cada lead, em R$
+  }
 };

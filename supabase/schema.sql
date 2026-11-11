@@ -180,3 +180,26 @@ create policy dono_wa_mensagens on wa_mensagens for all to authenticated using (
 do $$ begin alter publication supabase_realtime add table leads;        exception when duplicate_object then null; end $$;
 do $$ begin alter publication supabase_realtime add table wa_conversas; exception when duplicate_object then null; end $$;
 do $$ begin alter publication supabase_realtime add table wa_mensagens; exception when duplicate_object then null; end $$;
+
+-- ---------------- Tráfego pago ----------------
+-- Origem detalhada do lead e gasto por campanha
+alter table leads    add column if not exists utm_medium text;
+alter table leads    add column if not exists utm_content text;
+alter table leads    add column if not exists utm_term text;
+alter table despesas add column if not exists campanha text;
+
+-- Ajustes do painel. "rastreamento" é público (o site lê os IDs do Google/Meta);
+-- "trafego" (verba, metas, checklist) só o dono vê.
+create table if not exists ajustes (
+  chave text primary key,
+  valor jsonb not null default '{}'::jsonb,
+  publico boolean not null default false,
+  updated_at timestamptz not null default now()
+);
+insert into ajustes (chave, publico) values ('rastreamento', true), ('trafego', false) on conflict do nothing;
+
+alter table ajustes enable row level security;
+drop policy if exists site_le_ajustes on ajustes;
+drop policy if exists dono_ajustes on ajustes;
+create policy site_le_ajustes on ajustes for select to anon using (publico);
+create policy dono_ajustes    on ajustes for all to authenticated using (is_dono()) with check (is_dono());

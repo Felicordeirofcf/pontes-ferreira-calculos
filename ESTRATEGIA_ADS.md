@@ -138,21 +138,18 @@ O anúncio só traz o lead; quem fecha é a resposta. Regras:
 
 ---
 
-## 7. Rastreamento (já preparado no `index.html`)
+## 7. Rastreamento (configurado pelo painel)
 
-Substitua no código:
-- `G-XXXXXXX` → ID do Google Analytics 4
-- `AW-XXXXXXXXX` e `ADS_CONV` → ID e rótulo da conversão do Google Ads
-- `000000000000000` → ID do Meta Pixel
-- `WHATSAPP` → seu número com 55 + DDD
+Tudo fica em **Painel > Tráfego pago > 1. Ativação**: cole os IDs do GA4, do Google Ads (ID + rótulo da conversão) e do Meta Pixel, e ligue a chave. O site lê os códigos do banco e começa a medir na hora, sem mexer no código.
 
-Eventos disparados: `conversion` (Google Ads), `generate_lead` (GA4), `Lead` (Meta) em todo clique de WhatsApp e envio do formulário. Lead com prazo "até 48h" recebe valor 2 (lead mais quente).
+Eventos disparados: `conversion` (Google Ads), `generate_lead` (GA4), `Lead` (Meta) em todo clique de WhatsApp e envio do formulário. Lead com prazo "até 48h" vale o dobro (lead mais quente).
 
-**UTMs nos anúncios:**
-- Google: deixe o auto-tagging (gclid) ligado.
-- Meta: `?utm_source=meta&utm_campaign={{campaign.name}}&utm_content={{ad.name}}`
+**UTMs nos anúncios** (prontos para copiar em *Tráfego pago > Campanhas prontas*):
+- Google: auto-tagging (gclid) ligado + sufixo do URL final com `utm_campaign` e `utm_term={keyword}`.
+- Meta: `utm_source=meta&utm_medium=paid_social&utm_campaign={{campaign.name}}&utm_content={{ad.name}}&utm_term={{adset.name}}`.
+- Clique para WhatsApp (Meta): o lead é criado sozinho pelo webhook com origem Meta Ads.
 
----
+Conferência: abra o site com `?pf_teste=1` para ver o que está ligado.
 
 ## 8. Ativos que aumentam conversão (fazer em paralelo)
 
