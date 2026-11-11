@@ -11,16 +11,17 @@ const sb = DEMO ? null : window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPA
 const TIPOS = ['Liquidação de sentença', 'Impugnação aos cálculos (reclamante/perito)', 'Cálculo para petição inicial', 'Atualização de cálculo', 'Parecer técnico / assistente', 'Extração de fichas e ponto'];
 const STATUS_CALC = { recebido: 'Recebido', andamento: 'Em andamento', revisao: 'Em revisão', entregue: 'Entregue' };
 const STATUS_LEAD = { novo: 'Novo', orcamento: 'Orçamento enviado', fechado: 'Fechado', perdido: 'Perdido' };
-const CANAIS = ['Google Ads', 'Meta Ads', 'Site orgânico', 'Indicação', 'WhatsApp direto', 'Instagram orgânico', 'Outros'];
+const CANAIS = ['Google Ads', 'Meta Ads', 'Prospecção', 'Site orgânico', 'Indicação', 'WhatsApp direto', 'Instagram orgânico', 'Outros'];
 const CANAIS_DESPESA = ['Google Ads', 'Meta Ads', 'Outros anúncios', 'Software', 'Outros'];
 const CANAIS_ADS = ['Google Ads', 'Meta Ads', 'Outros anúncios'];
 const PERIODOS = { mes: 'Este mês', '30': 'Últimos 30 dias', '90': 'Últimos 90 dias', ano: 'Este ano', tudo: 'Tudo' };
 const MIN_RESPOSTA = 15; // minutos para responder um lead novo
 const WA_PAINEL = () => DEMO || !!(window.PF_CONFIG || {}).WA_ATIVO; // false = atendimento manual pelo app do celular
 
-const TABELAS = ['leads', 'calculos', 'clientes', 'despesas', 'atividades', 'wa_conversas'];
+const TABELAS = ['leads', 'calculos', 'clientes', 'despesas', 'atividades', 'wa_conversas', 'prospects'];
 const S = {
-  leads: [], calculos: [], clientes: [], despesas: [], atividades: [], wa_conversas: [], wa_mensagens: {},
+  leads: [], calculos: [], clientes: [], despesas: [], atividades: [], wa_conversas: [], prospects: [], wa_mensagens: {},
+  filtroProsp: { status: '', q: '' }, buscaProsp: { termo: 'advogado trabalhista', cidade: '' },
   periodo: localGet('pf_periodo') || 'mes', filtroCalc: 'abertos', busca: '',
   vistaLeads: localGet('pf_vista') || 'funil', filtroLeads: { status: '', canal: '', temp: '', q: '' },
   conversa: null, buscaWa: '',
@@ -80,6 +81,7 @@ const noPeriodo = (data, ini = inicioPeriodo()) => !!data && dia(data) >= ini;
 function canalLead(l) {
   const o = (l.origem || '').toLowerCase(), u = (l.utm_source || '').toLowerCase();
   if (CANAIS.includes(l.origem)) return l.origem;
+  if (/prospec/.test(u)) return 'Prospecção';
   const med = (l.utm_medium || '').toLowerCase();
   if (!l.gclid && !l.fbclid && /organico|bio|post|story|grupo|assinatura/.test(med)) return /instagram|\big\b/.test(u) ? 'Instagram orgânico' : /indicacao/.test(u) ? 'Indicação' : 'Site orgânico';
   if (l.gclid || /google|gads|adwords/.test(u + ' ' + o)) return 'Google Ads';
@@ -145,7 +147,7 @@ async function carregar() {
 
 /* ---------------- dados de demonstração ---------------- */
 function semearDemo() {
-  if (localGet('pf_semeado') === '3') return;
+  if (localGet('pf_semeado') === '4') return;
   let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const pick = a => a[Math.floor(rnd() * a.length)];
   const nomes = ['Dra. Ana Lima', 'Dr. Bruno Teixeira', 'Dra. Carla Mendes', 'Dr. Diego Rocha', 'Dra. Elisa Prado', 'Dr. Fábio Nunes', 'Dra. Gabriela Reis', 'Dr. Henrique Alves', 'Dra. Isabela Costa', 'Dr. João Pires', 'Dra. Karen Souza', 'Dr. Lucas Barros'];
@@ -226,8 +228,18 @@ function semearDemo() {
   });
   const ord = a => a.sort((x, y) => y.created_at.localeCompare(x.created_at));
   L.set('leads', ord(leads)); L.set('calculos', ord(calculos)); L.set('clientes', ord(clientes)); L.set('despesas', ord(despesas));
+  const prospects = [
+    ['Dra. Juliana Martins', 'Martins Advocacia Trabalhista', 'Niterói/RJ', 'Google Maps'], ['Souza & Lima Advogados Associados', 'Souza & Lima', 'Rio de Janeiro/RJ', 'Google Maps'],
+    ['Dr. Rafael Teixeira', 'Teixeira Advocacia', 'Duque de Caxias/RJ', 'Instagram'], ['Dra. Camila Rocha', 'Rocha & Prado Advogados', 'São Gonçalo/RJ', 'LinkedIn'],
+    ['Dr. Marcelo Alves', 'Alves Advocacia', 'Nova Iguaçu/RJ', 'Google Maps'], ['Dra. Patrícia Nogueira', 'Nogueira Advogados', 'Petrópolis/RJ', 'Site do escritório'],
+    ['Dr. André Barbosa', 'Barbosa & Filhos', 'Rio de Janeiro/RJ', 'Indicação'], ['Dra. Fernanda Lopes', 'Lopes Advocacia', 'Niterói/RJ', 'Instagram']
+  ].map(([nome, escritorio, cidade, fonte], i) => ({ id: uid(), created_at: new Date(agora.getTime() - (10 - i) * 864e5).toISOString(), nome, escritorio, cidade, fonte, area: 'Trabalhista',
+    whatsapp: '2190000' + String(1000 + i), email: `contato${i}@exemplo.com.br`, site: i % 2 ? '' : 'exemplo.com.br', instagram: i % 3 ? '' : '@exemplo',
+    status: ['a_contatar', 'a_contatar', 'a_contatar', 'contatado', 'contatado', 'respondeu', 'cliente', 'sem_interesse'][i], tentativas: [0, 0, 0, 1, 2, 1, 1, 1][i],
+    ultimo_contato: i >= 3 ? new Date(agora.getTime() - (i - 2) * 864e5).toISOString() : null, proximo_contato: i === 3 || i === 4 ? somaDias(hoje(), -1) : null }));
+  L.set('prospects', ord(prospects));
   L.set('atividades', ord(atividades)); L.set('wa_conversas', ord(wa_conversas)); L.set('wa_mensagens', wa_mensagens);
-  localSet('pf_semeado', '3');
+  localSet('pf_semeado', '4');
 }
 function limparDemo() {
   if (!confirm('Apagar todos os dados de exemplo deste navegador?')) return;
@@ -1002,6 +1014,242 @@ function telaFinanceiro() {
   </div>`;
 }
 
+/* ---------------- Prospecção (abordagem 1 a 1) ---------------- */
+const STATUS_PROSP = { a_contatar: 'A contatar', contatado: 'Contatado', respondeu: 'Respondeu', interessado: 'Interessado', cliente: 'Virou cliente', sem_interesse: 'Sem interesse', nao_contatar: 'Não contatar' };
+const TAG_PROSP = { a_contatar: 't-neutro', contatado: 't-azul', respondeu: 't-warn', interessado: 't-warn', cliente: 't-good', sem_interesse: 't-neutro', nao_contatar: 't-crit' };
+const FONTES_PROSP = ['Google Maps', 'Instagram', 'LinkedIn', 'Site do escritório', 'Jusbrasil', 'Indicação', 'Evento / OAB', 'Outros'];
+const PROSP_PADRAO = {
+  meta_dia: 20, dias_follow1: 3, dias_follow2: 7, max_tentativas: 3, remetente: '',
+  textos: {
+    primeiro: 'Olá{, nome}! Tudo bem? {eu}da *Pontes Ferreira Cálculos Judiciais*.\n\nFazemos cálculos trabalhistas no PJe-Calc para escritórios: liquidação, impugnação e cálculo da inicial, a partir de R$ 150, com entrega em até 48h (arquivo .PJC + relatório em PDF + resumo do que foi deferido).\n\nNossa apresentação: {link}\n\nPosso fazer o orçamento do seu próximo cálculo? Se preferir não receber mensagens, é só me avisar. 🙂',
+    follow1: 'Olá{, nome}! Passando para saber se conseguiu ver nossa apresentação. Se tiver algum cálculo com prazo correndo, é só enviar o PDF ou o número do processo que faço o orçamento hoje mesmo: {link}',
+    follow2: 'Olá{, nome}! Último contato por aqui, prometo 🙂 Deixo nosso link para quando precisar de cálculo trabalhista: {link}\nObrigado pela atenção!',
+    email_assunto: 'Cálculos trabalhistas no PJe-Calc para o seu escritório'
+  }
+};
+const cfgProsp = () => { const a = S.ajustes.prospeccao || {}; return { ...PROSP_PADRAO, ...a, textos: { ...PROSP_PADRAO.textos, ...(a.textos || {}) } }; };
+const linkPortfolio = p => `https://pontesferreiracalculos.com/portfolio.html?r=${String(p?.id || '').slice(0, 8)}${p && !p.whatsapp && p.email ? '&m=e' : ''}`; // a página converte r/m em utm_* (origem Prospecção)
+const primeiroNome = n => { const partes = String(n || '').trim().split(/\s+/).filter(x => !/^(dra?\.?|adv\.?|escrit[oó]rio)$/i.test(x)); return partes[0] || ''; };
+const pessoaOuEscritorio = p => /advoga|associad|escrit|sociedade|&|ltda|s\/s/i.test(p.nome || '') ? '' : primeiroNome(p.nome);
+const etapaProsp = p => (p.tentativas || 0) === 0 ? 'primeiro' : p.tentativas === 1 ? 'follow1' : 'follow2';
+function textoProsp(p, etapa = etapaProsp(p)) {
+  const c = cfgProsp(), nome = pessoaOuEscritorio(p);
+  return String(c.textos[etapa] || '').replace(/\{,\s*nome\}/g, nome ? `, ${nome}` : '').replace(/\{nome\}/g, nome)
+    .replace(/\{eu\}/g, c.remetente ? `Aqui é ${c.remetente}, ` : 'Aqui é ').replace(/\{escritorio\}/g, p.escritorio || 'seu escritório').replace(/\{link\}/g, linkPortfolio(p));
+}
+const contatavel = p => !['cliente', 'sem_interesse', 'nao_contatar', 'respondeu', 'interessado'].includes(p.status) && (p.whatsapp || p.email);
+function filaProsp() {
+  const c = cfgProsp(), h = hoje();
+  const followups = S.prospects.filter(p => contatavel(p) && p.status === 'contatado' && (p.tentativas || 0) < c.max_tentativas && p.proximo_contato && p.proximo_contato <= h)
+    .sort((a, b) => a.proximo_contato.localeCompare(b.proximo_contato));
+  const novos = S.prospects.filter(p => contatavel(p) && p.status === 'a_contatar' && !(p.tentativas > 0)).sort((a, b) => a.created_at.localeCompare(b.created_at));
+  return [...followups, ...novos];
+}
+const contatadosHoje = () => S.prospects.filter(p => p.ultimo_contato && dia(p.ultimo_contato) === hoje()).length;
+const linkExt = (url, rot) => url ? `<a class="btn mini sec" href="${esc(/^https?:/.test(url) ? url : 'https://' + url)}" target="_blank" rel="noopener">${rot}</a>` : '';
+const linkInsta = h => h ? (/^https?:/.test(h) ? h : `https://instagram.com/${h.replace(/^@/, '')}`) : '';
+
+function telaProspeccao() {
+  const c = cfgProsp(), fila = filaProsp(), feitosHoje = contatadosHoje();
+  const f = S.filtroProsp, q = (f.q || '').toLowerCase();
+  const lista = S.prospects.filter(p => (!f.status || p.status === f.status) && (!q || [p.nome, p.escritorio, p.cidade, p.email, p.whatsapp, p.obs].join(' ').toLowerCase().includes(q)))
+    .sort((a, b) => (b.ultimo_contato || b.created_at).localeCompare(a.ultimo_contato || a.created_at));
+  const cont = k => S.prospects.filter(p => p.status === k).length;
+  const respostas = S.prospects.filter(p => ['respondeu', 'interessado', 'cliente'].includes(p.status)).length;
+  const abordados = S.prospects.filter(p => p.tentativas > 0).length;
+  const cidade = S.buscaProsp.cidade, termo = S.buscaProsp.termo;
+  const busca = (url, rot) => `<a class="btn mini sec" target="_blank" rel="noopener" href="${esc(url)}">${rot}</a>`;
+  const qBusca = encodeURIComponent(`${termo} ${cidade}`.trim());
+  return `<div class="topo"><h1>Prospecção</h1><div class="acoes">
+    <button class="btn sec" data-acao="configProsp">⚙ Mensagens</button><button class="btn sec" data-acao="colarProsp">📋 Colar lista</button>
+    <button class="btn sec" data-acao="exportProsp">⬇ Exportar</button><button class="btn sec" data-acao="novoProsp">+ Contato</button>
+    <button class="btn" data-acao="proximoProsp" ${fila.length ? '' : 'disabled'}>▶ Próximo da fila (${fila.length})</button></div></div>
+  ${feitosHoje >= c.meta_dia ? `<div class="demo"><span>✅ Meta do dia batida: <b>${feitosHoje}</b> abordagens. Passar de ~30 por dia no mesmo número aumenta o risco de o WhatsApp bloquear por spam.</span></div>` : ''}
+  <div class="kpis">
+    ${kpi('Na lista', S.prospects.length, `${cont('a_contatar')} a contatar`)}
+    ${kpi('Abordados hoje', `${feitosHoje}/${c.meta_dia}`, 'meta diária', false)}
+    ${kpi('Na fila agora', fila.length, `${fila.filter(p => p.tentativas > 0).length} follow-ups vencidos`)}
+    ${kpi('Responderam', respostas, `taxa ${abordados ? pct(respostas / abordados) : '—'} dos abordados`)}
+    ${kpi('Viraram clientes', cont('cliente'), `${cont('interessado')} interessados`)}
+  </div>
+  <div class="grade">
+    <div class="card larga"><h2>Encontrar advogados e escritórios</h2><div class="desc">Pesquise, abra os resultados e adicione com <b>+ Contato</b>, ou junte vários numa planilha e use <b>📋 Colar lista</b>. Use só contatos profissionais públicos (site, Google Maps, perfil comercial).</div>
+      <div class="form-trafego linha" style="margin-top:10px">
+        <input class="f" data-busca-prosp="termo" value="${esc(termo)}" placeholder="advogado trabalhista" style="flex:1;min-width:180px">
+        <input class="f" data-busca-prosp="cidade" value="${esc(cidade)}" placeholder="cidade (ex.: Niterói)" style="flex:1;min-width:160px"></div>
+      <div class="linha" style="margin-top:10px">
+        ${busca(`https://www.google.com/maps/search/${qBusca}`, '📍 Google Maps')}
+        ${busca(`https://www.google.com/search?q=${qBusca}+whatsapp`, '🔎 Google')}
+        ${busca(`https://www.google.com/search?q=site%3Ainstagram.com+${qBusca}`, '📸 Instagram')}
+        ${busca(`https://www.google.com/search?q=site%3Alinkedin.com%2Fin+${qBusca}`, '💼 LinkedIn')}
+        ${busca(`https://www.google.com/search?q=site%3Ajusbrasil.com.br+${qBusca}`, '⚖ Jusbrasil')}
+        ${busca('https://cna.oab.org.br/', '🪪 Conferir OAB (CNA)')}
+        ${busca(linkPortfolio({ id: 'previa' }), '👁 Ver portfólio')}</div></div>
+    <div class="card larga"><div class="linha" style="justify-content:space-between"><h2>Lista</h2>
+      <div class="linha"><input class="f" id="buscaProsp" placeholder="Buscar…" value="${esc(f.q || '')}">
+      <select class="f" id="fProsp"><option value="">Todos os status</option>${Object.entries(STATUS_PROSP).map(([k, v]) => `<option value="${k}" ${k === f.status ? 'selected' : ''}>${v} (${cont(k)})</option>`).join('')}</select></div></div>
+      ${lista.length ? `<div class="tabela"><table><tr><th>Contato</th><th>Cidade</th><th>Links</th><th>Status</th><th>Último contato</th><th>Retorno</th><th></th></tr>
+      ${lista.map(p => `<tr><td><b class="link" data-prosp="${p.id}">${esc(p.nome)}</b>${p.escritorio && p.escritorio !== p.nome ? `<div class="desc" style="margin:0">${esc(p.escritorio)}</div>` : ''}</td>
+        <td>${esc(p.cidade || '—')}</td>
+        <td style="white-space:nowrap">${linkExt(p.site, '🌐')}${linkExt(linkInsta(p.instagram), '📸')}${linkExt(p.linkedin, '💼')}${linkExt(p.maps, '📍')}</td>
+        <td><span class="tag ${TAG_PROSP[p.status] || 't-neutro'}">${STATUS_PROSP[p.status] || p.status}</span>${p.tentativas ? ` <span class="desc">${p.tentativas}×</span>` : ''}</td>
+        <td>${p.ultimo_contato ? dataBR(p.ultimo_contato) : '—'}</td>
+        <td>${p.proximo_contato && contatavel(p) ? `<span class="${p.proximo_contato <= hoje() ? 'tag t-warn' : ''}">${dataBR(p.proximo_contato)}</span>` : '—'}</td>
+        <td style="white-space:nowrap">${contatavel(p) ? `<button class="btn mini ouro" data-abordar="${p.id}">📲 Abordar</button>` : ''}</td></tr>`).join('')}</table></div>`
+      : `<div class="vazio">${S.prospects.length ? 'Nada com esse filtro' : 'Lista vazia. Comece pesquisando acima e adicionando contatos.'}</div>`}</div>
+  </div>`;
+}
+
+/* cartão de abordagem: um contato por vez */
+let abordagemId = null;
+function abrirAbordagem(id) {
+  abordagemId = id;
+  const p = S.prospects.find(x => x.id === id); if (!p) return;
+  const etapa = etapaProsp(p), rotEtapa = { primeiro: '1º contato', follow1: '2º contato (lembrete)', follow2: '3º contato (último)' }[etapa];
+  let f = $('#abordagem');
+  if (!f) { f = document.createElement('div'); f.className = 'modal-fundo'; f.id = 'abordagem'; document.body.appendChild(f); f.addEventListener('click', e => { if (e.target === f) fecharAbordagem(); }); }
+  const fila = filaProsp(), pos = fila.findIndex(x => x.id === id);
+  f.innerHTML = `<div class="modal" style="width:min(620px,100%)">
+    <div class="linha" style="justify-content:space-between"><h2 style="margin:0">📲 ${esc(p.nome)}</h2><span class="desc">${pos >= 0 ? `${pos + 1} de ${fila.length} na fila · ` : ''}hoje: ${contatadosHoje()}/${cfgProsp().meta_dia}</span></div>
+    <div class="desc">${[p.escritorio !== p.nome ? p.escritorio : '', p.cidade, p.area, p.oab ? 'OAB ' + p.oab : '', p.fonte ? 'fonte: ' + p.fonte : ''].filter(Boolean).map(esc).join(' · ')}</div>
+    <div class="linha" style="margin:8px 0">${linkExt(p.site, '🌐 Site')}${linkExt(linkInsta(p.instagram), '📸 Instagram')}${linkExt(p.linkedin, '💼 LinkedIn')}${linkExt(p.maps, '📍 Maps')}
+      <span class="tag t-azul">${rotEtapa}</span>${p.ultimo_contato ? `<span class="desc">último: ${dataBR(p.ultimo_contato)}</span>` : ''}</div>
+    ${p.obs ? `<div class="obs">${esc(p.obs)}</div>` : ''}
+    <label class="rotulo" style="margin-top:8px">Mensagem (pode editar antes de enviar)</label>
+    <textarea id="abTexto" rows="9" style="width:100%;border:1px solid var(--axis);border-radius:8px;padding:10px;font:inherit">${esc(textoProsp(p, etapa))}</textarea>
+    <div class="linha" style="margin-top:10px">
+      ${p.whatsapp ? `<button class="btn ouro" data-ab="wa">📲 Enviar no WhatsApp</button>` : ''}
+      ${p.email ? `<button class="btn sec" data-ab="email">✉ Enviar por e-mail</button>` : ''}
+      <button class="btn sec" data-ab="pular">Pular ⏭</button></div>
+    <div class="linha" style="margin-top:10px;border-top:1px solid var(--grid);padding-top:10px">
+      <span class="desc">Já teve retorno?</span>
+      <button class="btn mini sec" data-ab="respondeu">💬 Respondeu</button><button class="btn mini sec" data-ab="interessado">⭐ Interessado</button>
+      <button class="btn mini sec" data-ab="lead">→ Virar lead</button><button class="btn mini sec" data-ab="sem_interesse">Sem interesse</button>
+      <button class="btn mini perigo" data-ab="nao_contatar">🚫 Não contatar</button>
+      <button class="btn mini sec" data-ab="editar" style="margin-left:auto">✏ Editar</button><button class="btn mini sec" data-ab="fechar">Fechar</button></div></div>`;
+  f.querySelectorAll('[data-ab]').forEach(b => b.addEventListener('click', () => acaoAbordagem(b.dataset.ab)));
+}
+function fecharAbordagem() { abordagemId = null; $('#abordagem')?.remove(); render(); }
+function proximoDaFila(depoisDe) {
+  const fila = filaProsp().filter(p => p.id !== depoisDe);
+  if (!fila.length) { fecharAbordagem(); return toast('Fila vazia 🎉 Adicione mais contatos.'); }
+  if (contatadosHoje() >= cfgProsp().meta_dia) toast(`Meta do dia batida (${contatadosHoje()}). Pode continuar, mas com moderação.`);
+  abrirAbordagem(fila[0].id);
+}
+async function acaoAbordagem(a) {
+  const p = S.prospects.find(x => x.id === abordagemId); if (!p) return;
+  const c = cfgProsp(), txt = ($('#abTexto')?.value || '').trim(), agora = new Date().toISOString();
+  await seguro(async () => {
+    if (a === 'wa' || a === 'email') {
+      if (a === 'wa') window.open(waLink(p.whatsapp, txt), '_blank');
+      else window.open(`mailto:${encodeURIComponent(p.email)}?subject=${encodeURIComponent(c.textos.email_assunto)}&body=${encodeURIComponent(txt.replace(/\*/g, ''))}`, '_blank');
+      const t = (p.tentativas || 0) + 1;
+      await atualizar('prospects', p.id, { status: 'contatado', tentativas: t, ultimo_contato: agora, proximo_contato: t >= c.max_tentativas ? null : somaDias(hoje(), t === 1 ? c.dias_follow1 : c.dias_follow2 - c.dias_follow1) });
+      toast(`Abordagem ${t} registrada · ${t >= c.max_tentativas ? 'última tentativa' : 'retorno em ' + dataBR(somaDias(hoje(), t === 1 ? c.dias_follow1 : c.dias_follow2 - c.dias_follow1))}`);
+      return proximoDaFila(p.id);
+    }
+    if (a === 'pular') return proximoDaFila(p.id);
+    if (a === 'fechar') return fecharAbordagem();
+    if (a === 'editar') { const id = p.id; fecharAbordagem(); return editarProsp(S.prospects.find(x => x.id === id)); }
+    if (a === 'lead') {
+      const l = await criar('leads', { nome: p.nome, whatsapp: p.whatsapp, origem: 'Prospecção', utm_source: 'prospeccao', utm_campaign: 'prospeccao_1a1', status: 'orcamento', respondido_em: agora, obs: [p.escritorio, p.cidade, p.email, p.obs].filter(Boolean).join(' · ') || null, modo: 'manual' });
+      await atualizar('prospects', p.id, { status: 'interessado', lead_id: l.id });
+      toast('Lead criado no CRM (Orçamento enviado)'); return fecharAbordagem();
+    }
+    await atualizar('prospects', p.id, { status: a, proximo_contato: null });
+    toast(`Marcado: ${STATUS_PROSP[a]}`);
+    return proximoDaFila(p.id);
+  });
+}
+
+const camposProsp = () => [
+  { k: 'nome', rot: 'Nome (advogado ou escritório)', req: true, full: true },
+  { k: 'escritorio', rot: 'Escritório' }, { k: 'cidade', rot: 'Cidade/UF' },
+  { k: 'whatsapp', rot: 'WhatsApp' }, { k: 'email', rot: 'E-mail', tipo: 'email' },
+  { k: 'site', rot: 'Site' }, { k: 'instagram', rot: 'Instagram (@ ou link)' },
+  { k: 'linkedin', rot: 'LinkedIn (link)' }, { k: 'maps', rot: 'Google Maps (link)' },
+  { k: 'oab', rot: 'OAB' }, { k: 'area', rot: 'Área', padrao: 'Trabalhista' },
+  { k: 'fonte', rot: 'Onde achou', tipo: 'select', opcoes: FONTES_PROSP },
+  { k: 'status', rot: 'Status', tipo: 'select', opcoes: Object.entries(STATUS_PROSP), vazio: false, padrao: 'a_contatar' },
+  { k: 'proximo_contato', rot: 'Próximo contato', tipo: 'date' },
+  { k: 'obs', rot: 'Observações (o que viu no perfil, gancho para a conversa)', tipo: 'textarea', full: true }
+];
+const chaveDup = p => [digitos(p.whatsapp).slice(-9), (p.email || '').toLowerCase().trim(), `${(p.nome || '').toLowerCase().trim()}|${(p.cidade || '').toLowerCase().trim()}`];
+function duplicado(p, ignorar) {
+  const [w, e, n] = chaveDup(p);
+  return S.prospects.find(x => x.id !== ignorar && ((w && digitos(x.whatsapp).slice(-9) === w) || (e && (x.email || '').toLowerCase() === e) || `${(x.nome || '').toLowerCase().trim()}|${(x.cidade || '').toLowerCase().trim()}` === n));
+}
+async function editarProsp(p) {
+  const v = await abrirForm(p ? 'Editar contato' : 'Novo contato para prospecção', camposProsp(), p || {}, { apagar: !!p });
+  if (!v) return;
+  await seguro(async () => {
+    if (v === '__apagar__') { await apagar('prospects', p.id); return render(); }
+    const d = duplicado(v, p?.id);
+    if (d && !confirm(`Parece repetido: "${d.nome}" (${d.cidade || 'sem cidade'}) já está na lista. Salvar mesmo assim?`)) return;
+    if (p) await atualizar('prospects', p.id, v); else await criar('prospects', v);
+    render();
+  });
+}
+
+/* colar lista: aceita colunas copiadas de planilha (Tab), ; ou , */
+const COLUNAS_PROSP = { nome: /^(nome|advogad|contato)/, escritorio: /^(escrit|empresa|razao)/, cidade: /^(cidade|local|municip)/, whatsapp: /^(whats|telefone|fone|celular|tel)/, email: /^(e-?mail)/, site: /^(site|website|url)/, instagram: /^(insta)/, linkedin: /^(linked)/, maps: /^(maps|google ?maps|mapa)/, oab: /^oab/, area: /^(area|especial)/, obs: /^(obs|nota)/, fonte: /^(fonte|origem)/ };
+function lerListaColada(texto) {
+  const linhas = texto.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!linhas.length) return [];
+  const sep = linhas[0].includes('\t') ? '\t' : (linhas[0].split(';').length > linhas[0].split(',').length ? ';' : ',');
+  const partir = l => l.split(sep).map(x => x.trim().replace(/^"|"$/g, ''));
+  const cab = partir(linhas[0]).map(h => roboNorm(h));
+  const mapa = cab.map(h => Object.keys(COLUNAS_PROSP).find(k => COLUNAS_PROSP[k].test(h)) || null);
+  const temCab = mapa.filter(Boolean).length >= 2;
+  const ordem = temCab ? mapa : ['nome', 'escritorio', 'cidade', 'whatsapp', 'email', 'site', 'instagram'];
+  return (temCab ? linhas.slice(1) : linhas).map(l => {
+    const cols = partir(l), p = {};
+    ordem.forEach((k, i) => { if (k && cols[i]) p[k] = cols[i]; });
+    return p;
+  }).filter(p => p.nome);
+}
+function colarProsp() {
+  const fundo = document.createElement('div'); fundo.className = 'modal-fundo';
+  fundo.innerHTML = `<div class="modal"><h2>📋 Colar lista</h2>
+    <p class="desc">Copie as linhas de uma planilha (Excel/Google Planilhas) e cole aqui. Se a 1ª linha tiver títulos (Nome, Escritório, Cidade, WhatsApp, E-mail, Site, Instagram, LinkedIn, Maps, OAB, Obs), eles são reconhecidos. Sem títulos, a ordem é: <b>Nome · Escritório · Cidade · WhatsApp · E-mail · Site · Instagram</b>. Repetidos são ignorados.</p>
+    <textarea id="colaTxt" rows="10" style="width:100%;border:1px solid var(--axis);border-radius:8px;padding:10px;font:13px monospace" placeholder="Nome	Escritório	Cidade	WhatsApp	E-mail	Site	Instagram"></textarea>
+    <div class="linha" style="margin-top:6px"><label class="rotulo" style="margin:0">Onde achou:</label><select class="f" id="colaFonte">${FONTES_PROSP.map(x => `<option>${x}</option>`).join('')}</select><span class="desc" id="colaPrev"></span></div>
+    <div class="rodape"><button type="button" class="btn sec" id="colaCanc">Cancelar</button><button class="btn" id="colaOk">Importar</button></div></div>`;
+  document.body.appendChild(fundo);
+  const prev = () => { const l = lerListaColada($('#colaTxt').value); const vistos = new Set(); const novos = l.filter(p => { const k = chaveDup(p).join('#'); if (duplicado(p) || vistos.has(k)) return false; vistos.add(k); return true; }); $('#colaPrev').textContent = l.length ? `${l.length} linha(s) · ${novos.length} nova(s) · ${l.length - novos.length} repetida(s)` : ''; };
+  $('#colaTxt').addEventListener('input', prev);
+  $('#colaCanc').onclick = () => fundo.remove();
+  fundo.addEventListener('click', e => { if (e.target === fundo) fundo.remove(); });
+  $('#colaOk').onclick = () => seguro(async () => {
+    const l = lerListaColada($('#colaTxt').value), fonte = $('#colaFonte').value;
+    let n = 0;
+    for (const p of l) { if (duplicado(p)) continue; await criar('prospects', { area: 'Trabalhista', ...p, fonte: p.fonte || fonte, status: 'a_contatar' }); n++; }
+    fundo.remove(); toast(`${n} contato(s) importado(s)`); render();
+  });
+  setTimeout(() => $('#colaTxt').focus(), 30);
+}
+function exportProsp() {
+  const cols = ['nome', 'escritorio', 'cidade', 'area', 'whatsapp', 'email', 'site', 'instagram', 'linkedin', 'maps', 'oab', 'fonte', 'status', 'tentativas', 'ultimo_contato', 'proximo_contato', 'obs'];
+  baixarArquivo(`prospeccao-${hoje()}.csv`, csv([cols, ...S.prospects.map(p => cols.map(k => k === 'status' ? STATUS_PROSP[p[k]] || p[k] : p[k]))]));
+}
+async function configProsp() {
+  const c = cfgProsp();
+  const v = await abrirForm('⚙ Mensagens da prospecção', [
+    { k: 'remetente', rot: 'Seu nome na mensagem (ex.: Felipe). Vazio = "Aqui é da Pontes Ferreira"' },
+    { k: 'meta_dia', rot: 'Meta de abordagens por dia', tipo: 'number' },
+    { k: 'dias_follow1', rot: '2º contato depois de (dias)', tipo: 'number' }, { k: 'dias_follow2', rot: '3º contato depois de (dias, contando do 1º)', tipo: 'number' },
+    { k: 'max_tentativas', rot: 'Máximo de contatos por pessoa', tipo: 'number' },
+    { k: 't_primeiro', rot: '1º contato. Use {nome}, {link}, {eu}', tipo: 'textarea', full: true },
+    { k: 't_follow1', rot: '2º contato (lembrete)', tipo: 'textarea', full: true },
+    { k: 't_follow2', rot: '3º contato (último)', tipo: 'textarea', full: true },
+    { k: 't_email_assunto', rot: 'Assunto do e-mail', full: true }
+  ], { ...c, ...Object.fromEntries(Object.entries(c.textos).map(([k, x]) => ['t_' + k, x])) });
+  if (!v) return;
+  const textos = {}; Object.keys(PROSP_PADRAO.textos).forEach(k => { if (v['t_' + k] && v['t_' + k] !== PROSP_PADRAO.textos[k]) textos[k] = v['t_' + k]; delete v['t_' + k]; });
+  const novo = { meta_dia: v.meta_dia || 20, dias_follow1: v.dias_follow1 || 3, dias_follow2: v.dias_follow2 || 7, max_tentativas: v.max_tentativas || 3, remetente: v.remetente || '', textos };
+  await seguro(async () => { await ajustesDb.salvar('prospeccao', novo); S.ajustes.prospeccao = novo; toast('Mensagens salvas'); render(); });
+}
+
 /* ---------------- Tráfego pago ---------------- */
 const SITE_URL = 'https://pontesferreiracalculos.com/';
 const ABAS_TRAFEGO = { ativacao: '1. Ativação', resultados: '2. Resultados', campanhas: '3. Campanhas prontas', links: '4. Links UTM', offline: '5. Conversões offline' };
@@ -1419,9 +1667,9 @@ function exportMeta() {
 }
 
 /* ---------------- shell, rotas e eventos ---------------- */
-const ROTAS = { painel: ['Painel', telaPainel], leads: ['Leads · CRM', telaLeads], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro], trafego: ['Tráfego pago', telaTrafego] };
+const ROTAS = { painel: ['Painel', telaPainel], leads: ['Leads · CRM', telaLeads], prospeccao: ['Prospecção', telaProspeccao], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro], trafego: ['Tráfego pago', telaTrafego] };
 const rota = () => { const r = location.hash.slice(1); return ROTAS[r] && (r !== 'whatsapp' || WA_PAINEL()) ? r : 'painel'; };
-const CAMPOS_FOCO = ['busca', 'buscaLeads', 'buscaWa', 'waTexto'];
+const CAMPOS_FOCO = ['busca', 'buscaLeads', 'buscaWa', 'waTexto', 'buscaProsp'];
 
 function render() {
   const r = rota();
@@ -1433,7 +1681,7 @@ function render() {
   const pill = n => n ? `<span class="pill">${n}</span>` : '';
   $('#raiz').innerHTML = `<div class="app"><nav>
     <div class="marca">Pontes Ferreira<span>Cálculos Judiciais</span></div>
-    ${Object.entries(ROTAS).filter(([k]) => k !== 'whatsapp' || WA_PAINEL()).map(([k, [rot]]) => `<a href="#${k}" class="${k === r ? 'on' : ''}">${rot}${k === 'leads' ? pill(pendentes) : k === 'whatsapp' ? pill(naoLidas) : k === 'calculos' ? pill(atras) : ''}</a>`).join('')}
+    ${Object.entries(ROTAS).filter(([k]) => k !== 'whatsapp' || WA_PAINEL()).map(([k, [rot]]) => `<a href="#${k}" class="${k === r ? 'on' : ''}">${rot}${k === 'leads' ? pill(pendentes) : k === 'whatsapp' ? pill(naoLidas) : k === 'calculos' ? pill(atras) : k === 'prospeccao' ? pill(filaProsp().filter(p => p.tentativas > 0).length) : ''}</a>`).join('')}
     <div class="rodape">${DEMO ? 'Modo demonstração' : `Conectado<br><button data-acao="trocarSenha">Trocar senha</button> · <button data-acao="sair">Sair</button>`}</div></nav>
     <main class="${r === 'whatsapp' ? 'main-wa' : ''}">${DEMO ? `<div class="demo"><span><b>Modo demonstração:</b> dados de exemplo, salvos só neste navegador. Conecte o Supabase em <code>config.js</code> para usar de verdade.</span><button class="btn mini sec" data-acao="limparDemo">Limpar exemplos</button></div>` : ''}
     ${ROTAS[r][1]()}</main></div>`;
@@ -1443,9 +1691,11 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
+  if (d.prosp) return editarProsp(S.prospects.find(x => x.id === d.prosp));
+  if (d.abordar) return abrirAbordagem(d.abordar);
   if (d.roboAssumir) return roboAssumir(d.roboAssumir, true);
   if (d.roboDevolver) return roboAssumir(d.roboDevolver, false);
   if (d.copiar !== undefined) return copiarTexto(COPIAS[Number(d.copiar)]);
@@ -1469,7 +1719,7 @@ document.addEventListener('click', e => {
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
     novaDespesa: () => editarDespesa(null), importarPJC, limparDemo, novaConversa,
-    novoGasto: () => novoGasto(), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
+    novoGasto: () => novoGasto(), novoProsp: () => editarProsp(null), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
     waEnviar: waEnviarTexto, waAnexar,
     waModelo: () => seguro(() => waEnviar({ template: CFG.WA_TEMPLATE || 'retomar_contato', idioma: CFG.WA_TEMPLATE_IDIOMA || 'pt_BR' })),
     addAtividade: () => seguro(async () => {
@@ -1488,6 +1738,8 @@ document.addEventListener('change', e => {
   if (id === 'rastAtivo') return seguro(async () => { const r = { ...rast(), ativo: e.target.checked }; await ajustesDb.salvar('rastreamento', r); S.ajustes.rastreamento = r; toast(r.ativo ? 'Rastreamento LIGADO no site' : 'Rastreamento desligado'); render(); });
   if (e.target.dataset.utm && e.target.tagName === 'SELECT') { S.utm[e.target.dataset.utm] = e.target.value; return render(); }
   if (e.target.dataset.trafDireto) return seguro(() => salvarTrafego({ [e.target.dataset.trafDireto]: e.target.value.trim() || null }));
+  if (id === 'fProsp') { S.filtroProsp.status = e.target.value; return render(); }
+  if (e.target.dataset.buscaProsp) { S.buscaProsp[e.target.dataset.buscaProsp] = e.target.value; return render(); }
   if (id === 'periodo') { S.periodo = e.target.value; localSet('pf_periodo', S.periodo); render(); }
   if (id === 'filtroCalc') { S.filtroCalc = e.target.value; render(); }
   if (id === 'fStatus') { S.filtroLeads.status = e.target.value; render(); }
@@ -1503,6 +1755,8 @@ document.addEventListener('input', e => {
   const id = e.target.id;
   if (e.target.dataset.rast) S.rascRast[e.target.dataset.rast] = e.target.value;
   if (e.target.dataset.utm && e.target.tagName === 'INPUT') { S.utm[e.target.dataset.utm] = e.target.value; const u = urlUtm(); $('#utmUrl').textContent = u; $('#utmAbrir').href = u; }
+  if (id === 'buscaProsp') { S.filtroProsp.q = e.target.value; render(); }
+  if (e.target.dataset.buscaProsp) S.buscaProsp[e.target.dataset.buscaProsp] = e.target.value;
   if (id === 'busca') { S.busca = e.target.value; render(); }
   if (id === 'buscaLeads') { S.filtroLeads.q = e.target.value; render(); }
   if (id === 'buscaWa') { S.buscaWa = e.target.value; render(); }

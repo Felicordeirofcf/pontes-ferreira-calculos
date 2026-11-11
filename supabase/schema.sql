@@ -232,3 +232,32 @@ end $$;
 
 drop trigger if exists aviso_lead_novo on leads;
 create trigger aviso_lead_novo after insert on leads for each row execute function avisar_lead_novo();
+
+-- ---------------- Prospecção (advogados e escritórios para abordar) ----------------
+create table if not exists prospects (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  nome text not null,                  -- advogado(a) ou escritório
+  escritorio text,
+  cidade text,
+  area text default 'Trabalhista',
+  whatsapp text,
+  email text,
+  site text,
+  instagram text,
+  linkedin text,
+  maps text,                           -- link do Google Maps
+  oab text,
+  fonte text,                          -- Google Maps, Instagram, indicação…
+  status text not null default 'a_contatar', -- a_contatar | contatado | respondeu | interessado | cliente | sem_interesse | nao_contatar
+  tentativas int not null default 0,
+  ultimo_contato timestamptz,
+  proximo_contato date,
+  obs text,
+  lead_id uuid references leads(id) on delete set null,
+  cliente_id uuid references clientes(id) on delete set null
+);
+alter table prospects enable row level security;
+drop policy if exists dono_prospects on prospects;
+create policy dono_prospects on prospects for all to authenticated using (is_dono()) with check (is_dono());
+insert into ajustes (chave, publico) values ('prospeccao', false) on conflict do nothing;
