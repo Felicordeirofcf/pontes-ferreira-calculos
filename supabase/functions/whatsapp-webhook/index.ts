@@ -285,6 +285,25 @@ async function processarMensagem(m: any, contatos: any[]) {
   try { await atendimentoAutomatico(conv, m, tipo, texto, arquivo_nome); } catch (e) { console.error('robô', e); }
 }
 
+// Mensagem enviada por você no app WhatsApp Business do celular: grava no painel e cala o robô nessa conversa
+async function registrarEcoDoApp(m: any) {
+  const waId = digitos(m.to);
+  if (!waId) return;
+  const texto = m.text?.body || (m.type ? `[${m.type} enviado pelo celular]` : '');
+  const conv = await conversaDe(waId, '');
+  const { error } = await db.from('wa_mensagens').insert({
+    wa_id: waId, direcao: 'out', tipo: m.type === 'text' ? 'text' : 'outro', texto, wamid: m.id, status: 'sent',
+    created_at: new Date(Number(m.timestamp || Date.now() / 1000) * 1000).toISOString()
+  });
+  if (error && !String(error.message).includes('duplicate')) throw error;
+  const cfg = await cfgRobo();
+  await db.from('wa_conversas').update({
+    ultima_msg: String(texto).slice(0, 200), ultima_msg_em: new Date().toISOString(), nao_lidas: 0,
+    humano_ate: new Date(Date.now() + (Number(cfg.pausa_horas) || 12) * 3600e3).toISOString(), bot_etapa: 'humano'
+  }).eq('wa_id', waId);
+  if (conv.lead_id) await db.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', conv.lead_id);
+}
+
 Deno.serve(async req => {
   const url = new URL(req.url);
   if (req.method === 'GET') {
@@ -302,6 +321,8 @@ Deno.serve(async req => {
     for (const entry of json.entry || []) for (const ch of entry.changes || []) {
       const v = ch.value || {};
       for (const m of v.messages || []) await processarMensagem(m, v.contacts || []);
+      // coexistência: mensagens que você manda pelo app do celular (campo "smb_message_echoes")
+      for (const m of v.message_echoes || []) await registrarEcoDoApp(m);
       for (const s of v.statuses || []) {
         await db.from('wa_mensagens').update({ status: s.status, erro: s.errors?.[0]?.title || null }).eq('wamid', s.id);
       }
