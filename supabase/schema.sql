@@ -261,3 +261,55 @@ alter table prospects enable row level security;
 drop policy if exists dono_prospects on prospects;
 create policy dono_prospects on prospects for all to authenticated using (is_dono()) with check (is_dono());
 insert into ajustes (chave, publico) values ('prospeccao', false) on conflict do nothing;
+
+-- ---------------- Mapa de demanda (visitas e cliques do site, por estado e cidade) ----------------
+-- Anônimo: guarda só estado/cidade aproximados (pelo provedor), nunca o IP.
+create table if not exists eventos (
+  id bigint generated always as identity primary key,
+  created_at timestamptz not null default now(),
+  sessao text, tipo text not null,      -- visita | clique | whatsapp | pedido | rolagem
+  pagina text, alvo text, secao text,
+  pais text, uf text, cidade text,
+  utm_source text, utm_medium text, utm_campaign text, utm_term text, utm_content text,
+  referrer text, dispositivo text
+);
+create index if not exists eventos_created_idx on eventos (created_at);
+alter table eventos enable row level security;
+drop policy if exists site_registra_evento on eventos;
+drop policy if exists dono_eventos on eventos;
+create policy site_registra_evento on eventos for insert to anon, authenticated with check (
+  tipo in ('visita', 'clique', 'whatsapp', 'pedido', 'rolagem')
+  and coalesce(length(alvo), 0) <= 80 and coalesce(length(cidade), 0) <= 80 and coalesce(length(pagina), 0) <= 120
+  and coalesce(length(referrer), 0) <= 120 and coalesce(length(sessao), 0) <= 64);
+create policy dono_eventos on eventos for select to authenticated using (is_dono());
+
+alter table leads add column if not exists uf text;
+alter table leads add column if not exists cidade text;
+
+-- Resumo pronto para o painel (o banco agrega; só o dono recebe)
+create or replace function resumo_eventos(desde timestamptz) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select case when not is_dono() then null else jsonb_build_object(
+    'por_uf', (select coalesce(jsonb_agg(x), '[]') from (
+      select upper(coalesce(nullif(uf, ''), '??')) uf, count(distinct sessao) filter (where tipo = 'visita') visitas,
+             count(*) filter (where tipo = 'whatsapp') whatsapp, count(*) filter (where tipo = 'clique') cliques, count(*) filter (where tipo = 'pedido') pedidos
+      from eventos where created_at >= desde and coalesce(pais, 'BR') in ('BR', '') group by 1) x),
+    'por_cidade', (select coalesce(jsonb_agg(x), '[]') from (
+      select upper(coalesce(nullif(uf, ''), '??')) uf, coalesce(nullif(cidade, ''), '(sem cidade)') cidade, count(distinct sessao) filter (where tipo = 'visita') visitas,
+             count(*) filter (where tipo = 'whatsapp') whatsapp, count(*) filter (where tipo = 'pedido') pedidos
+      from eventos where created_at >= desde and coalesce(pais, 'BR') in ('BR', '') group by 1, 2 order by 3 desc limit 40) x),
+    'alvos', (select coalesce(jsonb_agg(x), '[]') from (
+      select pagina, coalesce(secao, '') secao, alvo, tipo, count(*) n from eventos
+      where created_at >= desde and tipo in ('clique', 'whatsapp') and alvo is not null group by 1, 2, 3, 4 order by 5 desc limit 40) x),
+    'origens', (select coalesce(jsonb_agg(x), '[]') from (
+      select coalesce(nullif(utm_source, ''), nullif(referrer, ''), 'direto') origem, count(distinct sessao) sessoes from eventos
+      where created_at >= desde and tipo = 'visita' group by 1 order by 2 desc limit 15) x),
+    'dispositivos', (select coalesce(jsonb_agg(x), '[]') from (
+      select coalesce(dispositivo, '?') dispositivo, count(distinct sessao) sessoes from eventos where created_at >= desde and tipo = 'visita' group by 1) x),
+    'paginas', (select coalesce(jsonb_agg(x), '[]') from (
+      select pagina, count(distinct sessao) sessoes from eventos where created_at >= desde and tipo = 'visita' group by 1 order by 2 desc limit 10) x),
+    'rolagem', (select coalesce(jsonb_agg(x), '[]') from (
+      select alvo, count(distinct sessao) sessoes from eventos where created_at >= desde and tipo = 'rolagem' group by 1) x),
+    'fora_br', (select count(distinct sessao) from eventos where created_at >= desde and tipo = 'visita' and coalesce(pais, 'BR') not in ('BR', ''))
+  ) end;
+$$;

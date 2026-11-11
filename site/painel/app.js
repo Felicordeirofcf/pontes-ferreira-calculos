@@ -21,7 +21,7 @@ const WA_PAINEL = () => DEMO || !!(window.PF_CONFIG || {}).WA_ATIVO; // false = 
 const TABELAS = ['leads', 'calculos', 'clientes', 'despesas', 'atividades', 'wa_conversas', 'prospects'];
 const S = {
   leads: [], calculos: [], clientes: [], despesas: [], atividades: [], wa_conversas: [], prospects: [], wa_mensagens: {},
-  filtroProsp: { status: '', q: '' }, buscaProsp: { termo: 'advogado trabalhista', cidade: '' },
+  filtroProsp: { status: '', q: '' }, metricaMapa: localGet('pf_metrica_mapa') || 'visitas', ufMapa: null, mapa: null, buscaProsp: { termo: 'advogado trabalhista', cidade: '' },
   periodo: localGet('pf_periodo') || 'mes', filtroCalc: 'abertos', busca: '',
   vistaLeads: localGet('pf_vista') || 'funil', filtroLeads: { status: '', canal: '', temp: '', q: '' },
   conversa: null, buscaWa: '',
@@ -538,6 +538,7 @@ const tagStatus = c => {
 };
 
 function telaPainel() {
+  carregarMapa();
   const m = metricas();
   const ms = meses(6);
   const porMes = (arr, campo, f) => ms.map(x => soma(arr.filter(c => (c[campo] || '').slice(0, 7) === x.chave), f));
@@ -581,6 +582,8 @@ function telaPainel() {
     <div class="card"><h2>Leads por canal</h2><div class="desc">${PERIODOS[S.periodo]} · passe o mouse para ver a conversão</div>${barrasH(canais)}</div>
     <div class="card"><h2>Funil de vendas</h2><div class="desc">${PERIODOS[S.periodo]}</div>${barrasH(funil, v => v)}
       <div class="desc" style="margin-top:10px">Perdas: ${(() => { const p = {}; m.leadsP.filter(l => l.status === 'perdido').forEach(l => p[l.motivo_perda || 'Sem motivo'] = (p[l.motivo_perda || 'Sem motivo'] || 0) + 1); const e = Object.entries(p).sort((a, b) => b[1] - a[1]); return e.length ? e.map(([k, v]) => `${esc(k)} (${v})`).join(' · ') : 'nenhuma'; })()}</div></div>
+    <div class="card"><div class="linha" style="justify-content:space-between"><h2>Onde estão procurando</h2><a class="btn mini sec" href="#mapa">Ver mapa →</a></div><div class="desc">Visitas ao site por estado · ${PERIODOS[S.periodo]}</div>
+      ${(() => { const por = (S.mapa?.dados?.por_uf || []).filter(x => x.visitas && UF_NOME[x.uf]).sort((x, y) => y.visitas - x.visitas).slice(0, 6); return por.length ? barrasH(por.map(x => ({ rot: `${x.uf} · ${UF_NOME[x.uf]}`, valor: x.visitas, tip: `${UF_NOME[x.uf]}\n${x.visitas} visitas · ${x.whatsapp} WhatsApp · ${x.pedidos} pedidos` }))) : `<div class="vazio">${S.mapa?.carregando ? 'Carregando…' : 'As visitas aparecem aqui assim que o monitoramento estiver ligado.'}</div>`; })()}</div>
     <div class="card larga"><h2>Próximas entregas</h2><div class="desc">Cálculos em aberto, por prazo</div>
       ${proximos.length ? `<div class="tabela"><table><tr><th>Prazo</th><th>Processo</th><th>Cliente</th><th>Tipo</th><th>Status</th></tr>
       ${proximos.map(c => `<tr class="clic" data-calc="${c.id}"><td>${dataBR(c.prazo_entrega)}</td><td>${esc(c.numero_processo || '—')}</td><td>${esc(cliente(c.cliente_id)?.nome || '—')}</td><td>${esc(c.tipo || '—')}</td><td>${tagStatus(c)}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Nenhum cálculo em aberto 🎉</div>'}</div>
@@ -1014,6 +1017,146 @@ function telaFinanceiro() {
   </div>`;
 }
 
+/* ---------------- Mapa do Brasil (demanda por estado e cidade) ---------------- */
+// grid de quadrados: cada estado do mesmo tamanho, na posição aproximada do mapa
+const UF_GRID = {
+  RR: [2, 0], AP: [4, 0], AM: [2, 1], PA: [3, 1], MA: [4, 1], CE: [5, 1], RN: [6, 1],
+  AC: [1, 2], RO: [2, 2], MT: [3, 2], TO: [4, 2], PI: [5, 2], PB: [6, 2],
+  MS: [2, 3], GO: [3, 3], DF: [4, 3], BA: [5, 3], PE: [6, 3],
+  SP: [3, 4], MG: [4, 4], ES: [5, 4], AL: [6, 4],
+  PR: [3, 5], RJ: [4, 5], SE: [6, 5], SC: [3, 6], RS: [3, 7]
+};
+const UF_NOME = { AC: 'Acre', AL: 'Alagoas', AP: 'Amapá', AM: 'Amazonas', BA: 'Bahia', CE: 'Ceará', DF: 'Distrito Federal', ES: 'Espírito Santo', GO: 'Goiás', MA: 'Maranhão', MT: 'Mato Grosso', MS: 'Mato Grosso do Sul', MG: 'Minas Gerais', PA: 'Pará', PB: 'Paraíba', PR: 'Paraná', PE: 'Pernambuco', PI: 'Piauí', RJ: 'Rio de Janeiro', RN: 'Rio Grande do Norte', RS: 'Rio Grande do Sul', RO: 'Rondônia', RR: 'Roraima', SC: 'Santa Catarina', SP: 'São Paulo', SE: 'Sergipe', TO: 'Tocantins' };
+const UF_CAPITAL = { AC: 'Rio Branco', AL: 'Maceió', AP: 'Macapá', AM: 'Manaus', BA: 'Salvador', CE: 'Fortaleza', DF: 'Brasília', ES: 'Vitória', GO: 'Goiânia', MA: 'São Luís', MT: 'Cuiabá', MS: 'Campo Grande', MG: 'Belo Horizonte', PA: 'Belém', PB: 'João Pessoa', PR: 'Curitiba', PE: 'Recife', PI: 'Teresina', RJ: 'Rio de Janeiro', RN: 'Natal', RS: 'Porto Alegre', RO: 'Porto Velho', RR: 'Boa Vista', SC: 'Florianópolis', SP: 'São Paulo', SE: 'Aracaju', TO: 'Palmas' };
+const UF_TRT = { RJ: 1, SP: 2, MG: 3, RS: 4, BA: 5, PE: 6, CE: 7, PA: 8, AP: 8, PR: 9, DF: 10, TO: 10, AM: 11, RR: 11, SC: 12, PB: 13, RO: 14, AC: 14, MA: 16, ES: 17, GO: 18, AL: 19, SE: 20, RN: 21, PI: 22, MT: 23, MS: 24 };
+// escala sequencial de um tom (azul): claro = pouco, escuro = muito; cinza = sem dados
+const RAMPA_MAPA = ['#cde2fb', '#9ec5f4', '#5598e7', '#256abf', '#0d366b'];
+const METRICAS_MAPA = {
+  visitas: ['Visitas ao site', 'pessoas que abriram o site'], whatsapp: ['Cliques no WhatsApp', 'botões de WhatsApp do site'],
+  pedidos: ['Pedidos pelo site', 'formulários enviados'], leads: ['Leads', 'leads no CRM (todas as origens)'],
+  clientes: ['Clientes', 'clientes cadastrados'], prospects: ['Prospecção', 'contatos na lista de prospecção']
+};
+const ufDe = txt => { const m = String(txt || '').toUpperCase().match(/(?:\/|-|,|\s)\s*([A-Z]{2})\s*$/); return m && UF_NOME[m[1]] ? m[1] : null; };
+
+/* busca o resumo agregado no banco (ou gera um de exemplo no modo demonstração) */
+async function carregarMapa(forcar) {
+  const ini = inicioPeriodo();
+  if (!forcar && S.mapa && S.mapa.ini === ini) return;
+  S.mapa = { ini, carregando: true, dados: null };
+  try {
+    let dados;
+    if (DEMO) dados = demoMapa();
+    else {
+      const { data, error } = await sb.rpc('resumo_eventos', { desde: ini + 'T00:00:00-03:00' });
+      if (error) throw error; dados = data || {};
+    }
+    S.mapa = { ini, carregando: false, dados };
+  } catch (e) { console.warn('mapa', e); S.mapa = { ini, carregando: false, dados: null, erro: e.message || String(e) }; }
+  if (rota() === 'mapa' || rota() === 'painel') render();
+}
+function demoMapa() {
+  let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const peso = { SP: 30, RJ: 26, MG: 14, RS: 8, PR: 7, BA: 6, PE: 5, SC: 4, DF: 4, GO: 4, CE: 4, ES: 3, PA: 2, AM: 2, MA: 2, MT: 2, MS: 2, PB: 1.5, RN: 1.2, AL: 1, SE: 1, PI: 1, RO: .6, TO: .5, AC: .3, AP: .2, RR: .2 };
+  const por_uf = Object.entries(peso).map(([uf, p]) => { const v = Math.round(p * (6 + rnd() * 4)); return { uf, visitas: v, whatsapp: Math.round(v * (.08 + rnd() * .1)), cliques: Math.round(v * 1.8), pedidos: Math.round(v * (.03 + rnd() * .05)) }; });
+  const cidades = [['SP', 'São Paulo'], ['RJ', 'Rio de Janeiro'], ['RJ', 'Niterói'], ['MG', 'Belo Horizonte'], ['SP', 'Campinas'], ['RS', 'Porto Alegre'], ['PR', 'Curitiba'], ['RJ', 'Duque de Caxias'], ['BA', 'Salvador'], ['PE', 'Recife'], ['DF', 'Brasília'], ['SP', 'Santos'], ['CE', 'Fortaleza'], ['GO', 'Goiânia'], ['RJ', 'Nova Iguaçu']];
+  const por_cidade = cidades.map(([uf, cidade], i) => { const v = Math.round((60 - i * 3.5) * (0.8 + rnd() * .4)); return { uf, cidade, visitas: v, whatsapp: Math.round(v * .12), pedidos: Math.round(v * .05) }; });
+  const alvos = [['/', 'hero', 'Enviar e receber orçamento', 'clique', 96], ['/', 'hero', 'form_numero', 'clique', 71], ['/', '', 'flutuante', 'whatsapp', 64], ['/', 'precos', 'plano_avulso', 'whatsapp', 38], ['/', 'hero', '🔢 Informar o nº', 'clique', 52], ['/', 'header', 'header', 'whatsapp', 21], ['/', 'faq', 'Quanto custa?', 'clique', 33], ['/portfolio.html', 'hero', 'Enviar um processo para orçamento', 'clique', 18], ['/', 'precos', 'plano_pacote', 'whatsapp', 12], ['/', 'final', 'final', 'whatsapp', 15]]
+    .map(([pagina, secao, alvo, tipo, n]) => ({ pagina, secao, alvo, tipo, n }));
+  return {
+    por_uf, por_cidade, alvos, fora_br: 6,
+    origens: [['google', 312], ['direto', 140], ['meta', 98], ['instagram', 41], ['prospeccao', 37], ['jusbrasil.com.br', 12]].map(([origem, sessoes]) => ({ origem, sessoes })),
+    dispositivos: [{ dispositivo: 'celular', sessoes: 402 }, { dispositivo: 'computador', sessoes: 238 }],
+    paginas: [{ pagina: '/', sessoes: 590 }, { pagina: '/portfolio.html', sessoes: 61 }, { pagina: '/privacidade.html', sessoes: 9 }],
+    rolagem: [['25%', 560], ['50%', 410], ['75%', 260], ['100%', 150]].map(([alvo, sessoes]) => ({ alvo, sessoes }))
+  };
+}
+
+/* junta o que veio do site (eventos) com o que está no painel (leads, clientes, prospecção) */
+function dadosPorUF() {
+  const d = S.mapa?.dados || {}, ini = inicioPeriodo(), por = {};
+  Object.keys(UF_NOME).forEach(uf => por[uf] = { uf, visitas: 0, whatsapp: 0, cliques: 0, pedidos: 0, leads: 0, clientes: 0, prospects: 0, fechados: 0 });
+  (d.por_uf || []).forEach(r => { if (por[r.uf]) Object.assign(por[r.uf], { visitas: r.visitas, whatsapp: r.whatsapp, cliques: r.cliques, pedidos: r.pedidos }); });
+  S.leads.filter(l => noPeriodo(l.created_at, ini)).forEach(l => { const uf = (l.uf || '').toUpperCase() || ufDe(cliente(l.cliente_id)?.cidade); if (por[uf]) { por[uf].leads++; if (l.status === 'fechado') por[uf].fechados++; } });
+  S.clientes.forEach(c => { const uf = ufDe(c.cidade); if (por[uf]) por[uf].clientes++; });
+  S.prospects.forEach(p => { const uf = ufDe(p.cidade); if (por[uf]) por[uf].prospects++; });
+  return por;
+}
+function corMapa(v, max) {
+  if (!v) return { bg: '#f0efec', fg: 'var(--muted)' };
+  const i = Math.min(RAMPA_MAPA.length - 1, Math.floor(Math.sqrt(v / max) * RAMPA_MAPA.length - 1e-9)); // raiz: separa melhor os estados médios
+  return { bg: RAMPA_MAPA[i], fg: i >= 2 ? '#fff' : 'var(--ink)' };
+}
+function mapaBrasil(por, metrica) {
+  const max = Math.max(1, ...Object.values(por).map(r => r[metrica] || 0)), T = 54, G = 4;
+  const cel = Object.entries(UF_GRID).map(([uf, [c, r]]) => {
+    const x = por[uf], v = x[metrica] || 0, cor = corMapa(v, max), sel = S.ufMapa === uf;
+    const tip = `${UF_NOME[uf]} (${uf}) · TRT ${UF_TRT[uf]}\nVisitas: ${x.visitas} · WhatsApp: ${x.whatsapp} · Pedidos: ${x.pedidos}\nLeads: ${x.leads} (${x.fechados} fechados) · Clientes: ${x.clientes} · Prospecção: ${x.prospects}`;
+    return `<g class="uf-cel" data-uf-mapa="${uf}" data-tip="${esc(tip)}" style="cursor:pointer">
+      <rect x="${c * (T + G)}" y="${r * (T + G)}" width="${T}" height="${T}" rx="8" fill="${cor.bg}" stroke="${sel ? 'var(--ink)' : 'transparent'}" stroke-width="2"/>
+      <text x="${c * (T + G) + T / 2}" y="${r * (T + G) + 23}" text-anchor="middle" font-weight="700" font-size="13" fill="${cor.fg}">${uf}</text>
+      <text x="${c * (T + G) + T / 2}" y="${r * (T + G) + 41}" text-anchor="middle" font-size="12" fill="${cor.fg}">${v || ''}</text></g>`;
+  }).join('');
+  const passos = `<span>menos</span>${RAMPA_MAPA.map(c => `<i class="sw" style="background:${c}"></i>`).join('')}<span>mais (até ${max})</span>`;
+  return `<svg viewBox="0 0 ${7 * (T + G)} ${8 * (T + G)}" class="mapa-br" role="img" aria-label="Mapa do Brasil por estado: ${METRICAS_MAPA[metrica][0]}">${cel}</svg>
+    <div class="legenda escala"><span><i style="background:#f0efec"></i>sem dados</span>${passos}</div>`;
+}
+
+function telaMapa() {
+  carregarMapa();
+  const m = S.metricaMapa, por = dadosPorUF(), d = S.mapa?.dados || {};
+  const linhas = Object.values(por).filter(r => r.visitas || r.leads || r.clientes || r.prospects || r.whatsapp).sort((a, b) => (b[m] - a[m]) || (b.visitas - a.visitas));
+  const total = k => soma(Object.values(por), r => r[k]);
+  const top = linhas[0], comDados = linhas.filter(r => r[m] > 0).length;
+  const sel = S.ufMapa && por[S.ufMapa] ? por[S.ufMapa] : null;
+  const cidades = (d.por_cidade || []).filter(c => !sel || c.uf === sel.uf).slice(0, 15);
+  const visTot = total('visitas'), pedTot = total('pedidos');
+  const foraRJ = visTot ? 1 - (por.RJ.visitas / visTot) : NaN;
+  const alvos = (d.alvos || []).slice(0, 12);
+  const rol = d.rolagem || [], r25 = (rol.find(x => x.alvo === '25%') || {}).sessoes || 0;
+  const disp = d.dispositivos || [], dispTot = soma(disp, x => x.sessoes);
+  const trends = t => `https://trends.google.com.br/trends/explore?geo=BR&q=${encodeURIComponent(t)}`;
+  const aviso = S.mapa?.carregando ? '<div class="demo"><span>Carregando dados do site…</span></div>'
+    : S.mapa?.erro ? `<div class="demo" style="background:#fff1cf"><span>Os dados de visitas ainda não chegaram. Rode o <b>schema.sql</b> atualizado no Supabase para criar o monitoramento (${esc(S.mapa.erro).slice(0, 80)}).</span></div>` : '';
+  return `<div class="topo"><h1>Mapa do Brasil</h1><div class="acoes">${seletorPeriodo()}
+    <div class="seg">${Object.entries(METRICAS_MAPA).map(([k, [rot]]) => `<button class="${k === m ? 'on' : ''}" data-metrica-mapa="${k}">${rot}</button>`).join('')}</div>
+    <button class="btn sec" data-acao="atualizarMapa" title="Atualizar">↻</button></div></div>
+  ${aviso}
+  <div class="kpis">
+    ${kpi('Pessoas no site', visTot, `${comDados} estados com ${METRICAS_MAPA[m][0].toLowerCase()}`)}
+    ${kpi('Estado que mais procura', top && top[m] ? `${top.uf} · ${top[m]}` : '—', top && top[m] ? UF_NOME[top.uf] : 'sem dados ainda')}
+    ${kpi('Fora do RJ', isFinite(foraRJ) ? pct(foraRJ) : '—', 'das visitas: alcance nacional')}
+    ${kpi('Visita → pedido', visTot ? pct(pedTot / visTot) : '—', `${pedTot} pedidos pelo site`)}
+    ${kpi('Cliques no WhatsApp', total('whatsapp'), `${d.fora_br || 0} visitas de fora do Brasil`)}
+  </div>
+  <div class="grade">
+    <div class="card"><h2>${METRICAS_MAPA[m][0]} por estado</h2><div class="desc">${PERIODOS[S.periodo]} · ${METRICAS_MAPA[m][1]} · clique num estado para ver as cidades</div>${mapaBrasil(por, m)}</div>
+    <div class="card"><div class="linha" style="justify-content:space-between"><h2>${sel ? `${UF_NOME[sel.uf]} (${sel.uf})` : 'Cidades que mais procuram'}</h2>${sel ? '<button class="btn mini sec" data-uf-mapa="">Ver Brasil</button>' : ''}</div>
+      ${sel ? `<div class="kpis" style="grid-template-columns:repeat(3,1fr);margin:8px 0">${kpi('Visitas', sel.visitas)}${kpi('Pedidos', sel.pedidos)}${kpi('Leads', sel.leads, `${sel.fechados} fechados`)}</div>
+        <div class="linha" style="margin-bottom:8px"><button class="btn mini ouro" data-prospectar-uf="${sel.uf}">🎯 Prospectar em ${UF_CAPITAL[sel.uf]}</button><a class="btn mini sec" target="_blank" href="${trends('cálculo trabalhista')}">📈 Google Trends</a><span class="desc">TRT da ${UF_TRT[sel.uf]}ª Região</span></div>` : ''}
+      ${cidades.length ? `<div class="tabela"><table><tr><th>Cidade</th><th>UF</th><th class="n">Visitas</th><th class="n">WhatsApp</th><th class="n">Pedidos</th></tr>${cidades.map(c => `<tr><td>${esc(c.cidade)}</td><td>${esc(c.uf)}</td><td class="n">${c.visitas}</td><td class="n">${c.whatsapp}</td><td class="n">${c.pedidos}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Sem visitas registradas aqui no período</div>'}</div>
+    <div class="card larga"><h2>Por estado</h2><div class="desc">Site (visitas, WhatsApp, pedidos) + painel (leads, clientes, prospecção) · ordenado por ${METRICAS_MAPA[m][0].toLowerCase()}</div>
+      ${linhas.length ? `<div class="tabela"><table><tr><th>Estado</th><th class="n">Visitas</th><th class="n">WhatsApp</th><th class="n">Pedidos</th><th class="n">Visita→pedido</th><th class="n">Leads</th><th class="n">Fechados</th><th class="n">Clientes</th><th class="n">Na prospecção</th><th></th></tr>
+      ${linhas.map(r => `<tr class="clic" data-uf-mapa="${r.uf}"><td><b>${r.uf}</b> · ${UF_NOME[r.uf]}</td><td class="n">${r.visitas}</td><td class="n">${r.whatsapp}</td><td class="n">${r.pedidos}</td><td class="n">${r.visitas ? pct(r.pedidos / r.visitas) : '—'}</td><td class="n">${r.leads}</td><td class="n">${r.fechados}</td><td class="n">${r.clientes}</td><td class="n">${r.prospects}</td>
+        <td>${r.visitas && !r.prospects ? `<button class="btn mini sec" data-prospectar-uf="${r.uf}">🎯 Prospectar</button>` : ''}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Ainda sem dados. Eles aparecem assim que as pessoas visitarem o site.</div>'}</div>
+    <div class="card"><h2>Onde clicam no site</h2><div class="desc">Botões e links mais clicados · ${PERIODOS[S.periodo]}</div>
+      ${alvos.length ? barrasH(alvos.map(a => ({ rot: `${a.tipo === 'whatsapp' ? '💬 ' : ''}${a.alvo}`, valor: a.n, tip: `${a.alvo}\n${a.tipo === 'whatsapp' ? 'WhatsApp' : 'clique'} · seção: ${a.secao || '—'} · página: ${a.pagina}\n${a.n} cliques` }))) : '<div class="vazio">Sem cliques registrados</div>'}
+      <div class="desc" style="margin-top:10px">Para ver o <b>mapa de calor</b> e a gravação das visitas, ligue o <a href="#trafego" data-aba-trafego="ativacao">Microsoft Clarity</a> (grátis).</div></div>
+    <div class="card"><h2>Até onde leem a página</h2><div class="desc">Das pessoas que começaram a rolar o site</div>
+      ${rol.length ? barrasH(['25%', '50%', '75%', '100%'].map(k => { const v = (rol.find(x => x.alvo === k) || {}).sessoes || 0; return { rot: `chegaram a ${k}`, valor: v, tip: `${v} pessoas (${r25 ? pct(v / r25) : '—'})` }; }), v => v) : '<div class="vazio">Sem dados de rolagem</div>'}
+      <h3 class="sub">Aparelho</h3>${disp.length ? barrasH(disp.map(x => ({ rot: x.dispositivo === 'celular' ? '📱 Celular' : '💻 Computador', valor: x.sessoes, tip: `${x.sessoes} visitas (${pct(x.sessoes / dispTot)})` }))) : '<div class="vazio">—</div>'}</div>
+    <div class="card"><h2>De onde vêm</h2><div class="desc">Origem das visitas (campanha ou site que mandou)</div>
+      ${(d.origens || []).length ? barrasH(d.origens.map(o => ({ rot: o.origem, valor: o.sessoes }))) : '<div class="vazio">Sem dados</div>'}</div>
+    <div class="card"><h2>Procura no Google, por estado</h2><div class="desc">O Google Trends mostra em quais estados mais se pesquisa cada termo. Use para escolher onde anunciar e onde prospectar.</div>
+      <div class="linha" style="margin-top:10px">${['cálculo trabalhista', 'pje calc', 'calculista trabalhista', 'liquidação de sentença', 'impugnação de cálculos'].map(t => `<a class="btn mini sec" target="_blank" rel="noopener" href="${trends(t)}">📈 ${t}</a>`).join('')}</div>
+      <div class="desc" style="margin-top:10px">No Google Ads, use o <b>Planejador de palavras-chave</b> com "Local: Brasil" e "dividir por estado" para ver o volume de buscas mensais.</div></div>
+  </div>`;
+}
+function prospectarUF(uf) {
+  S.buscaProsp.cidade = `${UF_CAPITAL[uf]} ${uf}`;
+  location.hash = 'prospeccao';
+  toast(`Busca de prospecção pronta para ${UF_CAPITAL[uf]}/${uf}`);
+}
+
 /* ---------------- Prospecção (abordagem 1 a 1) ---------------- */
 const STATUS_PROSP = { a_contatar: 'A contatar', contatado: 'Contatado', respondeu: 'Respondeu', interessado: 'Interessado', cliente: 'Virou cliente', sem_interesse: 'Sem interesse', nao_contatar: 'Não contatar' };
 const TAG_PROSP = { a_contatar: 't-neutro', contatado: 't-azul', respondeu: 't-warn', interessado: 't-warn', cliente: 't-good', sem_interesse: 't-neutro', nao_contatar: 't-crit' };
@@ -1257,7 +1400,8 @@ const VALIDA_RAST = {
   ga4_id: [v => /^G-[A-Z0-9]{6,14}$/.test(v), 'Formato: G-XXXXXXXXXX'],
   gads_id: [v => /^AW-\d{8,12}$/.test(v), 'Formato: AW-1234567890'],
   gads_label: [v => /^[A-Za-z0-9_-]{6,40}$/.test(v), 'Só o rótulo, sem o AW- (ex.: AbCdEfGh123)'],
-  meta_pixel_id: [v => /^\d{14,17}$/.test(v), 'Só números (15 ou 16 dígitos)']
+  meta_pixel_id: [v => /^\d{14,17}$/.test(v), 'Só números (15 ou 16 dígitos)'],
+  clarity_id: [v => /^[a-z0-9]{6,14}$/.test(v), 'Só o ID do projeto (ex.: abc12de3fg)']
 };
 const UTM_GOOGLE = c => `utm_source=google&utm_medium=cpc&utm_campaign=${c}&utm_term={keyword}&utm_content={creative}`;
 const UTM_META = 'utm_source=meta&utm_medium=paid_social&utm_campaign={{campaign.name}}&utm_content={{ad.name}}&utm_term={{adset.name}}';
@@ -1270,7 +1414,7 @@ const KIT = [
     config: [
       ['Objetivo', 'Leads → tipo Pesquisa (desmarque "Rede de Display" e "Parceiros de pesquisa")'],
       ['Conversão', 'Use só a ação "Lead do site" (a que você criou na Ativação)'],
-      ['Locais', 'Brasil (ou seus estados) · "Presença: pessoas no local ou que estão regularmente nele"'],
+      ['Locais', 'Brasil inteiro · "Presença: pessoas no local ou que estão regularmente nele" · após 30 dias, veja Painel > Mapa do Brasil e aumente o lance (+20%) nos estados que mais geram pedidos'],
       ['Idioma', 'Português'],
       ['Lances', 'Semanas 1–2: Maximizar cliques com CPC máximo R$ 5 · depois de ~30 conversões: Maximizar conversões · depois: CPA desejado'],
       ['Orçamento', 'R$ 50/dia (≈ R$ 1.500/mês)'],
@@ -1314,7 +1458,7 @@ const KIT = [
     config: [
       ['Objetivo', 'Engajamento → Mensagens → WhatsApp (número (21) 98770-8652)'],
       ['Nome da campanha', 'meta_topo_reels (o painel usa o nome para separar os resultados)'],
-      ['Público', 'Brasil (ou sua UF) · 25–60 anos · interesses: Advocacia, Direito do trabalho, Ordem dos Advogados do Brasil, Processo do trabalho, Jusbrasil · cargo: Advogado(a)'],
+      ['Público', 'Brasil inteiro · 25–60 anos · interesses: Advocacia, Direito do trabalho, Ordem dos Advogados do Brasil, Processo do trabalho, Jusbrasil · cargo: Advogado(a)'],
       ['Teste A/B', 'Conjunto 2 com Advantage+ público aberto (sem interesses)'],
       ['Posicionamentos', 'Advantage+ (automático)'],
       ['Orçamento', 'R$ 13/dia na campanha (≈ R$ 400/mês)'],
@@ -1449,9 +1593,9 @@ function campoRast(k, rot, ph) {
 }
 function trafegoAtivacao() {
   const r = rast(), t = traf();
-  const temGoogle = !!(r.ga4_id && r.gads_id && r.gads_label), temMeta = !!r.meta_pixel_id;
+  const temGoogle = !!(r.ga4_id && r.gads_id && r.gads_label), temMeta = !!r.meta_pixel_id, temAlgum = temGoogle || temMeta || !!r.clarity_id;
   const criadas = KIT.filter(k => feito('camp_' + k.id)).length;
-  const prontos = [temGoogle || temMeta, r.ativo, criadas > 0].filter(Boolean).length;
+  const prontos = [temAlgum, r.ativo, criadas > 0].filter(Boolean).length;
   return `<div class="demo" style="background:#eef4fc;border-color:var(--s1)"><span>Siga os passos na ordem. Tudo que depende de você está marcado com ☐; o resto o painel confere sozinho. <b>${prontos}/3</b> etapas principais concluídas.</span></div>
   ${DEMO ? '<div class="demo"><span><b>Modo demonstração:</b> os códigos ficam salvos só neste navegador e o site ainda não os usa. Ligue o Supabase e salve de novo para valer no site.</span></div>' : ''}
   <div class="grade">
@@ -1464,19 +1608,21 @@ function trafegoAtivacao() {
     <ol><li><b>GA4</b>: Administrador → Fluxos de dados → seu site → copie o <b>ID da métrica</b> (G-…).</li>
     <li><b>Google Ads</b>: Metas → Conversões → <b>+ Nova ação de conversão</b> → Site → digite <code>pontesferreiracalculos.com</code> → <b>"Adicionar uma ação de conversão manualmente"</b>:
       categoria <b>Enviar formulário de lead</b>, nome <b>Lead do site</b>, valor <b>"Usar valores diferentes"</b> (padrão R$ ${Number(r.valor_lead) || 150}), contagem <b>Uma</b>. Concluir → <b>"Usar a tag do Google"</b> → copie o trecho <code>send_to: 'AW-…/…'</code> e cole abaixo (pode colar inteiro no primeiro campo que eu separo).</li>
-    <li><b>Meta Pixel</b>: Gerenciador de Eventos → <b>Conectar fontes de dados</b> → Web → nome "Pontes Ferreira" → copie o <b>ID do conjunto de dados/Pixel</b>.</li></ol>
+    <li><b>Meta Pixel</b>: Gerenciador de Eventos → <b>Conectar fontes de dados</b> → Web → nome "Pontes Ferreira" → copie o <b>ID do conjunto de dados/Pixel</b>.</li>
+    <li><b>Microsoft Clarity</b> (grátis, mapa de calor e gravação das visitas): <a href="https://clarity.microsoft.com" target="_blank">clarity.microsoft.com</a> → Novo projeto → site <code>pontesferreiracalculos.com</code> → Configurações → <b>Visão geral</b> → copie o <b>ID do projeto</b>.</li></ol>
     <div class="form-trafego" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:10px">
       ${campoRast('ga4_id', 'ID do Google Analytics 4', 'G-XXXXXXXXXX')}
       ${campoRast('gads_id', 'ID do Google Ads', 'AW-1234567890')}
       ${campoRast('gads_label', 'Rótulo da conversão "Lead do site"', 'AbCdEfGhIjK123')}
       ${campoRast('meta_pixel_id', 'ID do Meta Pixel', '123456789012345')}
+      ${campoRast('clarity_id', 'ID do Microsoft Clarity (mapa de calor)', 'abc12de3fg')}
       ${campoRast('valor_lead', 'Valor estimado de cada lead (R$)', '150')}
     </div>
     <div class="linha" style="margin-top:12px"><button class="btn" data-acao="salvarRast">Salvar códigos</button>
-    <span style="color:var(--ink-2);font-size:13px">Google: ${temGoogle ? '✅ completo' : '⏳ faltando'} · Meta: ${temMeta ? '✅ completo' : '⏳ faltando'}</span></div>`, temGoogle || temMeta)}
+    <span style="color:var(--ink-2);font-size:13px">Google: ${temGoogle ? '✅ completo' : '⏳ faltando'} · Meta: ${temMeta ? '✅ completo' : '⏳ faltando'} · Clarity: ${r.clarity_id ? '✅' : '⏳ opcional'}</span></div>`, temAlgum)}
   ${passo('ligar', '3. Ligar no site', `<p>Com os códigos salvos, ligue a chave. O site passa a carregar o Google e o Meta e a registrar como conversão cada pedido de orçamento (formulário e botões de WhatsApp). Não precisa mexer no código nem publicar de novo.</p>
-    <label class="linha" style="font-size:15px;font-weight:600;margin-top:8px"><input type="checkbox" id="rastAtivo" ${r.ativo ? 'checked' : ''} ${(temGoogle || temMeta) ? '' : 'disabled'}> Rastreamento ligado no site</label>
-    ${(temGoogle || temMeta) ? '' : '<div class="desc">Salve pelo menos um código no passo 2 para liberar.</div>'}`, !!r.ativo)}
+    <label class="linha" style="font-size:15px;font-weight:600;margin-top:8px"><input type="checkbox" id="rastAtivo" ${r.ativo ? 'checked' : ''} ${temAlgum ? '' : 'disabled'}> Rastreamento ligado no site</label>
+    ${temAlgum ? '' : '<div class="desc">Salve pelo menos um código no passo 2 para liberar.</div>'}`, !!r.ativo)}
   ${passo('testar', '4. Testar', `<ol>
     <li>Abra <a href="${SITE_URL}?pf_teste=1" target="_blank">${SITE_URL}?pf_teste=1</a>: aparece um quadro no canto com o que está ligado.</li>
     <li><b>Google</b>: abra <a href="https://tagassistant.google.com" target="_blank">tagassistant.google.com</a>, conecte o site, clique num botão de WhatsApp e veja o evento <b>conversion</b>. No Google Ads, a conversão muda de "Não verificada" para "Registrando conversões" em até 24h.</li>
@@ -1640,11 +1786,11 @@ async function salvarRast() {
   Object.entries(S.rascRast).forEach(([k, v]) => { r[k] = String(v).trim(); });
   const m = (r.gads_id || '').match(/(AW-\d+)\s*\/\s*([A-Za-z0-9_-]+)/); // colou o send_to inteiro
   if (m) { r.gads_id = m[1]; r.gads_label = m[2]; }
-  r.ga4_id = (r.ga4_id || '').toUpperCase(); r.gads_id = (r.gads_id || '').toUpperCase(); r.meta_pixel_id = digitos(r.meta_pixel_id);
+  r.ga4_id = (r.ga4_id || '').toUpperCase(); r.gads_id = (r.gads_id || '').toUpperCase(); r.meta_pixel_id = digitos(r.meta_pixel_id); r.clarity_id = (r.clarity_id || '').trim().toLowerCase();
   r.valor_lead = Number(String(r.valor_lead || '').replace(',', '.')) || 150;
   const erros = Object.entries(VALIDA_RAST).filter(([k, [ok]]) => r[k] && !ok(r[k])).map(([k, [, msg]]) => msg);
   if (erros.length) { S.rascRast = { ...r }; render(); return toast('Confira: ' + erros.join(' · ')); }
-  if (!(r.ga4_id || r.gads_id || r.meta_pixel_id)) r.ativo = false;
+  if (!(r.ga4_id || r.gads_id || r.meta_pixel_id || r.clarity_id)) r.ativo = false;
   await seguro(async () => { await ajustesDb.salvar('rastreamento', r); S.ajustes.rastreamento = r; S.rascRast = {}; toast(r.ativo ? 'Códigos salvos · o site já usa os novos códigos' : 'Códigos salvos · agora ligue no passo 3'); render(); });
 }
 async function salvarMetas() {
@@ -1666,8 +1812,74 @@ function exportMeta() {
   baixarArquivo(`meta-clientes-${hoje()}.csv`, csv(linhas));
 }
 
+/* ---------------- menu e busca rápida (Ctrl+K) ---------------- */
+const GRUPOS_NAV = [['Operação', ['painel', 'leads', 'prospeccao', 'whatsapp', 'calculos', 'clientes']], ['Crescimento', ['mapa', 'trafego']], ['Gestão', ['financeiro']]];
+const ic = d => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+const ICONES = {
+  painel: ic('<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>'),
+  mapa: ic('<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>'),
+  leads: ic('<path d="M3 5h18l-7 8v6l-4 2v-8z"/>'),
+  prospeccao: ic('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".8"/>'),
+  whatsapp: ic('<path d="M4 20l1.3-3.9A8 8 0 1 1 8 19z"/>'),
+  calculos: ic('<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 11h2M12 11h2M16 11h0M8 15h2M12 15h2M8 18h2M12 18h4"/>'),
+  clientes: ic('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/>'),
+  financeiro: ic('<path d="M3 17l5-5 4 4 8-9"/><path d="M15 7h5v5"/>'),
+  trafego: ic('<path d="M4 15V9l12-5v16L4 15z"/><path d="M8 16.5 9.5 21h3L11 17"/>')
+};
+const PAL = { aberta: false, q: '', i: 0, itens: [] };
+function itensPaleta(q) {
+  const n = roboNorm(q), dig = digitos(q), bate = (...v) => !n || v.some(x => roboNorm(x).includes(n)) || (dig.length >= 4 && v.some(x => digitos(x).includes(dig)));
+  const out = [];
+  Object.entries(ROTAS).filter(([k]) => k !== 'whatsapp' || WA_PAINEL()).forEach(([k, [rot]]) => { if (bate(rot, 'ir para ' + rot)) out.push({ g: 'Ir para', rot, ic: ICONES[k], run: () => { location.hash = k; } }); });
+  [['Novo lead', () => editarLead(null)], ['Novo cálculo', () => editarCalculo(null)], ['Novo cliente', () => editarCliente(null)], ['Novo contato de prospecção', () => { location.hash = 'prospeccao'; editarProsp(null); }],
+   ['Próximo da fila de prospecção', () => { location.hash = 'prospeccao'; proximoDaFila(null); }], ['Lançar gasto com anúncios', () => novoGasto()], ['Lançar despesa', () => editarDespesa(null)], ['Importar .PJC', () => importarPJC()]]
+    .forEach(([rot, run]) => { if (bate(rot)) out.push({ g: 'Ações', rot, ic: '＋', run }); });
+  if (q.trim().length >= 2) {
+    S.leads.filter(l => bate(l.nome, l.whatsapp, l.numero_processo, l.email)).slice(0, 6).forEach(l => out.push({ g: 'Leads', rot: l.nome || l.whatsapp || 'Lead', sub: [STATUS_LEAD[l.status], l.numero_processo].filter(Boolean).join(' · '), ic: ICONES.leads, run: () => { location.hash = 'leads'; setTimeout(() => abrirFicha(l.id), 30); } }));
+    S.calculos.filter(c => bate(c.numero_processo, c.reclamante, c.reclamada, cliente(c.cliente_id)?.nome)).slice(0, 6).forEach(c => out.push({ g: 'Cálculos', rot: c.numero_processo || 'Cálculo', sub: [cliente(c.cliente_id)?.nome, STATUS_CALC[c.status]].filter(Boolean).join(' · '), mono: true, ic: ICONES.calculos, run: () => editarCalculo(c) }));
+    S.clientes.filter(c => bate(c.nome, c.whatsapp, c.email, c.oab)).slice(0, 5).forEach(c => out.push({ g: 'Clientes', rot: c.nome, sub: c.cidade || '', ic: ICONES.clientes, run: () => editarCliente(c) }));
+    S.prospects.filter(p => bate(p.nome, p.escritorio, p.cidade, p.whatsapp, p.email)).slice(0, 5).forEach(p => out.push({ g: 'Prospecção', rot: p.nome, sub: [STATUS_PROSP[p.status], p.cidade].filter(Boolean).join(' · '), ic: ICONES.prospeccao, run: () => { location.hash = 'prospeccao'; setTimeout(() => abrirAbordagem(p.id), 30); } }));
+  }
+  return out.slice(0, 40);
+}
+function abrirPaleta() {
+  if (PAL.aberta) return;
+  PAL.aberta = true; PAL.q = ''; PAL.i = 0;
+  const f = document.createElement('div'); f.className = 'paleta-fundo'; f.id = 'paleta';
+  f.innerHTML = `<div class="paleta" role="dialog" aria-label="Busca rápida"><div class="paleta-in"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="palQ" placeholder="Buscar lead, cliente, nº do processo… ou digite uma ação" autocomplete="off"><kbd>Esc</kbd></div><div class="paleta-lista" id="palLista" role="listbox"></div>
+    <div class="paleta-pe"><span><kbd>↑</kbd><kbd>↓</kbd> navegar</span><span><kbd>Enter</kbd> abrir</span><span><kbd>Esc</kbd> fechar</span></div></div>`;
+  document.body.appendChild(f);
+  f.addEventListener('mousedown', e => { if (e.target === f) fecharPaleta(); });
+  const inp = $('#palQ');
+  inp.addEventListener('input', () => { PAL.q = inp.value; PAL.i = 0; desenharPaleta(); });
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); PAL.i = Math.min(PAL.itens.length - 1, PAL.i + 1); desenharPaleta(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); PAL.i = Math.max(0, PAL.i - 1); desenharPaleta(); }
+    else if (e.key === 'Enter') { e.preventDefault(); executarPaleta(PAL.i); }
+    else if (e.key === 'Escape') fecharPaleta();
+  });
+  desenharPaleta(); inp.focus();
+}
+function desenharPaleta() {
+  PAL.itens = itensPaleta(PAL.q);
+  let g = '';
+  $('#palLista').innerHTML = PAL.itens.length ? PAL.itens.map((it, i) => {
+    const cab = it.g !== g ? `<div class="paleta-g">${esc(it.g)}</div>` : ''; g = it.g;
+    return `${cab}<div class="paleta-item ${i === PAL.i ? 'on' : ''}" role="option" data-pal="${i}"><span class="paleta-ic">${it.ic || ''}</span><span class="paleta-t"><b class="${it.mono ? 'mono' : ''}">${esc(it.rot)}</b>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</span><span class="paleta-ent">↵</span></div>`;
+  }).join('') : `<div class="vazio">Nada encontrado para "${esc(PAL.q)}". Tente o nome, o WhatsApp ou o número do processo.</div>`;
+  $('#palLista').querySelectorAll('[data-pal]').forEach(el => { el.onclick = () => executarPaleta(Number(el.dataset.pal)); el.onmousemove = () => { if (PAL.i !== Number(el.dataset.pal)) { PAL.i = Number(el.dataset.pal); desenharPaleta(); } }; });
+  $('#palLista .paleta-item.on')?.scrollIntoView({ block: 'nearest' });
+}
+function executarPaleta(i) { const it = PAL.itens[i]; if (!it) return; fecharPaleta(); it.run(); }
+function fecharPaleta() { PAL.aberta = false; $('#paleta')?.remove(); }
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); PAL.aberta ? fecharPaleta() : abrirPaleta(); }
+  else if (e.key === '/' && !PAL.aberta && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '') && !document.querySelector('.modal-fundo')) { e.preventDefault(); abrirPaleta(); }
+});
+
 /* ---------------- shell, rotas e eventos ---------------- */
-const ROTAS = { painel: ['Painel', telaPainel], leads: ['Leads · CRM', telaLeads], prospeccao: ['Prospecção', telaProspeccao], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro], trafego: ['Tráfego pago', telaTrafego] };
+const ROTAS = { painel: ['Painel', telaPainel], mapa: ['Mapa do Brasil', telaMapa], leads: ['Leads · CRM', telaLeads], prospeccao: ['Prospecção', telaProspeccao], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro], trafego: ['Tráfego pago', telaTrafego] };
 const rota = () => { const r = location.hash.slice(1); return ROTAS[r] && (r !== 'whatsapp' || WA_PAINEL()) ? r : 'painel'; };
 const CAMPOS_FOCO = ['busca', 'buscaLeads', 'buscaWa', 'waTexto', 'buscaProsp'];
 
@@ -1679,11 +1891,16 @@ function render() {
   const ae = document.activeElement, foco = ae && CAMPOS_FOCO.includes(ae.id) ? { id: ae.id, ini: ae.selectionStart, fim: ae.selectionEnd } : null;
   const msgsAntes = $('#waMsgs'), noFim = !msgsAntes || msgsAntes.scrollHeight - msgsAntes.scrollTop - msgsAntes.clientHeight < 60;
   const pill = n => n ? `<span class="pill">${n}</span>` : '';
+  const sel = (S._ultimaRota !== r); S._ultimaRota = r;
+  const contador = k => k === 'leads' ? pill(pendentes) : k === 'whatsapp' ? pill(naoLidas) : k === 'calculos' ? pill(atras) : k === 'prospeccao' ? pill(filaProsp().filter(p => p.tentativas > 0).length) : '';
+  const itemNav = k => `<a href="#${k}" class="${k === r ? 'on' : ''}" ${k === r ? 'aria-current="page"' : ''}>${ICONES[k] || ''}<span class="rot">${ROTAS[k][0]}</span>${contador(k)}</a>`;
+  const grupos = GRUPOS_NAV.map(([g, ks]) => { const vis = ks.filter(k => ROTAS[k] && (k !== 'whatsapp' || WA_PAINEL())); return vis.length ? `<div class="grupo">${g}</div>${vis.map(itemNav).join('')}` : ''; }).join('');
   $('#raiz').innerHTML = `<div class="app"><nav>
-    <div class="marca">Pontes Ferreira<span>Cálculos Judiciais</span></div>
-    ${Object.entries(ROTAS).filter(([k]) => k !== 'whatsapp' || WA_PAINEL()).map(([k, [rot]]) => `<a href="#${k}" class="${k === r ? 'on' : ''}">${rot}${k === 'leads' ? pill(pendentes) : k === 'whatsapp' ? pill(naoLidas) : k === 'calculos' ? pill(atras) : k === 'prospeccao' ? pill(filaProsp().filter(p => p.tentativas > 0).length) : ''}</a>`).join('')}
-    <div class="rodape">${DEMO ? 'Modo demonstração' : `Conectado<br><button data-acao="trocarSenha">Trocar senha</button> · <button data-acao="sair">Sair</button>`}</div></nav>
-    <main class="${r === 'whatsapp' ? 'main-wa' : ''}">${DEMO ? `<div class="demo"><span><b>Modo demonstração:</b> dados de exemplo, salvos só neste navegador. Conecte o Supabase em <code>config.js</code> para usar de verdade.</span><button class="btn mini sec" data-acao="limparDemo">Limpar exemplos</button></div>` : ''}
+    <div class="marca"><span class="selo">PF</span><div>Pontes Ferreira<small>Cálculos Judiciais</small></div></div>
+    <button class="busca-btn" data-acao="paleta"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Buscar ou fazer…<kbd>Ctrl K</kbd></button>
+    <div class="itens">${grupos}</div>
+    <div class="rodape">${DEMO ? '<span class="ponto demo-p"></span>Modo demonstração' : `<span class="ponto"></span>Conectado<div><button data-acao="trocarSenha">Trocar senha</button> · <button data-acao="sair">Sair</button></div>`}</div></nav>
+    <main class="${r === 'whatsapp' ? 'main-wa' : ''} ${sel ? 'entra' : ''}">${DEMO ? `<div class="demo"><span><b>Modo demonstração:</b> dados de exemplo, salvos só neste navegador. Conecte o Supabase em <code>config.js</code> para usar de verdade.</span><button class="btn mini sec" data-acao="limparDemo">Limpar exemplos</button></div>` : ''}
     ${ROTAS[r][1]()}</main></div>`;
   document.title = `${(naoLidas + pendentes) ? `(${naoLidas + pendentes}) ` : ''}${ROTAS[r][0]} · Pontes Ferreira`;
   if (foco) { const el = document.getElementById(foco.id); if (el && !el.disabled) { el.focus(); try { el.setSelectionRange(foco.ini, foco.fim); } catch { } } }
@@ -1691,9 +1908,12 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
+  if (d.ufMapa !== undefined) { S.ufMapa = d.ufMapa || null; if (rota() !== 'mapa') location.hash = 'mapa'; return render(); }
+  if (d.metricaMapa) { S.metricaMapa = d.metricaMapa; localSet('pf_metrica_mapa', d.metricaMapa); return render(); }
+  if (d.prospectarUf) return prospectarUF(d.prospectarUf);
   if (d.prosp) return editarProsp(S.prospects.find(x => x.id === d.prosp));
   if (d.abordar) return abrirAbordagem(d.abordar);
   if (d.roboAssumir) return roboAssumir(d.roboAssumir, true);
@@ -1719,7 +1939,7 @@ document.addEventListener('click', e => {
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
     novaDespesa: () => editarDespesa(null), importarPJC, limparDemo, novaConversa,
-    novoGasto: () => novoGasto(), novoProsp: () => editarProsp(null), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
+    novoGasto: () => novoGasto(), novoProsp: () => editarProsp(null), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
     waEnviar: waEnviarTexto, waAnexar,
     waModelo: () => seguro(() => waEnviar({ template: CFG.WA_TEMPLATE || 'retomar_contato', idioma: CFG.WA_TEMPLATE_IDIOMA || 'pt_BR' })),
     addAtividade: () => seguro(async () => {
@@ -1765,6 +1985,7 @@ document.addEventListener('input', e => {
 document.addEventListener('keydown', e => {
   if (e.target.id === 'waTexto' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); waEnviarTexto(); }
   if (e.key === 'Escape' && fichaId) fecharFicha();
+  if (e.key === 'Escape' && $('#abordagem') && !PAL.aberta) fecharAbordagem();
 });
 window.addEventListener('hashchange', render);
 setInterval(() => { if (!document.querySelector('.modal-fundo') && !CAMPOS_FOCO.includes(document.activeElement?.id) && !document.activeElement?.closest?.('.form-trafego')) render(); }, 60000);

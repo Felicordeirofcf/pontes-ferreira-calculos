@@ -362,6 +362,7 @@
 </a>
 
 <script src="config.js"></script>
+<script src="rastro.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
   // ===== CONFIGURAÇÃO =====
@@ -393,6 +394,9 @@
       fbq('init', r.meta_pixel_id);
       fbq('track', 'PageView');
     }
+    if(r.clarity_id){ // Microsoft Clarity: mapa de calor e gravação de sessões
+      (function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);})(window,document,"clarity","script",r.clarity_id);
+    }
   }
   const rastreioPronto = (async () => {
     let r = CFG.RASTREAMENTO || {};
@@ -409,7 +413,7 @@
       const box = document.createElement('div');
       box.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:9999;background:#0f1c2e;color:#fff;font:13px/1.5 system-ui;padding:12px 14px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.35);max-width:340px';
       box.innerHTML = '<b>Teste de rastreamento</b><br>Fonte: '+(SB?'painel (Supabase)':'config.js')+'<br>Status: '+(r.ativo?'🟢 LIGADO':'🔴 desligado')+
-        '<br>GA4: '+ok(r.ga4_id)+'<br>Google Ads: '+ok(r.gads_id)+'<br>Conversão: '+ok(r.gads_label)+'<br>Meta Pixel: '+ok(r.meta_pixel_id)+
+        '<br>GA4: '+ok(r.ga4_id)+'<br>Google Ads: '+ok(r.gads_id)+'<br>Conversão: '+ok(r.gads_label)+'<br>Meta Pixel: '+ok(r.meta_pixel_id)+'<br>Clarity (mapa de calor): '+ok(r.clarity_id)+
         '<br><small>Clique num botão de WhatsApp: o evento de conversão é disparado.</small>';
       document.body.appendChild(box);
     }
@@ -521,6 +525,7 @@
     $('origemCampo').value = origemCampanha();
     const urgente = $('prazo').value.includes('48h');
     conversao(modo==='pdf'?'form_pdf':'form_numero', urgente ? 2 : 1);
+    if(window.PF_EVENTO) PF_EVENTO('pedido', { alvo: modo==='pdf' ? 'formulario_pdf' : 'formulario_numero', secao: 'form' });
 
     const resumo =
       'Olá! Sou '+$('nome').value+'.\n'+
@@ -541,13 +546,16 @@
           const up = await SB.storage.from('processos').upload(arquivo_path, f, {contentType:'application/pdf', upsert:false});
           if(up.error) throw up.error;
         }
-        const ins = await SB.from('leads').insert({
+        const dadosLead = {
           nome: $('nome').value.trim(), whatsapp: $('tel').value.trim(), tipo: $('tipo').value, prazo: $('prazo').value,
           modo, numero_processo: modo==='numero' ? numero.value : null, arquivo_path,
           origem: origemCampanha(), utm_source: ler('utm_source')||null, utm_campaign: ler('utm_campaign')||null,
           utm_medium: ler('utm_medium')||null, utm_content: ler('utm_content')||null, utm_term: ler('utm_term')||null,
-          gclid: ler('gclid')||null, fbclid: ler('fbclid')||null
-        });
+          gclid: ler('gclid')||null, fbclid: ler('fbclid')||null,
+        };
+        const geo = await (window.PF_GEO||Promise.resolve({})).then(g => ({ uf: g.uf || null, cidade: g.cidade || null })).catch(() => ({}));
+        let ins = await SB.from('leads').insert({ ...dadosLead, ...geo });
+        if(ins.error && /column|coluna|schema cache/i.test(ins.error.message||'')) ins = await SB.from('leads').insert(dadosLead); // banco ainda sem as colunas uf/cidade
         if(ins.error) throw ins.error;
       } else {
         const r = await fetch('/', {method:'POST', body:new FormData(form)});
