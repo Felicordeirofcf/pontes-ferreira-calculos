@@ -33,8 +33,12 @@ echo "== 3/5 Dados do Supabase (ficam só neste servidor, em /etc/pontes.env)"
 echo "Supabase > Project Settings > API:"
 read -rp "  Project URL (https://xxxx.supabase.co): " SUPABASE_URL
 read -rp "  Chave anon public: " SUPABASE_ANON_KEY
-echo "Supabase > botão Connect (no topo) > Session pooler > URI. Troque [YOUR-PASSWORD] pela senha do banco."
-read -rsp "  Conexão do banco (postgresql://...): " DB_URL; echo
+echo "Supabase > botão Connect (no topo) > Session pooler > URI (copie SEM trocar o [YOUR-PASSWORD]):"
+read -rp "  Conexão do banco: " DB_SEM_SENHA
+read -rsp "  Senha do banco (não aparece enquanto digita): " DB_SENHA; echo
+SENHA_URL=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$DB_SENHA")
+DB_URL="${DB_SEM_SENHA/\[YOUR-PASSWORD\]/$SENHA_URL}"
+case "$DB_URL" in *YOUR-PASSWORD*|"") echo "Conexão inválida: confira o endereço copiado do Supabase."; exit 1;; esac
 umask 077
 cat > /etc/pontes.env <<ENV
 SUPABASE_URL="${SUPABASE_URL%/}"
