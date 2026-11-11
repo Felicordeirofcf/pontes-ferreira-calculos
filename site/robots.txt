@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /painel/
+Allow: /
+
+Sitemap: https://pontesferreiracalculos.com/sitemap.xml

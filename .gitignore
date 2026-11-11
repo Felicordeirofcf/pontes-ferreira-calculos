@@ -1,0 +1,16 @@
+# Dados de clientes e processos: NUNCA enviar ao GitHub
+*.PJC
+*.pjc
+RELATORIO_*
+PROCESSO_*
+*.pdf
+!site/**/*.pdf
+
+# Ambiente local
+.claude/
+*.log
+.env
+.env.*
+.vercel
+Thumbs.db
+desktop.ini
