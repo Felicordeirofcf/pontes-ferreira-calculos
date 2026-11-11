@@ -203,3 +203,10 @@ drop policy if exists site_le_ajustes on ajustes;
 drop policy if exists dono_ajustes on ajustes;
 create policy site_le_ajustes on ajustes for select to anon using (publico);
 create policy dono_ajustes    on ajustes for all to authenticated using (is_dono()) with check (is_dono());
+
+-- ---------------- Atendimento automático (robô do WhatsApp) ----------------
+alter table wa_conversas add column if not exists bot_etapa text;              -- menu | aguardando_processo | humano…
+alter table wa_conversas add column if not exists bot_atualizado_em timestamptz;
+alter table wa_conversas add column if not exists humano_ate timestamptz;      -- até quando o robô fica em silêncio
+alter table wa_mensagens add column if not exists bot boolean not null default false;
+insert into ajustes (chave, publico) values ('atendimento', false) on conflict do nothing;

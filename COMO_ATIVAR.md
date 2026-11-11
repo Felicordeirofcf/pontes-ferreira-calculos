@@ -80,13 +80,25 @@ A aprovação costuma sair em minutos ou em até 24h.
 ### 5.5 Ativar no painel
 Em `site/config.js`, mude `WA_ATIVO: false` para `WA_ATIVO: true` e envie ao GitHub (a Vercel publica sozinha).
 
+### 5.6 Atendimento automático (robô)
+1. Painel > **WhatsApp** > **🧪 Testar robô**: converse com o robô como se fosse cliente (nada é enviado).
+2. **⚙ Atendimento automático**: horário da equipe, textos de cada resposta e se ele responde quem já é cliente. Marque **Robô ligado** e salve.
+3. Como ele age:
+   - Quem escreve recebe boas-vindas e o menu: **1** orçamento, **2** preços e prazos, **3** acompanhar cálculo, **4** falar com a equipe.
+   - Quando chega o **PDF** ou o **número do processo**, ele confirma, grava no lead e passa para a equipe.
+   - Fora do horário, ele avisa quando a equipe volta.
+   - Assim que você responde pelo painel, ele fica quieto naquela conversa (12h, ajustável). Na conversa há os botões **Assumir agora** e **Devolver ao robô**.
+4. Se você já tinha criado a função `whatsapp-webhook`, cole de novo o arquivo atualizado (`supabase/functions/whatsapp-webhook/index.ts`) e faça o mesmo com `whatsapp-enviar`. Rode o `schema.sql` de novo.
+
+> As mensagens que o robô manda pelo **app** do WhatsApp Business não aparecem para ele: o robô só funciona com o número ligado à API oficial (passos 5.1 a 5.5).
+
 ---
 
 ## Como o fluxo funciona
 | Etapa | Onde |
 |---|---|
 | Advogado envia PDF (até 50 MB) ou nº do processo no site | entra em **Leads > Novo**, com som e notificação |
-| Advogado manda mensagem no WhatsApp | aparece na tela **WhatsApp**. Se for um número novo, vira lead no CRM. PDF enviado por ele fica salvo e vinculado ao lead |
+| Advogado manda mensagem no WhatsApp | o **robô** responde com o menu e pede o processo; a conversa aparece na tela **WhatsApp**. Número novo vira lead no CRM; PDF ou nº do processo enviado fica gravado no lead |
 | Você responde | pela tela **WhatsApp**, com **respostas rápidas** (saudação, pedir PDF, orçamento, entrega, cobrança) |
 | Acompanhamento | **ficha do lead**: temperatura, próximo contato, histórico de ligações e anotações. A aba **Retornos** mostra o que fazer hoje |
 | Fechou | **→ Cálculo** cria o cliente e o cálculo |

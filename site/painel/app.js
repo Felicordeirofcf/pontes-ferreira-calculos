@@ -726,7 +726,7 @@ function telaWhatsapp() {
     const bolhas = msgs === null ? '<div class="vazio">Carregando…</div>' : msgs.length ? msgs.map(m => {
       const d = dia(m.created_at), sep = d !== ultDia ? `<div class="wa-dia">${d === hoje() ? 'Hoje' : dataBR(d)}</div>` : ''; ultDia = d;
       const arq = m.arquivo_nome ? `<div class="wa-arq">📎 ${esc(m.arquivo_nome)} ${m.arquivo_path ? `<button class="btn mini sec" data-pdf="${esc(m.arquivo_path)}">Abrir</button>` : ''}${m.arquivo_path && m.direcao === 'in' && l ? `<button class="btn mini sec" data-usar-pdf="${esc(m.arquivo_path)}" title="Definir como PDF do processo do lead">Usar no lead</button>` : ''}</div>` : '';
-      return `${sep}<div class="wa-msg ${m.direcao}">${arq}${m.texto ? `<div>${esc(m.texto).replace(/\n/g, '<br>')}</div>` : ''}<span class="wa-hora">${hora(m.created_at)} ${ticks(m)}</span></div>`;
+      return `${sep}<div class="wa-msg ${m.direcao}">${m.bot ? '<span class="wa-bot">🤖 robô</span>' : ''}${arq}${m.texto ? `<div>${fmtWa(m.texto)}</div>` : ''}<span class="wa-hora">${hora(m.created_at)} ${ticks(m)}</span></div>`;
     }).join('') : '<div class="vazio">Nenhuma mensagem ainda</div>';
     const aberta = janelaAberta(c);
     const fimJanela = aberta ? new Date(new Date(c.ultima_entrada_em).getTime() + 24 * 36e5) : null;
@@ -734,6 +734,9 @@ function telaWhatsapp() {
         <div class="linha">${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha do lead</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="_blank" href="${waLink(c.wa_id)}">Abrir no app ↗</a></div></div>
       <div class="wa-janela ${aberta ? 'ok' : 'fechada'}">${aberta ? `✔ Conversa aberta: pode responder livremente até ${fimJanela.toLocaleDateString('pt-BR') === new Date().toLocaleDateString('pt-BR') ? 'hoje' : 'amanhã'} às ${hora(fimJanela)}.`
         : `⏸ O cliente não escreve há mais de 24h. Pela regra do WhatsApp, só dá para enviar um <b>modelo aprovado</b> para retomar a conversa. <button class="btn mini" data-acao="waModelo">Enviar modelo "${esc(CFG.WA_TEMPLATE || 'retomar_contato')}"</button>`}</div>
+      ${cfgRobo().ativo ? `<div class="wa-janela ${roboEmSilencio(c) ? 'fechada' : 'ok'}">${roboEmSilencio(c)
+        ? `👤 Equipe atendendo: o robô está quieto até ${new Date(c.humano_ate).toLocaleDateString('pt-BR') === new Date().toLocaleDateString('pt-BR') ? '' : dataBR(c.humano_ate) + ' '}${hora(c.humano_ate)}. <button class="btn mini sec" data-robo-devolver="${c.wa_id}">Devolver ao robô</button>`
+        : `🤖 O robô responde esta conversa. Ao enviar uma mensagem, você assume. <button class="btn mini sec" data-robo-assumir="${c.wa_id}">Assumir agora</button>`}</div>` : ''}
       <div class="wa-msgs" id="waMsgs">${bolhas}</div>
       <div class="wa-compor">
         <select class="f" id="waRapida"><option value="">⚡ Respostas rápidas</option>${RESPOSTAS_RAPIDAS.map(([r], i) => `<option value="${i}">${r}</option>`).join('')}</select>
@@ -742,14 +745,16 @@ function telaWhatsapp() {
         <button class="btn" data-acao="waEnviar" ${aberta ? '' : 'disabled'}>Enviar</button>
       </div>`;
   }
-  return `<div class="topo"><h1>WhatsApp</h1><div class="acoes"><button class="btn" data-acao="novaConversa">+ Nova conversa</button></div></div>
+  const rb = cfgRobo();
+  return `<div class="topo"><h1>WhatsApp</h1><div class="acoes"><span class="tag ${rb.ativo ? 't-good' : 't-neutro'}">${rb.ativo ? '🤖 Robô ligado' : '🤖 Robô desligado'}</span>
+    <button class="btn sec" data-acao="configurarRobo">⚙ Atendimento automático</button><button class="btn sec" data-acao="testarRobo">🧪 Testar robô</button><button class="btn" data-acao="novaConversa">+ Nova conversa</button></div></div>
   ${DEMO ? '' : (CFG.WA_ATIVO ? '' : '<div class="demo">O WhatsApp ainda não está conectado à API oficial. Veja o passo 5 do <b>COMO_ATIVAR.md</b>. Até lá, use o botão "Abrir no app ↗".</div>')}
   <div class="wa">
     <div class="wa-lista"><input class="f" id="buscaWa" placeholder="Buscar conversa…" value="${esc(S.buscaWa)}">
       ${convs.length ? convs.map(x => { const lx = leadDaConversa(x); return `<div class="wa-item ${x.wa_id === S.conversa ? 'on' : ''}" data-conv="${x.wa_id}">
         <div class="wa-l1"><b>${esc(x.nome || fmtTel(x.wa_id))}</b><span>${quandoCurto(x.ultima_msg_em)}</span></div>
         <div class="wa-l2"><span>${esc((x.ultima_msg || '').slice(0, 60))}</span>${x.nao_lidas ? `<i>${x.nao_lidas}</i>` : ''}</div>
-        ${lx ? `<div class="wa-l3">${esc(STATUS_LEAD[lx.status])} ${lx.temperatura ? '· ' + TEMPERATURAS[lx.temperatura] : ''}</div>` : ''}</div>`; }).join('') : '<div class="vazio">Nenhuma conversa</div>'}
+        ${lx || x.bot_etapa ? `<div class="wa-l3">${lx ? esc(STATUS_LEAD[lx.status]) : ''} ${lx?.temperatura ? '· ' + TEMPERATURAS[lx.temperatura] : ''} ${cfgRobo().ativo && !x.cliente_id ? (roboEmSilencio(x) ? '· 👤 equipe' : x.bot_etapa ? '· 🤖 robô' : '') : ''}</div>` : ''}</div>`; }).join('') : '<div class="vazio">Nenhuma conversa</div>'}
     </div>
     <div class="wa-chat">${corpo}</div>
   </div>`;
@@ -817,7 +822,7 @@ async function waEnviar(opts) {
   }
   (S.wa_mensagens[c.wa_id] = S.wa_mensagens[c.wa_id] || []).push(msg);
   const resumo = msg.tipo === 'document' ? `📎 ${msg.arquivo_nome}` : msg.texto;
-  await atualizar('wa_conversas', c.id, { ultima_msg: (resumo || '').slice(0, 200), ultima_msg_em: msg.created_at, nao_lidas: 0 });
+  await atualizar('wa_conversas', c.id, { ultima_msg: (resumo || '').slice(0, 200), ultima_msg_em: msg.created_at, nao_lidas: 0, humano_ate: new Date(Date.now() + (Number(cfgRobo().pausa_horas) || 12) * 36e5).toISOString(), bot_etapa: 'humano' });
   if (l) {
     const patch = { ultimo_contato: new Date().toISOString() };
     if (!l.respondido_em) patch.respondido_em = patch.ultimo_contato;
@@ -845,6 +850,76 @@ function waAnexar() {
     S.rascunhos[c.wa_id] = ''; render();
   });
   inp.click();
+}
+
+/* ---------------- Atendimento automático (robô) ---------------- */
+const ROBO_ROTULOS = {
+  boas_vindas: 'Boas-vindas (primeira mensagem)', menu: 'Menu de opções', orcamento: 'Opção 1 · pedir o processo', recebido: 'Processo recebido (no horário)',
+  recebido_fora: 'Processo recebido (fora do horário)', precos: 'Opção 2 · preços e prazos', atendente: 'Opção 4 · chamar a equipe (no horário)',
+  atendente_fora: 'Opção 4 · chamar a equipe (fora do horário)', nao_entendi: 'Quando não entende', aguardando: 'Esperando o processo',
+  arquivo_nao_pdf: 'Recebeu arquivo que não é PDF', sem_calculo: 'Opção 3 · nenhum cálculo em andamento'
+};
+const cfgRobo = () => ({ ...ROBO_PADRAO, ...(S.ajustes.atendimento || {}) });
+const roboEmSilencio = c => c && c.humano_ate && new Date(c.humano_ate).getTime() > Date.now();
+async function configurarRobo() {
+  const c = cfgRobo(), tx = { ...ROBO_TEXTOS, ...(c.textos || {}) };
+  const v = await abrirForm('🤖 Atendimento automático', [
+    { k: 'ativo', rot: 'Robô ligado (responde sozinho quem escrever no WhatsApp)', tipo: 'checkbox', full: true },
+    { k: 'dias', rot: 'Dias de atendimento da equipe', tipo: 'select', opcoes: [['seg-sex', 'Segunda a sexta'], ['seg-sab', 'Segunda a sábado']], vazio: false },
+    { k: 'pausa_horas', rot: 'Depois que a equipe responde, o robô fica quieto por (horas)', tipo: 'number' },
+    { k: 'inicio', rot: 'Abre às', tipo: 'time' }, { k: 'fim', rot: 'Fecha às', tipo: 'time' },
+    { k: 'sabado_inicio', rot: 'Sábado abre às (opcional)', tipo: 'time' }, { k: 'sabado_fim', rot: 'Sábado fecha às (opcional)', tipo: 'time' },
+    { k: 'responder_clientes', rot: 'Responder também quem já é cliente (senão, cliente fala direto com a equipe)', tipo: 'checkbox', full: true },
+    ...Object.entries(ROBO_ROTULOS).map(([k, rot]) => ({ k: 't_' + k, rot: `Texto · ${rot}`, tipo: 'textarea', full: true }))
+  ], { ...c, ...Object.fromEntries(Object.entries(tx).map(([k, val]) => ['t_' + k, val])) });
+  if (!v) return;
+  const textos = {};
+  Object.keys(ROBO_ROTULOS).forEach(k => { const val = v['t_' + k]; if (val && val !== ROBO_TEXTOS[k]) textos[k] = val; delete v['t_' + k]; });
+  const novo = { ...ROBO_PADRAO, ...v, pausa_horas: v.pausa_horas || 12, textos };
+  await seguro(async () => { await ajustesDb.salvar('atendimento', novo); S.ajustes.atendimento = novo; toast(novo.ativo ? 'Robô LIGADO' : 'Robô desligado'); render(); });
+}
+async function roboAssumir(waId, assumir) {
+  const c = S.wa_conversas.find(x => x.wa_id === waId); if (!c) return;
+  const patch = assumir ? { humano_ate: new Date(Date.now() + (Number(cfgRobo().pausa_horas) || 12) * 36e5).toISOString(), bot_etapa: 'humano' } : { humano_ate: null, bot_etapa: null };
+  await seguro(async () => { await atualizar('wa_conversas', c.id, patch); toast(assumir ? 'Você assumiu a conversa; o robô fica quieto' : 'Conversa devolvida ao robô'); render(); });
+}
+/* simulador: conversa de teste no próprio painel, sem enviar nada para o WhatsApp */
+const SIM = { etapa: null, msgs: [], nome: 'Dra. Teste' };
+function simular(entrada) {
+  const c = cfgRobo();
+  SIM.msgs.push({ dir: 'in', texto: entrada.texto || `📎 ${entrada.arquivo}` });
+  if (SIM.etapa === 'humano') { SIM.msgs.push({ dir: 'info', texto: 'Robô em silêncio: a conversa foi passada para a equipe. Clique em "Recomeçar" para testar de novo.' }); return renderSimulador(); }
+  const r = roboDecidir({ etapa: SIM.etapa, tipo: entrada.tipo || 'text', texto: entrada.texto || '', ehPdf: !!entrada.pdf, nome: SIM.nome, cfg: c,
+    foraHorario: SIM.fora ?? roboForaDoHorario(c, roboAgoraSP()), calculos: S.calculos.slice(0, 2) });
+  r.respostas.forEach(t => SIM.msgs.push({ dir: 'out', texto: t }));
+  if (r.numero) SIM.msgs.push({ dir: 'info', texto: `Nº do processo ${r.numero} seria gravado no lead.` });
+  if (r.humano) SIM.msgs.push({ dir: 'info', texto: `👤 Passou para a equipe: o lead aparece no painel e o robô fica quieto por ${c.pausa_horas || 12}h.` });
+  SIM.etapa = r.etapa; renderSimulador();
+}
+const fmtWa = t => esc(t).replace(/\*([^*\n]+)\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
+function renderSimulador() {
+  let f = $('#simulador');
+  if (!f) { f = document.createElement('div'); f.className = 'modal-fundo'; f.id = 'simulador'; document.body.appendChild(f); f.addEventListener('click', e => { if (e.target === f) f.remove(); }); }
+  const c = cfgRobo(), fora = SIM.fora ?? roboForaDoHorario(c, roboAgoraSP());
+  f.innerHTML = `<div class="modal" style="width:min(460px,100%);display:flex;flex-direction:column;gap:10px">
+    <div class="linha" style="justify-content:space-between"><h2 style="margin:0">🧪 Testar o robô</h2><button class="btn mini sec" data-sim="fechar">Fechar</button></div>
+    <div class="desc">Simulação: nada é enviado. Você é o cliente "${esc(SIM.nome)}". ${c.ativo ? '' : '<b>O robô está desligado</b>: ligue em "Atendimento automático" para valer de verdade.'}</div>
+    <div class="linha"><label class="linha"><input type="checkbox" data-sim="fora" ${fora ? 'checked' : ''}> Simular fora do horário</label></div>
+    <div class="wa-msgs" id="simMsgs" style="height:360px;flex:none">${SIM.msgs.length ? SIM.msgs.map(m => m.dir === 'info' ? `<div class="sim-info">${esc(m.texto)}</div>` : `<div class="wa-msg ${m.dir}">${m.dir === 'out' ? '<span class="wa-bot">🤖 robô</span>' : ''}<div>${fmtWa(m.texto)}</div></div>`).join('') : '<div class="vazio">Escreva como se fosse um cliente (ex.: "Boa tarde", "1", "quanto custa?")</div>'}</div>
+    <form class="linha" id="simForm"><input class="f" id="simTexto" style="flex:1" placeholder="Mensagem do cliente…" autocomplete="off"><button class="btn">Enviar</button></form>
+    <div class="linha"><button class="btn mini sec" data-sim="pdf">📎 Mandar PDF de teste</button><button class="btn mini sec" data-sim="foto">🖼 Mandar foto</button><button class="btn mini sec" data-sim="num">Nº de processo</button><button class="btn mini sec" data-sim="reset" style="margin-left:auto">Recomeçar</button></div></div>`;
+  $('#simForm').onsubmit = e => { e.preventDefault(); const t = $('#simTexto').value.trim(); if (t) simular({ texto: t }); };
+  f.querySelectorAll('[data-sim]').forEach(b => b.addEventListener(b.type === 'checkbox' ? 'change' : 'click', () => {
+    const a = b.dataset.sim;
+    if (a === 'fechar') return f.remove();
+    if (a === 'fora') { SIM.fora = b.checked; return; }
+    if (a === 'reset') { SIM.etapa = null; SIM.msgs = []; return renderSimulador(); }
+    if (a === 'pdf') return simular({ tipo: 'document', pdf: true, arquivo: 'processo_integral.pdf' });
+    if (a === 'foto') return simular({ tipo: 'image', arquivo: 'foto.jpg' });
+    if (a === 'num') return simular({ texto: '0020521-60.2026.5.04.0731' });
+  }));
+  const box = $('#simMsgs'); box.scrollTop = box.scrollHeight;
+  setTimeout(() => $('#simTexto')?.focus(), 20);
 }
 
 function telaCalculos() {
@@ -1355,9 +1430,11 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
+  if (d.roboAssumir) return roboAssumir(d.roboAssumir, true);
+  if (d.roboDevolver) return roboAssumir(d.roboDevolver, false);
   if (d.copiar !== undefined) return copiarTexto(COPIAS[Number(d.copiar)]);
   if (d.abaTrafego) { e.preventDefault(); S.abaTrafego = d.abaTrafego; localSet('pf_aba_trafego', d.abaTrafego); if (location.hash !== '#trafego') location.hash = 'trafego'; return render(); }
   if (d.feito) return;
@@ -1379,7 +1456,7 @@ document.addEventListener('click', e => {
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
     novaDespesa: () => editarDespesa(null), importarPJC, limparDemo, novaConversa,
-    novoGasto: () => novoGasto(), salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
+    novoGasto: () => novoGasto(), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
     waEnviar: waEnviarTexto, waAnexar,
     waModelo: () => seguro(() => waEnviar({ template: CFG.WA_TEMPLATE || 'retomar_contato', idioma: CFG.WA_TEMPLATE_IDIOMA || 'pt_BR' })),
     addAtividade: () => seguro(async () => {

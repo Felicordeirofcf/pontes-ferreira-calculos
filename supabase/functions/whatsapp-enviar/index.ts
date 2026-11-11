@@ -74,8 +74,14 @@ Deno.serve(async req => {
     }).select().single();
     if (e2) throw e2;
 
+    // a equipe assumiu a conversa: o robô fica em silêncio por algumas horas (Painel > WhatsApp > Atendimento automático)
+    const { data: aj } = await db.from('ajustes').select('valor').eq('chave', 'atendimento').maybeSingle();
+    const pausa = Number(aj?.valor?.pausa_horas) || 12;
     const resumo = tipo === 'document' ? `📎 ${b.arquivo_nome || 'documento'}` : texto;
-    await db.from('wa_conversas').update({ ultima_msg: resumo.slice(0, 200), ultima_msg_em: new Date().toISOString(), nao_lidas: 0 }).eq('wa_id', waId);
+    await db.from('wa_conversas').update({
+      ultima_msg: resumo.slice(0, 200), ultima_msg_em: new Date().toISOString(), nao_lidas: 0,
+      humano_ate: new Date(Date.now() + pausa * 3600e3).toISOString(), bot_etapa: 'humano'
+    }).eq('wa_id', waId);
     if (conv.lead_id) await db.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', conv.lead_id);
 
     return resp({ ok: true, mensagem: msg });
