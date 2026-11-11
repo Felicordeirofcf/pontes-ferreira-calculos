@@ -1231,9 +1231,10 @@ function telaProspeccao() {
     <div class="card larga"><div class="linha" style="justify-content:space-between"><h2>Lista</h2>
       <div class="linha"><input class="f" id="buscaProsp" placeholder="Buscar…" value="${esc(f.q || '')}">
       <select class="f" id="fProsp"><option value="">Todos os status</option>${Object.entries(STATUS_PROSP).map(([k, v]) => `<option value="${k}" ${k === f.status ? 'selected' : ''}>${v} (${cont(k)})</option>`).join('')}</select></div></div>
-      ${lista.length ? `<div class="tabela"><table><tr><th>Contato</th><th>Cidade</th><th>Links</th><th>Status</th><th>Último contato</th><th>Retorno</th><th></th></tr>
+      ${lista.length ? `<div class="tabela"><table><tr><th>Contato</th><th>Cidade</th><th>Telefone</th><th>Links</th><th>Status</th><th>Último contato</th><th>Retorno</th><th></th></tr>
       ${lista.map(p => `<tr><td><b class="link" data-prosp="${p.id}">${esc(p.nome)}</b>${p.escritorio && p.escritorio !== p.nome ? `<div class="desc" style="margin:0">${esc(p.escritorio)}</div>` : ''}</td>
         <td>${esc(p.cidade || '—')}</td>
+        <td style="white-space:nowrap">${celTelefone(p)}</td>
         <td style="white-space:nowrap">${linkExt(p.site, '🌐')}${linkExt(linkInsta(p.instagram), '📸')}${linkExt(p.linkedin, '💼')}${linkExt(p.maps, '📍')}</td>
         <td><span class="tag ${TAG_PROSP[p.status] || 't-neutro'}">${STATUS_PROSP[p.status] || p.status}</span>${p.tentativas ? ` <span class="desc">${p.tentativas}×</span>` : ''}</td>
         <td>${p.ultimo_contato ? dataBR(p.ultimo_contato) : '—'}</td>
@@ -1241,6 +1242,34 @@ function telaProspeccao() {
         <td style="white-space:nowrap">${contatavel(p) ? `<button class="btn mini ouro" data-abordar="${p.id}">📲 Abordar</button>` : ''}</td></tr>`).join('')}</table></div>`
       : `<div class="vazio">${S.prospects.length ? 'Nada com esse filtro' : 'Lista vazia. Comece pesquisando acima e adicionando contatos.'}</div>`}</div>
   </div>`;
+}
+
+const WA_SVG = '<svg viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M16 3a13 13 0 0 0-11.2 19.6L3 29l6.6-1.7A13 13 0 1 0 16 3zm0 23.6c-2 0-4-.5-5.7-1.6l-.4-.2-3.9 1 1-3.8-.3-.4A10.6 10.6 0 1 1 16 26.6zm5.8-7.9c-.3-.2-1.9-.9-2.2-1s-.5-.2-.7.2-.8 1-1 1.2-.4.2-.7 0a8.7 8.7 0 0 1-4.3-3.7c-.3-.6.3-.5.9-1.7.1-.2 0-.4 0-.5l-1-2.4c-.3-.6-.5-.5-.7-.5h-.6a1.2 1.2 0 0 0-.9.4 3.6 3.6 0 0 0-1.1 2.7 6.3 6.3 0 0 0 1.3 3.3 14.4 14.4 0 0 0 5.5 4.9c2 .9 2.8.9 3.8.8a3.2 3.2 0 0 0 2.1-1.5 2.6 2.6 0 0 0 .2-1.5c-.1-.1-.3-.2-.6-.3z"/></svg>';
+const ROT_ETAPA = { primeiro: '1º contato', follow1: '2º contato', follow2: '3º contato (último)' };
+function celTelefone(p) {
+  if (!p.whatsapp && !p.email) return '<span class="desc">sem contato</span>';
+  const tel = p.whatsapp ? `<span class="mono tel">${esc(fmtTel(digitos(p.whatsapp).length <= 11 ? '55' + digitos(p.whatsapp) : p.whatsapp))}</span>` : '';
+  let wa = '';
+  if (p.whatsapp && p.status !== 'nao_contatar') wa = contatavel(p)
+    ? `<button class="wa-bolha" data-wa-prosp="${p.id}" title="Enviar a mensagem do ${ROT_ETAPA[etapaProsp(p)]} no WhatsApp">${WA_SVG}</button>`
+    : `<a class="wa-bolha conversa" href="${esc(waLink(p.whatsapp))}" target="_blank" rel="noopener" title="Abrir a conversa no WhatsApp (sem mensagem pronta)">${WA_SVG}</a>`;
+  const mail = p.email && p.status !== 'nao_contatar' ? `<button class="mail-bolha" data-mail-prosp="${p.id}" title="Enviar por e-mail: ${esc(p.email)}">✉</button>` : '';
+  return `<div class="tel-cel">${tel}${wa}${mail}</div>`;
+}
+/* envia direto da lista, com a mensagem da etapa, e registra a abordagem */
+async function registrarAbordagem(p, canal, txt) {
+  const c = cfgProsp(), agora = new Date().toISOString();
+  if (canal === 'wa') window.open(waLink(p.whatsapp, txt), '_blank');
+  else window.open(`mailto:${encodeURIComponent(p.email)}?subject=${encodeURIComponent(c.textos.email_assunto)}&body=${encodeURIComponent(txt.replace(/\*/g, ''))}`, '_blank');
+  if (!contatavel(p)) return;
+  const t = (p.tentativas || 0) + 1, prox = t >= c.max_tentativas ? null : somaDias(hoje(), t === 1 ? c.dias_follow1 : c.dias_follow2 - c.dias_follow1);
+  await atualizar('prospects', p.id, { status: 'contatado', tentativas: t, ultimo_contato: agora, proximo_contato: prox });
+  toast(`${ROT_ETAPA[t === 1 ? 'primeiro' : t === 2 ? 'follow1' : 'follow2']} registrado · ${prox ? 'retorno em ' + dataBR(prox) : 'última tentativa'}`);
+}
+async function enviarDiretoProsp(id, canal) {
+  const p = S.prospects.find(x => x.id === id); if (!p) return;
+  if (contatadosHoje() >= cfgProsp().meta_dia) toast(`Meta do dia batida (${contatadosHoje()}). Vá com calma para não ser bloqueado.`);
+  await seguro(async () => { await registrarAbordagem(p, canal, textoProsp(p)); render(); });
 }
 
 /* cartão de abordagem: um contato por vez */
@@ -1283,14 +1312,7 @@ async function acaoAbordagem(a) {
   const p = S.prospects.find(x => x.id === abordagemId); if (!p) return;
   const c = cfgProsp(), txt = ($('#abTexto')?.value || '').trim(), agora = new Date().toISOString();
   await seguro(async () => {
-    if (a === 'wa' || a === 'email') {
-      if (a === 'wa') window.open(waLink(p.whatsapp, txt), '_blank');
-      else window.open(`mailto:${encodeURIComponent(p.email)}?subject=${encodeURIComponent(c.textos.email_assunto)}&body=${encodeURIComponent(txt.replace(/\*/g, ''))}`, '_blank');
-      const t = (p.tentativas || 0) + 1;
-      await atualizar('prospects', p.id, { status: 'contatado', tentativas: t, ultimo_contato: agora, proximo_contato: t >= c.max_tentativas ? null : somaDias(hoje(), t === 1 ? c.dias_follow1 : c.dias_follow2 - c.dias_follow1) });
-      toast(`Abordagem ${t} registrada · ${t >= c.max_tentativas ? 'última tentativa' : 'retorno em ' + dataBR(somaDias(hoje(), t === 1 ? c.dias_follow1 : c.dias_follow2 - c.dias_follow1))}`);
-      return proximoDaFila(p.id);
-    }
+    if (a === 'wa' || a === 'email') { await registrarAbordagem(p, a, txt); return proximoDaFila(p.id); }
     if (a === 'pular') return proximoDaFila(p.id);
     if (a === 'fechar') return fecharAbordagem();
     if (a === 'editar') { const id = p.id; fecharAbordagem(); return editarProsp(S.prospects.find(x => x.id === id)); }
@@ -1908,9 +1930,11 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
+  if (d.waProsp) return enviarDiretoProsp(d.waProsp, 'wa');
+  if (d.mailProsp) return enviarDiretoProsp(d.mailProsp, 'email');
   if (d.ufMapa !== undefined) { S.ufMapa = d.ufMapa || null; if (rota() !== 'mapa') location.hash = 'mapa'; return render(); }
   if (d.metricaMapa) { S.metricaMapa = d.metricaMapa; localSet('pf_metrica_mapa', d.metricaMapa); return render(); }
   if (d.prospectarUf) return prospectarUF(d.prospectarUf);
