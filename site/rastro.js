@@ -19,7 +19,7 @@
 
   const geo = (async () => {
     const c = ss.get('pf_geo'); if (c) { try { return JSON.parse(c); } catch (e) { } }
-    try { const g = await fetch('/api/geo', { cache: 'no-store' }).then(r => r.json()); ss.set('pf_geo', JSON.stringify(g)); return g; } catch (e) { return {}; }
+    try { const g = await fetch('/api/geo/', { cache: 'no-store' }).then(r => r.json()); ss.set('pf_geo', JSON.stringify(g)); return g; } catch (e) { return {}; }
   })();
   const dispositivo = matchMedia('(max-width: 760px)').matches ? 'celular' : 'computador';
   const corta = (s, n) => s == null ? null : String(s).slice(0, n);
