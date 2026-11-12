@@ -753,24 +753,37 @@ const hora = ts => new Date(ts).toTimeString().slice(0, 5);
 const quandoCurto = ts => { if (!ts) return ''; const d = dia(ts); return d === hoje() ? hora(ts) : d === somaDias(hoje(), -1) ? 'ontem' : dataBR(ts).slice(0, 5); };
 const ticks = m => m.direcao !== 'out' ? '' : ({ sent: '✓', delivered: '✓✓', read: '<span style="color:#34b7f1">✓✓</span>', failed: `<span style="color:var(--crit)" title="${esc(m.erro || '')}">⚠ falhou</span>` }[m.status] || '🕓');
 
+const iniciais = n => { const p = String(n || '').replace(/^(dra?\.?|dr\.?)\s+/i, '').trim().split(/\s+/).filter(x => /\p{L}/u.test(x)); return ((p[0] || '?')[0] + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase(); };
+const CORES_AV = ['#0f2a5c', '#1c4f95', '#7a5408', '#14632f', '#5b2a86', '#8f1f1f', '#0b5e6b', '#3d4a66'];
+const corAv = s => CORES_AV[[...String(s || '')].reduce((t, ch) => (t * 31 + ch.charCodeAt(0)) >>> 0, 7) % CORES_AV.length];
+const avatar = (nome, chave, cls = '') => `<span class="wa-av ${cls}" style="background:${corAv(chave || nome)}">${esc(iniciais(nome))}</span>`;
+const ICO = {
+  enviar: '<svg viewBox="0 0 24 24"><path d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12.6 2-12.6 2z"/></svg>',
+  clipe: '<svg viewBox="0 0 24 24"><path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l9-9a3.7 3.7 0 0 1 5.2 5.2l-9 9a1.8 1.8 0 0 1-2.6-2.6l8.4-8.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  trocar: '<svg viewBox="0 0 24 24"><path d="M4 7h13l-3-3M20 17H7l3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  busca: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
+};
 function telaWhatsapp() {
   const q = S.buscaWa.toLowerCase();
+  const fw = S.filtroWa || 'todas';
   const convs = [...S.wa_conversas].filter(c => !q || [c.nome, c.wa_id, c.ultima_msg].join(' ').toLowerCase().includes(q))
+    .filter(c => fw === 'todas' || (fw === 'naolidas' ? c.nao_lidas > 0 : fw === 'clientes' ? !!c.cliente_id : fw === 'leads' ? !!leadDaConversa(c) && !c.cliente_id : true))
     .sort((a, b) => (b.ultima_msg_em || b.created_at).localeCompare(a.ultima_msg_em || a.created_at));
   const c = convAtiva(), l = leadDaConversa(c);
   const msgs = c ? (S.wa_mensagens[c.wa_id] || null) : null;
-  let corpo = '<div class="wa-vazio">Escolha uma conversa à esquerda</div>';
+  let corpo = `<div class="wa-vazio"><img src="/img/marca.svg" alt="" width="84" height="84"><b>Suas conversas</b><span>Escolha uma conversa à esquerda ou comece uma nova.</span><button class="btn mini ouro" data-acao="novaConversa">+ Nova conversa</button></div>`;
   if (c) {
     let ultDia = '';
     const bolhas = msgs === null ? '<div class="vazio">Carregando…</div>' : msgs.length ? msgs.map(m => {
       const d = dia(m.created_at), sep = d !== ultDia ? `<div class="wa-dia">${d === hoje() ? 'Hoje' : dataBR(d)}</div>` : ''; ultDia = d;
       const arq = m.arquivo_nome ? `<div class="wa-arq">📎 ${esc(m.arquivo_nome)} ${m.arquivo_path ? `<button class="btn mini sec" data-pdf="${esc(m.arquivo_path)}">Abrir</button>` : ''}${m.arquivo_path && m.direcao === 'in' && l ? `<button class="btn mini sec" data-usar-pdf="${esc(m.arquivo_path)}" title="Definir como PDF do processo do lead">Usar no lead</button>` : ''}</div>` : '';
-      return `${sep}<div class="wa-msg ${m.direcao}">${m.bot ? '<span class="wa-bot">🤖 robô</span>' : ''}${arq}${m.texto ? `<div>${fmtWa(m.texto)}</div>` : ''}<span class="wa-hora">${hora(m.created_at)} ${ticks(m)}</span></div>`;
+      return `${sep}<div class="wa-msg ${m.direcao} ${m.bot ? 'bot' : ''}">${m.bot ? '<span class="wa-bot">🤖 robô</span>' : ''}${arq}${m.texto ? `<div>${fmtWa(m.texto)}</div>` : ''}<span class="wa-hora">${hora(m.created_at)} ${ticks(m)}</span></div>`;
     }).join('') : '<div class="vazio">Nenhuma mensagem ainda</div>';
     const aberta = janelaAberta(c);
     const fimJanela = aberta && c.ultima_entrada_em ? new Date(new Date(c.ultima_entrada_em).getTime() + 24 * 36e5) : new Date();
-    corpo = `<div class="wa-cab"><div><b>${esc(c.nome || fmtTel(c.wa_id))}</b><div class="desc" style="margin:0">${fmtTel(c.wa_id)}${l ? ` · ${esc(STATUS_LEAD[l.status])}` : ''}</div></div>
-        <div class="linha"><button class="btn mini sec" data-cadastro="${c.wa_id}" title="Preencher o cadastro com os dados da conversa">📋 Cadastro</button>${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha do lead</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(c.wa_id)}">Abrir no WhatsApp Web ↗</a></div></div>
+    const cliC = c.cliente_id && cliente(c.cliente_id);
+    corpo = `<div class="wa-cab"><div class="wa-quem">${avatar(c.nome || c.wa_id, c.wa_id, 'g')}<div><b>${esc(c.nome || fmtTel(c.wa_id))}</b><div class="wa-sub">${fmtTel(c.wa_id)}${cliC ? ' · <span class="tag t-good">Cliente</span>' : l ? ` · <span class="tag t-azul">${esc(STATUS_LEAD[l.status])}</span>` : ''}${l?.temperatura ? ' ' + tagTemp(l) : ''}</div></div></div>
+        <div class="wa-acoes"><button class="btn mini sec" data-cadastro="${c.wa_id}" title="Preencher o cadastro com os dados da conversa">📋 Cadastro</button>${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini ouro" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(c.wa_id)}" title="Abrir no WhatsApp Web">WhatsApp Web ↗</a></div></div>
       ${EVOLUTION() ? '' : `<div class="wa-janela ${aberta ? 'ok' : 'fechada'}">${aberta ? `✔ Conversa aberta: pode responder livremente até ${fimJanela.toLocaleDateString('pt-BR') === new Date().toLocaleDateString('pt-BR') ? 'hoje' : 'amanhã'} às ${hora(fimJanela)}.`
         : `⏸ O cliente não escreve há mais de 24h. Pela regra do WhatsApp, só dá para enviar um <b>modelo aprovado</b> para retomar a conversa. <button class="btn mini" data-acao="waModelo">Enviar modelo "${esc(CFG.WA_TEMPLATE || 'retomar_contato')}"</button>`}</div>`}
       ${cfgRobo().ativo ? `<div class="wa-janela ${roboEmSilencio(c) ? 'fechada' : 'ok'}">${roboEmSilencio(c)
@@ -779,23 +792,28 @@ function telaWhatsapp() {
       ${faixaCadastro(c)}
       <div class="wa-msgs" id="waMsgs">${bolhas}</div>
       <div class="wa-compor">
-        <select class="f" id="waRapida"><option value="">⚡ Respostas rápidas</option>${RESPOSTAS_RAPIDAS.map(([r], i) => `<option value="${i}">${r}</option>`).join('')}</select>
-        <textarea id="waTexto" rows="2" placeholder="${aberta ? 'Digite a mensagem… (Enter envia, Shift+Enter quebra linha)' : 'Fora da janela de 24h: envie o modelo acima'}" ${aberta ? '' : 'disabled'}>${esc(S.rascunhos[c.wa_id] || '')}</textarea>
-        <button class="btn sec" data-acao="outraVersao" title="Trocar por outra versão da última resposta rápida" ${S.ultRapida && S.ultRapida.wa === c.wa_id ? '' : 'disabled'}>🔀</button>
-        <button class="btn sec" data-acao="waAnexar" title="Enviar arquivo (relatório PDF, .PJC…)" ${aberta ? '' : 'disabled'}>📎</button>
-        <button class="btn" data-acao="waEnviar" ${aberta ? '' : 'disabled'}>Enviar</button>
+        <div class="wa-rapidas"><select id="waRapida" title="Respostas rápidas"><option value="">⚡ Respostas rápidas</option>${RESPOSTAS_RAPIDAS.map(([r], i) => `<option value="${i}">${r}</option>`).join('')}</select>
+          <button class="wa-ico" data-acao="outraVersao" title="Outra versão da última resposta rápida" ${S.ultRapida && S.ultRapida.wa === c.wa_id ? '' : 'disabled'}>${ICO.trocar}</button></div>
+        <div class="wa-campo">
+          <button class="wa-ico" data-acao="waAnexar" title="Enviar arquivo (relatório PDF, .PJC…)" ${aberta ? '' : 'disabled'}>${ICO.clipe}</button>
+          <textarea id="waTexto" rows="1" placeholder="${aberta ? 'Escreva uma mensagem…' : 'Fora da janela de 24h: envie o modelo acima'}" ${aberta ? '' : 'disabled'}>${esc(S.rascunhos[c.wa_id] || '')}</textarea>
+          <button class="wa-enviar" data-acao="waEnviar" title="Enviar (Enter) · Shift+Enter quebra linha" ${aberta ? '' : 'disabled'}>${ICO.enviar}</button>
+        </div>
       </div>`;
   }
   const rb = cfgRobo();
-  return `<div class="topo"><h1>WhatsApp</h1><div class="acoes"><span class="tag ${rb.ativo ? 't-good' : 't-neutro'}">${rb.ativo ? '🤖 Robô ligado' : '🤖 Robô desligado'}</span>
-    <button class="btn sec" data-acao="configRespostas">⚡ Respostas rápidas</button><button class="btn sec" data-acao="configurarRobo">⚙ Atendimento automático</button><button class="btn sec" data-acao="testarRobo">🧪 Testar robô</button><button class="btn" data-acao="novaConversa">+ Nova conversa</button></div></div>
+  return `<div class="topo"><h1>WhatsApp</h1><div class="acoes">
+    <div class="grupo-btn"><button class="btn sec" data-acao="configRespostas" title="Editar as respostas rápidas">⚡ Respostas</button><button class="btn sec" data-acao="configurarRobo" title="Atendimento automático">🤖 Robô <span class="ponto-st ${rb.ativo ? 'on' : ''}"></span></button><button class="btn sec" data-acao="testarRobo" title="Testar o robô">🧪</button></div>
+    <button class="btn ouro" data-acao="novaConversa">+ Nova conversa</button></div></div>
   ${EVOLUTION() ? faixaConexao() : DEMO ? '' : (CFG.WA_ATIVO ? '' : '<div class="demo">O WhatsApp ainda não está conectado à API oficial. Veja o passo 5 do <b>COMO_ATIVAR.md</b>. Até lá, use o botão "Abrir no app ↗".</div>')}
   <div class="wa">
-    <div class="wa-lista"><input class="f" id="buscaWa" placeholder="Buscar conversa…" value="${esc(S.buscaWa)}">
-      ${convs.length ? convs.map(x => { const lx = leadDaConversa(x); return `<div class="wa-item ${x.wa_id === S.conversa ? 'on' : ''}" data-conv="${x.wa_id}">
+    <div class="wa-lista"><div class="wa-busca">${ICO.busca}<input id="buscaWa" placeholder="Buscar nome, número ou mensagem" value="${esc(S.buscaWa)}"></div>
+      <div class="wa-filtros">${[['todas', 'Todas'], ['naolidas', `Não lidas${soma(S.wa_conversas, c => c.nao_lidas > 0 ? 1 : 0) ? ' · ' + soma(S.wa_conversas, c => c.nao_lidas > 0 ? 1 : 0) : ''}`], ['leads', 'Leads'], ['clientes', 'Clientes']].map(([k, v]) => `<button class="${k === fw ? 'on' : ''}" data-filtro-wa="${k}">${v}</button>`).join('')}</div>
+      <div class="wa-itens">${convs.length ? convs.map(x => { const lx = leadDaConversa(x); return `<div class="wa-item ${x.wa_id === S.conversa ? 'on' : ''} ${x.nao_lidas ? 'nl' : ''}" data-conv="${x.wa_id}">
+        ${avatar(x.nome || x.wa_id, x.wa_id)}<div class="wa-corpo">
         <div class="wa-l1"><b>${esc(x.nome || fmtTel(x.wa_id))}</b><span>${quandoCurto(x.ultima_msg_em)}</span></div>
-        <div class="wa-l2"><span>${esc((x.ultima_msg || '').slice(0, 60))}</span>${x.nao_lidas ? `<i>${x.nao_lidas}</i>` : ''}</div>
-        ${lx || x.bot_etapa ? `<div class="wa-l3">${lx ? esc(STATUS_LEAD[lx.status]) : ''} ${lx?.temperatura ? '· ' + TEMPERATURAS[lx.temperatura] : ''} ${cfgRobo().ativo && !x.cliente_id ? (roboEmSilencio(x) ? '· 👤 equipe' : x.bot_etapa ? '· 🤖 robô' : '') : ''}</div>` : ''}</div>`; }).join('') : '<div class="vazio">Nenhuma conversa</div>'}
+        <div class="wa-l2"><span>${esc((x.ultima_msg || '').slice(0, 80))}</span>${x.nao_lidas ? `<i>${x.nao_lidas}</i>` : ''}</div>
+        ${lx || x.cliente_id || x.bot_etapa ? `<div class="wa-l3">${x.cliente_id ? 'Cliente' : lx ? esc(STATUS_LEAD[lx.status]) : ''}${lx?.temperatura ? ' · ' + TEMPERATURAS[lx.temperatura] : ''}${cfgRobo().ativo && !x.cliente_id ? (roboEmSilencio(x) ? ' · 👤 equipe' : x.bot_etapa ? ' · 🤖 robô' : '') : ''}</div>` : ''}</div></div>`; }).join('') : `<div class="vazio">${q || fw !== 'todas' ? 'Nada neste filtro' : 'Nenhuma conversa ainda'}</div>`}</div>
     </div>
     <div class="wa-chat">${corpo}</div>
   </div>`;
@@ -2502,9 +2520,10 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-filtro-wa],[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
+  if (d.filtroWa) { S.filtroWa = d.filtroWa; return render(); }
   if (d.cadastro) return preencherCadastro(d.cadastro);
   if (d.cadastroOk) { S.cadastroDispensado = { ...(S.cadastroDispensado || {}), [d.cadastroOk]: true }; return render(); }
   if (d.excluirLead) { e.stopPropagation(); return excluirLead(d.excluirLead); }
