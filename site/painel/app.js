@@ -31,7 +31,7 @@ const S = {
 const TEMPERATURAS = { quente: '🔥 Quente', morno: '🌤 Morno', frio: '❄ Frio' };
 const TIPOS_ATIV = { nota: '📝 Nota', ligacao: '📞 Ligação', whatsapp: '💬 WhatsApp', email: '✉ E-mail', reuniao: '🤝 Reunião', status: '🔄 Status' };
 const RESPOSTAS_RAPIDAS = [ // [rótulo, chave em VARIACOES (mensagens.js)]
-  ['Apresentação', '__apresentacao__'], ['Saudação', 'saudacao'], ['Pedir o processo', 'pedir_processo'], ['Orçamento', 'orcamento'],
+  ['Apresentação', '__apresentacao__'], ['Saudação', 'saudacao'], ['Pedir dados do cadastro', 'pedir_cadastro'], ['Pedir o processo', 'pedir_processo'], ['Orçamento', 'orcamento'],
   ['Vários autores', 'varios_autores'], ['Confirmação', 'confirmacao'], ['Entrega', 'entrega'], ['Cobrança', 'cobranca'], ['Follow-up', 'followup']
 ];
 /* variações: sorteia uma versão diferente da última usada */
@@ -670,8 +670,8 @@ function telaLeads() {
   const visiveis = S.leads.filter(l => ativo(l) || new Date(l.created_at) >= lim);
   const card = l => {
     const urg = semResposta(l) && minutosDesde(l.created_at) > MIN_RESPOSTA;
-    return `<div class="lead ${urg ? 'urgente' : ''}">
-      <b class="link" data-ficha="${l.id}">${esc(l.nome || 'Sem nome')}</b>
+    return `<div class="lead ${urg ? 'urgente' : ''}" draggable="true" data-arrastar="${l.id}" title="Arraste para outra coluna">
+      <div class="lead-topo"><b class="link" data-ficha="${l.id}">${esc(l.nome || 'Sem nome')}</b><button class="lead-excluir" data-excluir-lead="${l.id}" title="Excluir este lead" aria-label="Excluir lead">🗑</button></div>
       <div class="meta">${esc(l.tipo || '—')}<br>${l.numero_processo ? '⚖ ' + esc(l.numero_processo) + '<br>' : ''}${esc(canalLead(l))} · ${dataBR(l.created_at)} ${new Date(l.created_at).toTimeString().slice(0, 5)}
       ${l.valor_orcado ? `<br>Orçado: ${brl(l.valor_orcado)}` : ''}${l.status === 'perdido' && l.motivo_perda ? `<br>Motivo: ${esc(l.motivo_perda)}` : ''}</div>
       <div class="linha" style="margin-bottom:6px">${tagTemp(l)}${l.prazo && l.prazo.includes('48h') && ativo(l) ? '<span class="tag t-crit">Prazo urgente</span>' : ''}${urg ? `<span class="tag t-crit">Sem resposta há ${fmtMin(minutosDesde(l.created_at))}</span>` : ''}${tagProx(l)}</div>
@@ -682,8 +682,8 @@ function telaLeads() {
         <select class="f" style="padding:3px 6px;font-size:12px" data-mover="${l.id}">${cols.map(s => `<option value="${s}" ${s === l.status ? 'selected' : ''}>${STATUS_LEAD[s]}</option>`).join('')}</select>
       </div></div>`;
   };
-  return topo + `<div class="kanban">${cols.map(s => { const ls = visiveis.filter(l => l.status === s); return `<div class="col"><h3><span>${STATUS_LEAD[s]}</span><span>${ls.length} · ${brl0(soma(ls, l => l.valor_orcado))}</span></h3>${ls.map(card).join('') || '<div class="vazio">—</div>'}</div>`; }).join('')}</div>
-  <p class="desc" style="margin-top:10px;color:var(--muted);font-size:12px">Clique no nome para abrir a ficha completa. Fechados e perdidos dos últimos 60 dias.</p>`;
+  return topo + `<div class="kanban">${cols.map(s => { const ls = visiveis.filter(l => l.status === s); return `<div class="col" data-coluna="${s}"><h3><span>${STATUS_LEAD[s]}</span><span>${ls.length} · ${brl0(soma(ls, l => l.valor_orcado))}</span></h3>${ls.map(card).join('') || '<div class="vazio">—</div>'}</div>`; }).join('')}</div>
+  <p class="desc" style="margin-top:10px;color:var(--muted);font-size:12px">Arraste os cards entre as colunas para mudar o status. Clique no nome para abrir a ficha completa. Fechados e perdidos dos últimos 60 dias.</p>`;
 }
 function ultimaAtividade(l) { const a = S.atividades.filter(x => x.lead_id === l.id).sort((x, y) => y.created_at.localeCompare(x.created_at))[0]; return a ? `${dataBR(a.created_at)} ${a.texto || ''}`.slice(0, 60) : ''; }
 
@@ -883,6 +883,19 @@ async function whatsManual(l) {
   await atualizar('leads', l.id, { ultimo_contato: agora, ...(l.respondido_em ? {} : { respondido_em: agora }) });
   await registrar(l.id, 'whatsapp', 'Contato pelo WhatsApp (app)', l.cliente_id || null);
   render(); if (fichaId) renderFicha();
+}
+async function excluirLead(id) {
+  const l = S.leads.find(x => x.id === id); if (!l) return;
+  const calcs = S.calculos.filter(c => c.lead_id === id).length;
+  if (!confirm(`Excluir o lead "${l.nome || 'sem nome'}"?${calcs ? `\n\nOs ${calcs} cálculo(s) ligados a ele continuam cadastrados.` : ''}\nO histórico do lead também é apagado. Esta ação não pode ser desfeita.`)) return;
+  await seguro(async () => {
+    await apagar('leads', id);
+    S.atividades = S.atividades.filter(a => a.lead_id !== id);
+    S.wa_conversas.forEach(c => { if (c.lead_id === id) c.lead_id = null; });
+    S.calculos.forEach(c => { if (c.lead_id === id) c.lead_id = null; });
+    if (fichaId === id) fecharFicha();
+    toast('Lead excluído'); render();
+  });
 }
 async function abrirNoPainel(num, nome, texto = '', vinc = {}) {
   let wa = digitos(num); if (wa.length <= 11) wa = '55' + wa;
@@ -2369,9 +2382,10 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
+  if (d.excluirLead) { e.stopPropagation(); return excluirLead(d.excluirLead); }
   if (d.portal) { e.stopPropagation(); return abrirPortal(d.portal); }
   if (d.entregas) { e.stopPropagation(); return abrirEntregas(d.entregas); }
   if (d.abaFin) { S.abaFin = d.abaFin; return render(); }
@@ -2462,8 +2476,19 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Escape' && !PAL.aberta && !fichaId) { const m = [...document.querySelectorAll('.modal-fundo')].pop(); if (m && m.id !== 'qrWa') { m.remove(); if (m.id === 'entregas') render(); } }
 });
 window.addEventListener('hashchange', render);
+/* funil: arrastar os cards entre as colunas */
+let arrastandoLead = null;
+document.addEventListener('dragstart', e => { const c = e.target.closest?.('[data-arrastar]'); if (!c) return; arrastandoLead = c.dataset.arrastar; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', arrastandoLead); c.classList.add('arrastando'); document.body.classList.add('arrastando-lead'); });
+document.addEventListener('dragend', () => { arrastandoLead = null; document.body.classList.remove('arrastando-lead'); document.querySelectorAll('.arrastando,.col.alvo').forEach(x => x.classList.remove('arrastando', 'alvo')); });
+document.addEventListener('dragover', e => { const col = arrastandoLead && e.target.closest?.('[data-coluna]'); if (!col) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; document.querySelectorAll('.col.alvo').forEach(x => x !== col && x.classList.remove('alvo')); col.classList.add('alvo'); });
+document.addEventListener('drop', e => {
+  const col = arrastandoLead && e.target.closest?.('[data-coluna]'); if (!col) return; e.preventDefault();
+  const l = S.leads.find(x => x.id === arrastandoLead), novo = col.dataset.coluna;
+  arrastandoLead = null; document.body.classList.remove('arrastando-lead');
+  if (l && l.status !== novo) moverLead(l, novo);
+});
 setInterval(() => { if (EVOLUTION() && !document.hidden) atualizarEstadoWa(true); }, 120000);
-setInterval(() => { if (!document.querySelector('.modal-fundo') && !CAMPOS_FOCO.includes(document.activeElement?.id) && !document.activeElement?.closest?.('.form-trafego')) render(); }, 60000);
+setInterval(() => { if (!arrastandoLead && !document.querySelector('.modal-fundo') && !CAMPOS_FOCO.includes(document.activeElement?.id) && !document.activeElement?.closest?.('.form-trafego')) render(); }, 60000);
 
 /* ---------------- tempo real: lead novo e mensagens do WhatsApp ---------------- */
 function avisar(titulo, corpo) {

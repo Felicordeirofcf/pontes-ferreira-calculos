@@ -74,6 +74,23 @@ const VARIACOES = {
     'Oi, {nome}! Obrigado pelo contato. Me dá uns minutos para analisar o processo e te passo o orçamento.',
     'Olá, {nome}! Recebido por aqui. Já começo a análise e te retorno em breve. 😊'
   ],
+  pedir_cadastro: [
+    'Para agilizar seu atendimento, pode me passar seus dados para o cadastro?\n\n• Nome completo\n• OAB (número/UF)\n• CPF ou CNPJ (para o recibo)\n• E-mail\n• Cidade/UF\n• Nome do escritório (se houver)',
+    'Vamos deixar seu cadastro pronto? Me envia, por favor:\n\n1. Nome completo\n2. Nº da OAB e estado\n3. CPF ou CNPJ\n4. E-mail para envio dos arquivos\n5. Cidade/UF',
+    'Para eu emitir o recibo e enviar os arquivos certinho, preciso de alguns dados:\n\n• Nome completo\n• OAB\n• CPF/CNPJ\n• E-mail\n• Cidade e estado',
+    'Só para completar seu cadastro aqui: pode me mandar nome completo, OAB, CPF ou CNPJ, e-mail e cidade/UF? Assim os próximos atendimentos ficam mais rápidos. 🙂',
+    'Antes de começarmos, me passa seus dados de cadastro?\n\n- Nome completo\n- OAB/UF\n- CPF ou CNPJ\n- E-mail\n- Escritório (se tiver)\n- Cidade/UF',
+    'Para facilitar, preciso do seu cadastro: nome completo, número da OAB, CPF ou CNPJ, e-mail e cidade. Pode mandar tudo numa mensagem só.',
+    'Me ajuda com alguns dados para o cadastro? Nome completo, OAB, CPF/CNPJ, e-mail e cidade/UF. Com isso já deixo tudo pronto para os próximos cálculos.',
+    'Para o recibo e o envio do cálculo, preciso de:\n\n✔ Nome completo\n✔ OAB\n✔ CPF ou CNPJ\n✔ E-mail\n✔ Cidade/UF',
+    'Vamos cadastrar você para agilizar os próximos pedidos? Me envia nome completo, OAB/UF, CPF ou CNPJ, e-mail e o nome do escritório, se houver.',
+    'Pode me passar seus dados para eu registrar o atendimento?\n\nNome completo:\nOAB:\nCPF/CNPJ:\nE-mail:\nCidade/UF:',
+    'Para seguirmos, me manda seus dados de cadastro, por favor: nome completo, OAB, CPF ou CNPJ (para o recibo), e-mail e cidade/UF.',
+    'Para deixar seu cadastro completo e o atendimento mais rápido, preciso de nome completo, OAB com estado, CPF/CNPJ, e-mail e cidade. 🙏',
+    'Só uma etapa rápida: me passa nome completo, OAB, CPF ou CNPJ, e-mail e cidade/UF? Assim já registro você como cliente.',
+    'Para emitirmos o recibo em seu nome (ou do escritório), me envia:\n\n• Nome completo ou razão social\n• CPF ou CNPJ\n• OAB\n• E-mail\n• Cidade/UF',
+    'Pode completar seu cadastro respondendo com:\n\nNome completo:\nOAB/UF:\nCPF ou CNPJ:\nE-mail:\nEscritório:\nCidade/UF:'
+  ],
   pedir_processo: [
     'Para orçarmos, pode me passar o número do processo? A gente puxa os autos no PJe. Se preferir, pode mandar o PDF integral por aqui.',
     'Me envia o número do processo, por favor? Com ele eu puxo os autos e te passo o orçamento.',

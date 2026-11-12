@@ -397,6 +397,15 @@
   .ag-item:first-of-type{border-top:0}.ag-item:hover{background:#fbf5e6}
   .ag-item.critico b{color:var(--crit)}
   .ag-ic{font-size:16px;line-height:1.4}
+  .lead[draggable=true]{cursor:grab}
+  .lead.arrastando{opacity:.45;transform:rotate(1.5deg)}
+  .lead-topo{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+  .lead-excluir{border:0;background:none;cursor:pointer;font-size:14px;opacity:0;padding:2px 4px;border-radius:6px;transition:opacity .15s,background .15s}
+  .lead:hover .lead-excluir,.lead-excluir:focus-visible{opacity:.65}
+  .lead-excluir:hover{opacity:1!important;background:#fbe3e3}
+  .arrastando-lead .col{outline:2px dashed transparent;transition:outline-color .15s,background .15s}
+  .arrastando-lead .col.alvo{outline-color:var(--selo);background:#f6efdc}
+  @media (hover:none){.lead-excluir{opacity:.6}}
   @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 </head>
