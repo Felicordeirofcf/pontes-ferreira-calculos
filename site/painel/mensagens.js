@@ -91,6 +91,23 @@ const VARIACOES = {
     "Oi, {nome}! Liquidação, impugnação, inicial e atualização de cálculos trabalhistas, para todos os TRTs. Entrega em até 48h e valores a partir de R$ 250. 🙂",
     "Olá, {nome}! Fazemos os cálculos do escritório no PJe-Calc: liquidação, impugnação, inicial e atualização. Em até 48h, a partir de R$ 250, com uma revisão sem custo se o juízo pedir."
   ],
+  salvar_contato: [
+    "Olá, {nome}! Salve nosso contato para não perder nenhuma mensagem: *Pontes Ferreira Cálculos* · (21) 98770-8652. Assim você também recebe certinho os orçamentos e os arquivos do cálculo. 🙂",
+    "Olá, {nome}! Uma dica: salve este número como *Pontes Ferreira Cálculos*. Assim as mensagens e os arquivos do cálculo chegam sem cair em \"não lidas\" ou filtros.",
+    "Oi, {nome}! Para facilitar, salve nosso contato: *Pontes Ferreira Cálculos* – (21) 98770-8652. Fica mais fácil chamar quando surgir o próximo cálculo.",
+    "Olá, {nome}! Já salvou nosso número? Coloque como *Pontes Ferreira Cálculos*. Assim os links e arquivos que enviamos abrem normalmente aí no seu WhatsApp.",
+    "Olá, {nome}! Salve nosso contato, por favor: *Pontes Ferreira Cálculos* · (21) 98770-8652. Sempre que tiver um cálculo com prazo, é só chamar aqui.",
+    "Oi, {nome}! Pedido rápido: salve este número como *Pontes Ferreira Cálculos*. Com o contato salvo, os links que mandamos ficam clicáveis normalmente.",
+    "Olá, {nome}! Para não perder o orçamento e a entrega do cálculo, salve nosso contato: *Pontes Ferreira Cálculos* – (21) 98770-8652.",
+    "Olá, {nome}! Deixa nosso número salvo aí: *Pontes Ferreira Cálculos*. Quando precisar de liquidação, impugnação ou inicial, é só mandar o número do processo.",
+    "Oi, {nome}! Salve a gente como *Pontes Ferreira Cálculos* (21 98770-8652). Assim você nos acha rápido quando o prazo apertar. 😉",
+    "Olá, {nome}! Recomendo salvar nosso contato (*Pontes Ferreira Cálculos*), assim os arquivos .PJC e PDF chegam e abrem sem problema.",
+    "Olá, {nome}! Para manter nosso canal direto, salve este número como *Pontes Ferreira Cálculos*. Qualquer cálculo, é só chamar.",
+    "Oi, {nome}! Aproveita e salva nosso contato: *Pontes Ferreira Cálculos* · (21) 98770-8652. Fica fácil de encaminhar para os colegas do escritório também.",
+    "Olá, {nome}! Salvando nosso número (*Pontes Ferreira Cálculos*), você recebe os avisos de andamento e entrega do cálculo sem perder nada.",
+    "Olá, {nome}! Só um detalhe: salve nosso contato como *Pontes Ferreira Cálculos*. Assim nossas mensagens ficam fáceis de achar e os links abrem normalmente.",
+    "Oi, {nome}! Deixe nosso contato salvo: *Pontes Ferreira Cálculos* – (21) 98770-8652. Estamos à disposição sempre que precisar de um cálculo. 🙂"
+  ],
   pedir_cadastro: [
     'Para agilizar seu atendimento, pode me passar seus dados para o cadastro?\n\n• Nome completo\n• OAB (número/UF)\n• CPF ou CNPJ (para o recibo)\n• E-mail\n• Cidade/UF\n• Nome do escritório (se houver)',
     'Vamos deixar seu cadastro pronto? Me envia, por favor:\n\n1. Nome completo\n2. Nº da OAB e estado\n3. CPF ou CNPJ\n4. E-mail para envio dos arquivos\n5. Cidade/UF',
