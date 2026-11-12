@@ -421,10 +421,12 @@ async function moverLead(l, status) {
     render();
   });
 }
+// "Partes: José da Silva x Empresa X Ltda" anotado nas observações do lead pelo 💰 Orçamento
+function partesDoLead(l) { const m = String((l && l.obs) || '').match(/Partes:\s*(.+?)\s+x\s+(.+?)(?:\n|$)/i); return m ? { reclamante: m[1].trim(), reclamada: m[2].trim() } : {}; }
 async function leadParaCalculo(l) {
   let cli = S.clientes.find(c => (l.cliente_id && c.id === l.cliente_id) || (digitos(c.whatsapp) && digitos(c.whatsapp).slice(-9) === digitos(l.whatsapp).slice(-9)));
   const v = await abrirForm('Converter lead em cálculo', camposCalculo().filter(f => f.k !== 'cliente_id'), {
-    numero_processo: l.numero_processo, tipo: l.tipo, valor_cobrado: l.valor_orcado || 250,
+    numero_processo: l.numero_processo, tipo: l.tipo, valor_cobrado: l.valor_orcado || 250, ...partesDoLead(l),
     prazo_entrega: somaDias(hoje(), (l.prazo || '').includes('48h') ? 1 : 2)
   });
   if (!v) return;
@@ -845,22 +847,23 @@ async function orcamentoRapido() {
   const l = leadDaConversa(c), primeiro = primeiroCalculo(l);
   const v = await abrirForm('💰 Enviar orçamento', [
     { k: 'processo', rot: 'Nº do processo (vem do cadastro do cliente)', ph: '0000000-00.0000.5.00.0000', full: true },
+    { k: 'autor', rot: 'Autor (reclamante)', ph: 'ex.: José da Silva' }, { k: 'reu', rot: 'Réu (reclamada)', ph: 'ex.: Empresa X Ltda' },
     { k: 'valor', rot: primeiro ? 'Valor do cálculo (R$) · 1º cálculo deste cliente' : 'Valor do cálculo (R$)', tipo: 'number', req: true },
     { k: 'prazo', rot: 'Entrega', tipo: 'select', vazio: false, opcoes: [['em até 48h', 'Em até 48h'], ['em até 24h (urgente)', 'Em até 24h (urgente)'], ['em até 3 dias úteis', 'Em até 3 dias úteis'], ['em até 5 dias úteis', 'Em até 5 dias úteis'], ['data', 'Numa data específica…']] },
     { k: 'data', rot: 'Data de entrega (se escolheu data específica)', tipo: 'date' },
     { k: 'detalhe', rot: 'Detalhe do caso (opcional, ex.: 2 autores, período de 5 anos)', ph: 'deixe vazio se não precisar', full: true }
-  ], { processo: (l && l.numero_processo) || '', valor: (l && l.valor_orcado) || (primeiro ? PRECO_PRIMEIRO : PRECO_BASE), prazo: 'em até 48h' }, { ok: 'Montar mensagem' });
+  ], { processo: (l && l.numero_processo) || '', autor: partesDoLead(l).reclamante || '', reu: partesDoLead(l).reclamada || '', valor: (l && l.valor_orcado) || (primeiro ? PRECO_PRIMEIRO : PRECO_BASE), prazo: 'em até 48h' }, { ok: 'Montar mensagem' });
   if (!v) return;
   const valor = numBR(v.valor); if (!valor) return toast('Informe o valor');
   const entrega = v.prazo === 'data' ? (v.data ? 'até ' + dataBR(v.data) : 'em até 48h') : v.prazo;
   const nome = nomeParaMensagem(c.nome), lista = listaVariacoes('orcamento_valor'), modelo = lista[sortearVariacao('rap_orcamento_valor', lista.length)];
   const txt = (nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome)
     .replace(/\{valor\}/g, valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })).replace(/\{entrega\}/g, () => entrega)
-    .replace(/\{processo\}/g, () => (v.processo || '').trim() ? ` nº ${v.processo.trim()}` : '')
+    .replace(/\{processo\}/g, () => [(v.processo || '').trim() ? ` nº ${v.processo.trim()}` : '', (v.autor || '').trim() && (v.reu || '').trim() ? ` – ${v.autor.trim()} x ${v.reu.trim()}` : ''].join(''))
     .replace(/\{detalhe\}/g, () => (v.detalhe || '').trim() ? ` (${v.detalhe.trim()})` : '')
     .replace(/\{primeiro\}/g, () => primeiro && valor < PRECO_BASE ? ` Esse é o valor especial do primeiro cálculo.` : '');
   S.rascunhos[c.wa_id] = txt;
-  S.orcPendente = { wa: c.wa_id, lead: l ? l.id : null, valor, processo: (v.processo || '').trim() || null };
+  S.orcPendente = { wa: c.wa_id, lead: l ? l.id : null, valor, processo: (v.processo || '').trim() || null, partes: (v.autor || '').trim() && (v.reu || '').trim() ? `${v.autor.trim()} x ${v.reu.trim()}` : null };
   render(); const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
   toast('Revise e envie: ao enviar, o lead vai para "Orçamento enviado" com R$ ' + valor.toLocaleString('pt-BR'));
 }
@@ -1057,7 +1060,8 @@ async function waEnviar(opts) {
   if (S.orcPendente && S.orcPendente.wa === c.wa_id && /R\$/.test(opts.texto || '')) { // orçamento enviado: lead vai para "Orçamento enviado"
     const o = S.orcPendente; S.orcPendente = null;
     const lo = o.lead && S.leads.find(x => x.id === o.lead);
-    if (lo) await atualizar('leads', lo.id, { valor_orcado: o.valor, ...(o.processo && !lo.numero_processo ? { numero_processo: o.processo } : {}), ...(['novo', 'perdido'].includes(lo.status) ? { status: 'orcamento' } : {}) }).then(() => toast('Lead em "Orçamento enviado" com ' + brl0(o.valor))).catch(e => console.warn('orçamento', e));
+    const obsPartes = o.partes && !/Partes:/i.test(lo?.obs || '') ? { obs: [lo?.obs, `Partes: ${o.partes}`].filter(Boolean).join('\n') } : {};
+    if (lo) await atualizar('leads', lo.id, { valor_orcado: o.valor, ...obsPartes, ...(o.processo && !lo.numero_processo ? { numero_processo: o.processo } : {}), ...(['novo', 'perdido'].includes(lo.status) ? { status: 'orcamento' } : {}) }).then(() => toast('Lead em "Orçamento enviado" com ' + brl0(o.valor))).catch(e => console.warn('orçamento', e));
   }
   if (S.prospPendente && digitos(c.wa_id).slice(-8) === S.prospPendente.chave) { // abordagem de prospecção enviada: agora conta
     const pr = S.prospects.find(x => x.id === S.prospPendente.id); S.prospPendente = null;
