@@ -1616,7 +1616,7 @@ async function configProsp() {
 
 /* ---------------- Tráfego pago ---------------- */
 const SITE_URL = 'https://pontesferreiracalculos.com/';
-const ABAS_TRAFEGO = { ativacao: '1. Ativação', resultados: '2. Resultados', google: '📊 Google Ads', campanhas: '3. Campanhas prontas', links: '4. Links UTM', offline: '5. Conversões offline' };
+const ABAS_TRAFEGO = { ativacao: '1. Ativação', resultados: '2. Resultados', google: '📊 Google Ads', monitor: '🔔 Monitoramento', campanhas: '3. Campanhas prontas', links: '4. Links UTM', offline: '5. Conversões offline' };
 const VALIDA_RAST = {
   ga4_id: [v => /^G-[A-Z0-9]{6,14}$/.test(v), 'Formato: G-XXXXXXXXXX'],
   gads_id: [v => /^AW-\d{8,12}$/.test(v), 'Formato: AW-1234567890'],
@@ -1959,12 +1959,67 @@ async function gadsLancarGasto() {
   await seguro(async () => { await criar('despesas', { data: hoje(), canal: 'Google Ads', campanha: 'google_pesquisa_calculo', valor: custo, descricao }); toast('Gasto lançado'); render(); });
 }
 
+/* ---------------- Tráfego pago > Monitoramento: regras com frequência (monitor-ads.js) ---------------- */
+async function carregarEventosMon(forcar) {
+  if (DEMO || (S.monEv && !forcar && Date.now() - S.monEv.em < 300000)) return;
+  S.monEv = { em: Date.now(), lista: S.monEv?.lista || [] };
+  try {
+    let lista = [];
+    const desde = somaDias(hoje(), -35) + 'T00:00:00-03:00';
+    for (let de = 0; de < 30000; de += 1000) {
+      const { data, error } = await sb.from('eventos').select('tipo,sessao,utm_term,dispositivo,created_at').eq('utm_source', 'google').gte('created_at', desde).range(de, de + 999);
+      if (error) throw error; lista = lista.concat(data); if (data.length < 1000) break;
+    }
+    S.monEv = { em: Date.now(), lista }; render();
+  } catch (e) { console.warn('monitoramento', e); }
+}
+const cfgMonAds = () => S.ajustes.monitor_ads || {};
+function dadosMonitor() {
+  return { hoje: hoje(), agora: Date.now(), leads: S.leads, despesas: S.despesas, eventos: S.monEv?.lista || [], gads: gadsRel(), traf: traf(), rast: rast() };
+}
+function trafegoMonitor() {
+  carregarEventosMon();
+  const cfg = cfgMonAds(), lista = monitorAvaliar(dadosMonitor(), null, cfg.desligadas);
+  const alertas = lista.filter(r => r.res), ordem = { crit: 0, warn: 1, dica: 2 };
+  const ROT = { crit: '⚠ Urgente', warn: '● Melhorar', dica: 'ℹ Oportunidade' };
+  const cartao = r => `<div class="alerta-linha" style="display:block;padding:10px 0;border-bottom:1px solid var(--grid)">
+      <div class="linha" style="justify-content:space-between;gap:10px">
+        <div><b>${esc(r.titulo)}</b> <span class="desc">· ${MON_FREQ[r.freq]}</span></div>
+        <label class="linha" style="gap:6px;font-size:13px;white-space:nowrap" title="Avisar no e-mail e no painel"><input type="checkbox" data-mon-regra="${r.id}" ${r.ligada ? 'checked' : ''}> avisar</label></div>
+      ${!r.ligada ? '<div class="desc">Desligada</div>'
+        : r.erro ? `<div class="desc">Não foi possível avaliar (${esc(r.erro)})</div>`
+        : r.res ? `<div style="margin-top:4px"><span class="tag t-${r.res.nivel === 'dica' ? 'azul' : r.res.nivel}">${ROT[r.res.nivel]}</span> ${esc(r.res.msg)}</div><div class="desc" style="margin-top:4px">👉 ${esc(r.res.acao)}</div>`
+        : '<div class="desc" style="margin-top:2px">✅ Tudo certo por aqui.</div>'}</div>`;
+  const al = cfg.email === false ? 'desligado' : 'ligado';
+  return `
+  <div class="card larga" style="margin-bottom:14px"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
+    <div><h2 style="margin:0">Monitoramento do tráfego pago</h2>
+    <div class="desc">O painel confere estas regras sozinho e avisa o que melhorar para chegar a mais clientes.
+      As <b>diárias</b> vão no e-mail das 8h, as <b>semanais</b> no resumo de segunda e as <b>mensais</b> no e-mail do dia 1º. Aqui você vê a situação de agora.</div></div>
+    <label class="linha" style="gap:6px;white-space:nowrap"><input type="checkbox" id="monEmail" ${al === 'ligado' ? 'checked' : ''}> enviar por e-mail</label></div>
+    <div class="kpis" style="margin-top:12px">
+      ${kpi('Urgentes', alertas.filter(r => r.res.nivel === 'crit').length, 'resolva hoje', alertas.some(r => r.res.nivel === 'crit'))}
+      ${kpi('Para melhorar', alertas.filter(r => r.res.nivel === 'warn').length, 'ajustes da campanha')}
+      ${kpi('Oportunidades', alertas.filter(r => r.res.nivel === 'dica').length, 'crescer com o que já funciona')}
+      ${kpi('Regras em dia', lista.filter(r => r.ligada && !r.res && !r.erro).length + ' de ' + lista.filter(r => r.ligada).length, 'sem nada a fazer')}
+    </div></div>
+  ${alertas.length ? `<div class="card larga" style="margin-bottom:14px"><h2>O que fazer agora</h2>${[...alertas].sort((a, b) => ordem[a.res.nivel] - ordem[b.res.nivel]).map(cartao).join('')}</div>` : '<div class="demo" style="margin-bottom:14px"><span>✅ Nenhum aviso agora. O monitoramento continua conferindo todo dia.</span></div>'}
+  <div class="grade">${Object.entries(MON_FREQ).map(([f, rot]) => `<div class="card"><h2>${rot}</h2><div class="desc">${{ diaria: 'Urgências que custam cliente no mesmo dia', semanal: 'Ajustes da campanha com base na semana', mensal: 'Verba, custo por cliente e escala' }[f]}</div>
+    ${lista.filter(r => r.freq === f).map(cartao).join('')}</div>`).join('')}</div>`;
+}
+async function alternarRegraMon(id, ligada) {
+  const c = cfgMonAds(), off = new Set(c.desligadas || []);
+  if (ligada) off.delete(id); else off.add(id);
+  const novo = { ...c, desligadas: [...off] };
+  await seguro(async () => { await ajustesDb.salvar('monitor_ads', novo); S.ajustes.monitor_ads = novo; render(); });
+}
+
 function telaTrafego() {
   COPIAS = [];
   const aba = ABAS_TRAFEGO[S.abaTrafego] ? S.abaTrafego : 'ativacao';
   const r = rast();
   const status = r.ativo && (r.ga4_id || r.gads_id || r.meta_pixel_id) ? '<span class="tag t-good">● Rastreamento ligado</span>' : '<span class="tag t-neutro">○ Rastreamento desligado</span>';
-  const corpo = { ativacao: trafegoAtivacao, resultados: trafegoResultados, google: trafegoGoogle, campanhas: trafegoCampanhas, links: trafegoLinks, offline: trafegoOffline }[aba]();
+  const corpo = { ativacao: trafegoAtivacao, resultados: trafegoResultados, google: trafegoGoogle, monitor: trafegoMonitor, campanhas: trafegoCampanhas, links: trafegoLinks, offline: trafegoOffline }[aba]();
   return `<div class="topo"><h1>Tráfego pago</h1><div class="acoes">${status}${aba === 'resultados' || aba === 'google' ? seletorPeriodo() : ''}<button class="btn" data-acao="novoGasto">+ Lançar gasto</button></div></div>
   <div class="seg" style="margin-bottom:16px;flex-wrap:wrap">${Object.entries(ABAS_TRAFEGO).map(([k, v]) => `<button class="${k === aba ? 'on' : ''}" data-aba-trafego="${k}">${v}</button>`).join('')}</div>${corpo}`;
 }
@@ -2798,6 +2853,8 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   const id = e.target.id;
   if (e.target.dataset.feito) { const k = e.target.dataset.feito; return seguro(async () => { await salvarTrafego({ feito: { ...(traf().feito || {}), [k]: e.target.checked } }); render(); }); }
+  if (e.target.dataset && e.target.dataset.monRegra) return alternarRegraMon(e.target.dataset.monRegra, e.target.checked);
+  if (id === 'monEmail') return seguro(async () => { const novo = { ...cfgMonAds(), email: e.target.checked }; await ajustesDb.salvar('monitor_ads', novo); S.ajustes.monitor_ads = novo; toast(novo.email ? 'Avisos por e-mail ligados' : 'Avisos por e-mail desligados'); });
   if (id === 'rastAtivo') return seguro(async () => { const r = { ...rast(), ativo: e.target.checked }; await ajustesDb.salvar('rastreamento', r); S.ajustes.rastreamento = r; toast(r.ativo ? 'Rastreamento LIGADO no site' : 'Rastreamento desligado'); render(); });
   if (e.target.dataset.utm && e.target.tagName === 'SELECT') { S.utm[e.target.dataset.utm] = e.target.value; return render(); }
   if (e.target.dataset.trafDireto) return seguro(() => salvarTrafego({ [e.target.dataset.trafDireto]: e.target.value.trim() || null }));
