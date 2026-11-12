@@ -61,6 +61,14 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString
 const NO_CELULAR = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 const waLink = (num, txt = '') => { let d = digitos(num); if (d.length <= 11) d = '55' + d; return NO_CELULAR ? `https://wa.me/${d}${txt ? '?text=' + encodeURIComponent(txt) : ''}` : `https://web.whatsapp.com/send?phone=${d}${txt ? '&text=' + encodeURIComponent(txt) : ''}`; };
 const ALVO_WA = NO_CELULAR ? '_blank' : 'whatsapp-web';
+// WhatsApp do próprio painel disponível? (Evolution conectada, API da Meta ligada ou demonstração)
+const painelWaOk = () => WA_PAINEL() && (!EVOLUTION() || S.waEstado === 'open');
+// botão de WhatsApp: abre a conversa DENTRO do painel (texto já escrito) ou, se o painel estiver sem WhatsApp, o WhatsApp Web
+function waBotao(num, o = {}) {
+  if (!num) return o.vazio ?? '';
+  if (painelWaOk()) return `<button type="button" class="${o.classe || 'btn mini sec'}" data-wa-abrir="${esc(num)}" data-wa-nome="${esc(o.nome || '')}" data-wa-txt="${esc(o.texto || '')}" data-wa-lead-id="${esc(o.lead_id || '')}" data-wa-cliente-id="${esc(o.cliente_id || '')}" title="${esc(o.title || 'Abrir a conversa no painel')}">${o.rotulo}</button>`;
+  return `<a class="${o.classe || 'btn mini sec'}" href="${esc(waLink(num, o.texto || ''))}" target="${ALVO_WA}" rel="noopener" title="${esc(o.title || 'Abrir no WhatsApp Web')}" onclick="event.stopPropagation()">${o.rotulo}</a>`;
+}
 function localGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function localSet(k, v) { try { localStorage.setItem(k, v); } catch { } }
 const cliente = id => S.clientes.find(c => c.id === id);
@@ -853,12 +861,28 @@ async function whatsManual(l) {
   await registrar(l.id, 'whatsapp', 'Contato pelo WhatsApp (app)', l.cliente_id || null);
   render(); if (fichaId) renderFicha();
 }
+async function abrirNoPainel(num, nome, texto = '', vinc = {}) {
+  let wa = digitos(num); if (wa.length <= 11) wa = '55' + wa;
+  if (wa.length < 12) return toast('Número inválido');
+  await seguro(async () => {
+    let c = S.wa_conversas.find(x => x.wa_id === wa);
+    if (!c) c = await criar('wa_conversas', { wa_id: wa, nome: nome || fmtTel(wa), lead_id: vinc.lead_id || null, cliente_id: vinc.cliente_id || null, nao_lidas: 0 });
+    if (texto) S.rascunhos[wa] = texto;
+    fecharFicha();
+    await abrirConversa(wa);
+    setTimeout(() => { const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 150);
+  });
+}
 async function conversaParaLead(l) {
   if (!WA_PAINEL() || (EVOLUTION() && S.waEstado !== 'open')) return whatsManual(l);
   let c = conversaDoLead(l);
   if (!c) {
     let wa = digitos(l.whatsapp); if (wa.length <= 11) wa = '55' + wa;
     c = S.wa_conversas.find(x => x.wa_id === wa) || await criar('wa_conversas', { wa_id: wa, nome: l.nome, lead_id: l.id, cliente_id: l.cliente_id || null, nao_lidas: 0 });
+  }
+  if (!l.respondido_em && !S.rascunhos[c.wa_id]) {
+    const nome = (l.nome || '').split(' ').slice(0, 2).join(' ');
+    S.rascunhos[c.wa_id] = `Olá, ${nome}! Aqui é da Pontes Ferreira Cálculos Judiciais. Recebemos seu pedido de cálculo${l.numero_processo ? ` do processo ${l.numero_processo}` : ''} e já vamos analisar. 😊`;
   }
   fecharFicha();
   abrirConversa(c.wa_id);
@@ -1035,7 +1059,7 @@ function telaClientes() {
   }).sort((a, b) => b.fat - a.fat);
   return `<div class="topo"><h1>Clientes</h1><div class="acoes"><button class="btn" data-acao="novoCliente">+ Cliente</button></div></div>
   <div class="card"><div class="tabela">${linhas.length ? `<table><tr><th>Cliente</th><th>WhatsApp</th><th>OAB</th><th>Cidade</th><th>Origem</th><th class="n">Cálculos</th><th class="n">Faturado</th><th class="n">Em aberto</th><th>Último</th></tr>
-  ${linhas.map(({ c, n, fat, ult, aberto }) => `<tr class="clic" data-cliente="${c.id}"><td><b>${esc(c.nome)}</b></td><td>${c.whatsapp ? `<a target="${ALVO_WA}" href="${waLink(c.whatsapp)}" onclick="event.stopPropagation()">${esc(c.whatsapp)}</a>` : '—'}</td>
+  ${linhas.map(({ c, n, fat, ult, aberto }) => `<tr class="clic" data-cliente="${c.id}"><td><b>${esc(c.nome)}</b></td><td>${waBotao(c.whatsapp, { classe: 'link-wa', nome: c.nome, cliente_id: c.id, rotulo: esc(c.whatsapp), vazio: '—' })}</td>
   <td>${esc(c.oab || '—')}</td><td>${esc(c.cidade || '—')}</td><td>${esc(c.origem || '—')}</td><td class="n">${n}</td><td class="n">${brl(fat)}</td><td class="n">${aberto ? brl(aberto) : '—'}</td><td>${dataBR(ult)}</td></tr>`).join('')}</table>` : '<div class="vazio">Nenhum cliente ainda. Eles são criados ao converter um lead em cálculo.</div>'}</div></div>`;
 }
 
@@ -1066,7 +1090,7 @@ function telaFinanceiro() {
     <div class="card"><h2>A receber</h2><div class="desc">Entregues e ainda não pagos, mais antigos primeiro</div>
     ${cobrar.length ? `<div class="tabela"><table><tr><th>Entregue</th><th>Cliente</th><th class="n">Valor</th><th></th></tr>
     ${cobrar.map(c => { const cl = cliente(c.cliente_id); const d = difDias(c.data_entrega, hoje()); return `<tr><td>${dataBR(c.data_entrega)} ${d > 7 ? `<span class="tag t-crit">${d} dias</span>` : ''}</td><td>${esc(cl?.nome || '—')}</td><td class="n">${c.valor_cobrado == null ? '—' : brl(c.valor_cobrado)}</td>
-      <td style="white-space:nowrap">${cl?.whatsapp ? `<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(cl.whatsapp, `Olá, ${cl.nome}! Tudo bem? Passando para lembrar do pagamento do cálculo do processo ${c.numero_processo || ''}, no valor de ${brl(c.valor_cobrado)}. Obrigado!`)}">Cobrar</a>` : ''} <button class="btn mini" data-pagar="${c.id}">Pago</button></td></tr>`; }).join('')}</table></div>` : '<div class="vazio">Nada a receber 🎉</div>'}</div>
+      <td style="white-space:nowrap">${waBotao(cl?.whatsapp, { nome: cl?.nome, cliente_id: cl?.id, rotulo: 'Cobrar', texto: `Olá, ${cl?.nome}! Tudo bem? Passando para lembrar do pagamento do cálculo do processo ${c.numero_processo || ''}, no valor de ${brl(c.valor_cobrado)}. Obrigado!` })} <button class="btn mini" data-pagar="${c.id}">Pago</button></td></tr>`; }).join('')}</table></div>` : '<div class="vazio">Nada a receber 🎉</div>'}</div>
     <div class="card"><h2>Despesas</h2><div class="desc">${PERIODOS[S.periodo]}</div>
     ${m.despesasP.length ? `<div class="tabela"><table><tr><th>Data</th><th>Categoria</th><th>Descrição</th><th class="n">Valor</th></tr>
     ${[...m.despesasP].sort((a, b) => b.data.localeCompare(a.data)).map(d => `<tr class="clic" data-despesa="${d.id}"><td>${dataBR(d.data)}</td><td>${esc(d.canal)}</td><td>${esc(d.descricao || '')}</td><td class="n">${brl(d.valor)}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Nenhuma despesa lançada</div>'}</div>
@@ -1308,14 +1332,14 @@ function celTelefone(p) {
   let wa = '';
   if (p.whatsapp && p.status !== 'nao_contatar') wa = contatavel(p)
     ? `<button class="wa-bolha" data-wa-prosp="${p.id}" title="Enviar a mensagem do ${ROT_ETAPA[etapaProsp(p)]} no WhatsApp">${WA_SVG}</button>`
-    : `<a class="wa-bolha conversa" href="${esc(waLink(p.whatsapp))}" target="${ALVO_WA}" rel="noopener" title="Abrir a conversa no WhatsApp (sem mensagem pronta)">${WA_SVG}</a>`;
+    : waBotao(p.whatsapp, { classe: 'wa-bolha conversa', nome: p.nome, lead_id: p.lead_id, rotulo: WA_SVG, title: 'Abrir a conversa (sem mensagem pronta)' });
   const mail = p.email && p.status !== 'nao_contatar' ? `<button class="mail-bolha" data-mail-prosp="${p.id}" title="Enviar por e-mail: ${esc(p.email)}">✉</button>` : '';
   return `<div class="tel-cel">${tel}${wa}${mail}</div>`;
 }
 /* envia direto da lista, com a mensagem da etapa, e registra a abordagem */
 async function registrarAbordagem(p, canal, txt) {
   const c = cfgProsp(), agora = new Date().toISOString();
-  if (canal === 'wa') window.open(waLink(p.whatsapp, txt), ALVO_WA);
+  if (canal === 'wa') { if (painelWaOk()) abrirNoPainel(p.whatsapp, p.nome, txt); else window.open(waLink(p.whatsapp, txt), ALVO_WA); }
   else window.open(`mailto:${encodeURIComponent(p.email)}?subject=${encodeURIComponent(c.textos.email_assunto)}&body=${encodeURIComponent(txt.replace(/\*/g, ''))}`, '_blank');
   if (!contatavel(p)) return;
   const t = (p.tentativas || 0) + 1, prox = t >= c.max_tentativas ? null : somaDias(hoje(), t === 1 ? c.dias_follow1 : c.dias_follow2 - c.dias_follow1);
@@ -1368,7 +1392,7 @@ async function acaoAbordagem(a) {
   const p = S.prospects.find(x => x.id === abordagemId); if (!p) return;
   const c = cfgProsp(), txt = ($('#abTexto')?.value || '').trim(), agora = new Date().toISOString();
   await seguro(async () => {
-    if (a === 'wa' || a === 'email') { await registrarAbordagem(p, a, txt); return proximoDaFila(p.id); }
+    if (a === 'wa' || a === 'email') { await registrarAbordagem(p, a, txt); if (a === 'wa' && painelWaOk()) { $('#abordagem')?.remove(); abordagemId = null; return; } return proximoDaFila(p.id); }
     if (a === 'pular') return proximoDaFila(p.id);
     if (a === 'fechar') return fecharAbordagem();
     if (a === 'editar') { const id = p.id; fecharAbordagem(); return editarProsp(S.prospects.find(x => x.id === id)); }
@@ -1986,9 +2010,10 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
+  if (d.waAbrir) { e.stopPropagation(); return abrirNoPainel(d.waAbrir, d.waNome, d.waTxt, { lead_id: d.waLeadId, cliente_id: d.waClienteId }); }
   if (d.waProsp) return enviarDiretoProsp(d.waProsp, 'wa');
   if (d.mailProsp) return enviarDiretoProsp(d.mailProsp, 'email');
   if (d.ufMapa !== undefined) { S.ufMapa = d.ufMapa || null; if (rota() !== 'mapa') location.hash = 'mapa'; return render(); }
