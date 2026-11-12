@@ -50,23 +50,7 @@ Deno.serve(async req => {
     const assunto = String(b.assunto || `Cálculo pronto: processo ${calc.numero_processo || ''}${partes ? ' – ' + partes : ''}`).slice(0, 200);
     const saud = String(b.mensagem || 'Segue em anexo o cálculo do seu processo: relatório em PDF e o arquivo .PJC para importar no PJe-Calc.').slice(0, 2000);
     const portal = cli?.portal_token ? `https://pontesferreiracalculos.com/cliente/?t=${encodeURIComponent(cli.portal_token)}` : '';
-    const html = `<div style="font-family:Arial,sans-serif;color:#111;max-width:620px">
-      <div style="background:#0b1a3d;color:#fff;padding:16px 20px;border-radius:12px 12px 0 0"><div style="font-size:12px;letter-spacing:.3em;color:#e3a82b">PONTES FERREIRA · CÁLCULOS</div>
-      <h2 style="margin:6px 0 0;font-size:19px">Seu cálculo está pronto</h2></div>
-      <div style="padding:16px 20px;border:1px solid #eee;border-top:0;border-radius:0 0 12px 12px;font-size:14px;line-height:1.55">
-      <p>Olá${cli?.nome ? ', ' + esc(String(cli.nome).split(' ').slice(0, 2).join(' ')) : ''}!</p>
-      <p>${esc(saud).replace(/\n/g, '<br>')}</p>
-      <table style="border-collapse:collapse;margin:10px 0;font-size:14px">
-        <tr><td style="padding:4px 10px 4px 0;color:#666">Processo</td><td><b>${esc(calc.numero_processo || '—')}</b></td></tr>
-        ${partes ? `<tr><td style="padding:4px 10px 4px 0;color:#666">Partes</td><td>${esc(partes)}</td></tr>` : ''}
-        ${calc.tipo ? `<tr><td style="padding:4px 10px 4px 0;color:#666">Tipo</td><td>${esc(calc.tipo)}</td></tr>` : ''}
-      </table>
-      ${porLink ? `<p><b>Arquivos</b> (links válidos por 7 dias):</p><ul>${links.map(l => `<li><a href="${esc(l.url)}">${esc(l.nome)}</a></li>`).join('')}</ul>`
-        : `<p><b>Arquivos em anexo:</b> ${baixados.map(x => esc(x.nome)).join(', ')}</p>`}
-      ${portal ? `<p>Você também pode baixar os arquivos a qualquer momento no seu painel: <a href="${esc(portal)}">meus cálculos</a>.</p>` : ''}
-      <p>Se o juízo pedir retificação, a primeira revisão decorrente do próprio cálculo é sem custo. Qualquer dúvida, é só responder este e-mail ou chamar no WhatsApp (21) 98770-8652.</p>
-      <p style="margin-top:18px">Atenciosamente,<br><b>Pontes Ferreira Cálculos Judiciais</b><br><span style="color:#666">CNPJ 51.362.258/0001-79 · pontesferreiracalculos.com</span></p></div></div>`;
-
+    const html = emailHtml({ nome: cli?.nome ? String(cli.nome).split(' ').slice(0, 2).join(' ') : '', saud, calc, partes, porLink, links, nomesArq: baixados.map(x => x.nome), portal });
     const user = Deno.env.get('SMTP_USER'), pass = Deno.env.get('SMTP_PASS');
     if (!user || !pass) return resp({ erro: 'smtp', mensagem: 'Configure SMTP_USER e SMTP_PASS nos Secrets.' }, 400);
     const smtp = nodemailer.createTransport({ host: Deno.env.get('SMTP_HOST') || 'email-ssl.com.br', port: Number(Deno.env.get('SMTP_PORT') || 465), secure: true, auth: { user, pass } });
@@ -81,3 +65,58 @@ Deno.serve(async req => {
     return resp({ erro: 'interno', mensagem: (e as Error).message }, 500);
   }
 });
+
+// ---------- modelo do e-mail (tabelas e estilos inline: funciona no Gmail, Outlook e celular) ----------
+const SITE = 'https://pontesferreiracalculos.com';
+function emailHtml(d: any) {
+  const linha = (rot: string, val: string) => val ? `<tr><td style="padding:9px 14px;color:#6b7690;font-size:13px;width:120px;border-bottom:1px solid #eef1f6">${rot}</td><td style="padding:9px 14px;color:#0b1a3d;font-size:14px;font-weight:600;border-bottom:1px solid #eef1f6">${val}</td></tr>` : '';
+  const icone = (n: string) => /\.pjc$/i.test(n) ? '🧮' : /\.pdf$/i.test(n) ? '📄' : '📎';
+  const arquivos = d.porLink
+    ? d.links.map((l: any) => `<tr><td style="padding:10px 14px;border-bottom:1px solid #eef1f6;font-size:14px">${icone(l.nome)} ${esc(l.nome)}</td><td align="right" style="padding:10px 14px;border-bottom:1px solid #eef1f6"><a href="${esc(l.url)}" style="background:#0b1a3d;color:#fff;text-decoration:none;font-size:12px;font-weight:700;padding:7px 12px;border-radius:6px">Baixar</a></td></tr>`).join('')
+    : d.nomesArq.map((n: string) => `<tr><td colspan="2" style="padding:10px 14px;border-bottom:1px solid #eef1f6;font-size:14px">${icone(n)} ${esc(n)} <span style="color:#1f8a5b;font-size:12px;font-weight:700">· em anexo</span></td></tr>`).join('');
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f1f3f7">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f3f7;padding:24px 10px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:14px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;box-shadow:0 6px 24px rgba(11,26,61,.08)">
+  <tr><td style="background:#0b1a3d;background-image:linear-gradient(135deg,#1a3a7a 0%,#0b1a3d 55%,#060f26 100%);padding:26px 28px">
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td style="padding-right:14px"><img src="${SITE}/img/logo-email.png" width="56" height="56" alt="Pontes Ferreira" style="display:block;border:0"></td>
+      <td><div style="color:#ffffff;font-family:Georgia,'Times New Roman',serif;font-size:20px;letter-spacing:.06em;font-weight:700">PONTES FERREIRA</div>
+          <div style="color:#e3b13c;font-size:11px;letter-spacing:.42em;margin-top:3px">CÁLCULOS JUDICIAIS</div></td></tr></table>
+  </td></tr>
+  <tr><td style="background:#e3b13c;background-image:linear-gradient(90deg,#fbe7a1,#e2b13c 45%,#b07a12);height:4px;font-size:0;line-height:0">&nbsp;</td></tr>
+  <tr><td style="padding:28px 28px 8px">
+    <div style="display:inline-block;background:#dff3e6;color:#14632f;font-size:12px;font-weight:700;padding:5px 10px;border-radius:20px">✅ CÁLCULO CONCLUÍDO</div>
+    <h1 style="margin:14px 0 6px;font-family:Georgia,'Times New Roman',serif;color:#0b1a3d;font-size:24px;font-weight:700">Seu cálculo está pronto</h1>
+    <p style="margin:0 0 4px;color:#33405a;font-size:15px;line-height:1.6">Olá${d.nome ? ', ' + esc(d.nome) : ''}!</p>
+    <p style="margin:0;color:#33405a;font-size:15px;line-height:1.6">${esc(d.saud).replace(/\n/g, '<br>')}</p>
+  </td></tr>
+  <tr><td style="padding:18px 28px 6px">
+    <div style="color:#6b7690;font-size:11px;letter-spacing:.12em;font-weight:700;margin-bottom:8px">DADOS DO PROCESSO</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e3e8ef;border-radius:10px;border-collapse:separate;overflow:hidden">
+      ${linha('Processo', esc(d.calc.numero_processo || '—'))}${linha('Partes', esc(d.partes))}${linha('Tipo', esc(d.calc.tipo || ''))}${linha('Entregue em', d.calc.data_entrega ? esc(String(d.calc.data_entrega).split('-').reverse().join('/')) : esc(new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })))}
+    </table>
+  </td></tr>
+  <tr><td style="padding:18px 28px 6px">
+    <div style="color:#6b7690;font-size:11px;letter-spacing:.12em;font-weight:700;margin-bottom:8px">ARQUIVOS${d.porLink ? ' (LINKS VÁLIDOS POR 7 DIAS)' : ''}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e3e8ef;border-radius:10px;border-collapse:separate;overflow:hidden">${arquivos}</table>
+    <p style="margin:10px 0 0;color:#6b7690;font-size:12.5px;line-height:1.5">O arquivo <b>.PJC</b> é importado direto no PJe-Calc; o <b>PDF</b> é o relatório pronto para juntar aos autos.</p>
+  </td></tr>
+  ${d.portal ? `<tr><td align="center" style="padding:22px 28px 4px">
+    <a href="${esc(d.portal)}" style="display:inline-block;background:#e3b13c;background-image:linear-gradient(135deg,#fbe7a1,#e2b13c 45%,#b07a12);color:#1b1203;text-decoration:none;font-weight:700;font-size:15px;padding:13px 26px;border-radius:10px">Ver todos os meus cálculos</a>
+    <div style="color:#8a94a8;font-size:12px;margin-top:8px">Seu painel pessoal: arquivos, andamento e valores em aberto.</div></td></tr>` : ''}
+  <tr><td style="padding:22px 28px 6px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f4ef;border-radius:10px"><tr><td style="padding:14px 16px;color:#4a5870;font-size:13.5px;line-height:1.55">
+      🛡 <b>Revisão garantida:</b> se o juízo pedir retificação decorrente do próprio cálculo, a primeira revisão é sem custo.</td></tr></table>
+  </td></tr>
+  <tr><td align="center" style="padding:22px 28px 26px">
+    <p style="margin:0 0 12px;color:#33405a;font-size:14px">Dúvidas? Responda este e-mail ou fale com a gente:</p>
+    <a href="https://wa.me/5521987708652" style="display:inline-block;background:#1f8a5b;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:11px 20px;border-radius:10px">WhatsApp (21) 98770-8652</a>
+  </td></tr>
+  <tr><td style="background:#0b1a3d;padding:18px 28px;text-align:center;color:#aab4c8;font-size:12px;line-height:1.6">
+    <b style="color:#ffffff">Pontes Ferreira Cálculos Judiciais</b><br>CNPJ 51.362.258/0001-79 · <a href="${SITE}" style="color:#e3b13c;text-decoration:none">pontesferreiracalculos.com</a><br>
+    <span style="color:#7f8aa3">Este e-mail contém informações do seu processo. Se não for o destinatário, por favor desconsidere.</span>
+  </td></tr>
+</table></td></tr></table></body></html>`;
+}
+
