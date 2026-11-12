@@ -31,7 +31,7 @@ const S = {
 const TEMPERATURAS = { quente: '🔥 Quente', morno: '🌤 Morno', frio: '❄ Frio' };
 const TIPOS_ATIV = { nota: '📝 Nota', ligacao: '📞 Ligação', whatsapp: '💬 WhatsApp', email: '✉ E-mail', reuniao: '🤝 Reunião', status: '🔄 Status' };
 const RESPOSTAS_RAPIDAS = [ // [rótulo, chave em VARIACOES (mensagens.js)]
-  ['Apresentação', '__apresentacao__'], ['Saudação', 'saudacao'], ['Nossos serviços', 'servicos'], ['Salvar nosso contato', 'salvar_contato'], ['Obrigado por salvar', 'obrigado_contato'], ['Pedir dados do cadastro', 'pedir_cadastro'], ['Pedir o processo', 'pedir_processo'], ['Orçamento', 'orcamento'],
+  ['Apresentação', '__apresentacao__'], ['Saudação', 'saudacao'], ['📲 Pedir para salvar nosso contato', 'salvar_contato'], ['🙏 Obrigado por salvar o contato', 'obrigado_contato'], ['Nossos serviços', 'servicos'], ['Pedir dados do cadastro', 'pedir_cadastro'], ['Pedir o processo', 'pedir_processo'], ['Orçamento', 'orcamento'],
   ['Vários autores', 'varios_autores'], ['Em análise', 'em_analise'], ['Data de entrega', 'data_entrega'], ['Confirmação', 'confirmacao'], ['Pronto + pagamento', 'pronto_pagamento'], ['Envio após pagamento', 'envio_pago'], ['Entrega', 'entrega'], ['Cobrança', 'cobranca'], ['Follow-up', 'followup']
 ];
 /* variações: sorteia uma versão diferente da última usada */
