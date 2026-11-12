@@ -1583,16 +1583,17 @@ const UTM_META = 'utm_source=meta&utm_medium=paid_social&utm_campaign={{campaign
 /* Kit das campanhas (vem da ESTRATEGIA_ADS.md), pronto para copiar e colar */
 const KIT = [
   {
-    id: 'google_pesquisa_calculo', canal: 'Google Ads', nome: 'Pesquisa | Cálculo Trabalhista', diaria: 50, verbaMes: 1500,
+    id: 'google_pesquisa_calculo', canal: 'Google Ads', nome: 'Pesquisa | Cálculo Trabalhista', diaria: 16, verbaMes: 500,
     resumo: 'Canal principal: aparece para quem pesquisa o serviço no Google, com o problema na mão.',
     config: [
       ['Objetivo', 'Leads → tipo Pesquisa (desmarque "Rede de Display" e "Parceiros de pesquisa")'],
       ['Conversão', 'Use só a ação "Lead do site" (a que você criou na Ativação)'],
       ['Locais', 'Brasil inteiro · "Presença: pessoas no local ou que estão regularmente nele" · após 30 dias, veja Painel > Mapa do Brasil e aumente o lance (+20%) nos estados que mais geram pedidos'],
       ['Idioma', 'Português'],
-      ['Lances', 'Semanas 1–2: Maximizar cliques com CPC máximo R$ 5 · depois de ~30 conversões: Maximizar conversões · depois: CPA desejado'],
-      ['Orçamento', 'R$ 50/dia (≈ R$ 1.500/mês)'],
-      ['Programação', 'Seg a sex 8h–20h · sáb 8h–12h'],
+      ['Lances', 'Semanas 1–4: Maximizar cliques com CPC máximo R$ 4 · depois de ~30 conversões: Maximizar conversões · depois: CPA desejado'],
+      ['Orçamento', 'R$ 16/dia (≈ R$ 500/mês). Com verba curta, comece só com os grupos Liquidação, PJe-Calc e Calculista; ligue Impugnação e Inicial quando sobrar verba'],
+      ['Correspondência', 'Só frase e exata (palavra entre aspas ou colchetes). Nada de correspondência ampla com essa verba'],
+      ['Programação', 'Seg a sex 8h–19h (sem fim de semana enquanto a verba for curta)'],
       ['Sufixo do URL final', UTM_GOOGLE('google_pesquisa_calculo')],
       ['URL final', SITE_URL]
     ],
