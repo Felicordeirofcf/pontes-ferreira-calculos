@@ -531,8 +531,12 @@
   });
 
   function concluir(msg){
-    form.hidden = true; document.querySelector('.tabs').hidden = true;
+    // display:none direto: o CSS do formulário (display:grid) passava por cima do atributo hidden
+    form.hidden = true; form.style.display = 'none';
+    const abas = document.querySelector('.tabs'); if(abas){ abas.hidden = true; abas.style.display = 'none'; }
+    $('btnEnviar').disabled = false; $('btnEnviar').textContent = 'Enviar e receber orçamento';
     $('ok').hidden = false; if(msg) $('okTxt').textContent = msg;
+    $('ok').scrollIntoView({block:'center', behavior:'smooth'});
   }
 
   form.addEventListener('submit', async e=>{
