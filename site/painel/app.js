@@ -1318,7 +1318,7 @@ const PROSP_PADRAO = {
 
 };
 const cfgProsp = () => { const a = S.ajustes.prospeccao || {}; return { ...PROSP_PADRAO, ...a, textos: { ...PROSP_PADRAO.textos, ...(a.textos || {}) } }; };
-const linkPortfolio = p => p?.id ? `https://pontesferreiracalculos.com/portfolio.html?r=${String(p.id).slice(0, 8)}${!p.whatsapp && p.email ? '&m=e' : ''}` : 'https://pontesferreiracalculos.com/portfolio.html'; // a página converte r/m em utm_* (origem Prospecção)
+const linkPortfolio = p => p?.id ? `https://pontesferreiracalculos.com/?r=${String(p.id).slice(0, 8)}${!p.whatsapp && p.email ? '&m=e' : ''}` : 'https://pontesferreiracalculos.com/'; // link do site; o ?r= marca a origem Prospecção (rastro.js)
 const primeiroNome = n => { const partes = String(n || '').trim().split(/\s+/).filter(x => !/^(dra?\.?|adv\.?|escrit[oó]rio)$/i.test(x)); return partes[0] || ''; };
 const pessoaOuEscritorio = p => /advoga|associad|escrit|sociedade|&|ltda|s\/s/i.test(p.nome || '') ? '' : primeiroNome(p.nome);
 const etapaProsp = p => (p.tentativas || 0) === 0 ? 'primeiro' : p.tentativas === 1 ? 'follow1' : 'follow2';
@@ -1377,7 +1377,7 @@ function telaProspeccao() {
         ${busca(`https://www.google.com/search?q=site%3Alinkedin.com%2Fin+${qBusca}`, '💼 LinkedIn')}
         ${busca(`https://www.google.com/search?q=site%3Ajusbrasil.com.br+${qBusca}`, '⚖ Jusbrasil')}
         ${busca('https://cna.oab.org.br/', '🪪 Conferir OAB (CNA)')}
-        ${busca(linkPortfolio({ id: 'previa' }), '👁 Ver portfólio')}</div></div>
+        ${busca('https://pontesferreiracalculos.com/', '👁 Ver site')}</div></div>
     <div class="card larga"><div class="linha" style="justify-content:space-between"><h2>Lista</h2>
       <div class="linha"><input class="f" id="buscaProsp" placeholder="Buscar…" value="${esc(f.q || '')}">
       <select class="f" id="fProsp"><option value="">Todos os status</option>${Object.entries(STATUS_PROSP).map(([k, v]) => `<option value="${k}" ${k === f.status ? 'selected' : ''}>${v} (${cont(k)})</option>`).join('')}</select></div></div>
