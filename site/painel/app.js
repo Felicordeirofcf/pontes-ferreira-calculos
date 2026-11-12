@@ -806,7 +806,7 @@ function telaWhatsapp() {
     const fimJanela = aberta && c.ultima_entrada_em ? new Date(new Date(c.ultima_entrada_em).getTime() + 24 * 36e5) : new Date();
     const cliC = c.cliente_id && cliente(c.cliente_id);
     corpo = `<div class="wa-cab"><div class="wa-quem">${avatar(c.nome || c.wa_id, c.wa_id, 'g')}<div><b>${esc(c.nome || fmtTel(c.wa_id))}</b><div class="wa-sub">${fmtTel(c.wa_id)}${cliC ? ' · <span class="tag t-good">Cliente</span>' : l ? ` · <span class="tag t-azul">${esc(STATUS_LEAD[l.status])}</span>` : ''}${l?.temperatura ? ' ' + tagTemp(l) : ''}</div></div></div>
-        <div class="wa-acoes"><button class="btn mini ouro" data-acao="orcamentoRapido" title="Montar a mensagem de orçamento com o valor que você definir">💰 Orçamento</button><button class="btn mini ouro" data-acao="dataEntrega" title="Informar a data de entrega (e gravar como prazo do cálculo)">📅 Data de entrega</button><button class="btn mini ouro" data-acao="prontoPagamento" title="Avisar que o cálculo está pronto e mandar os dados de pagamento">✅ Pronto + pagamento</button><button class="btn mini ouro" data-acao="envioPago" title="Pagamento confirmado: mandar a mensagem com o PDF e o .PJC e marcar como pago/entregue">📦 Envio após pagamento</button><button class="btn mini sec" data-cadastro="${c.wa_id}" title="Preencher o cadastro com os dados da conversa">📋 Cadastro</button>${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini ouro" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(c.wa_id)}" title="Abrir no WhatsApp Web">WhatsApp Web ↗</a></div></div>
+        <div class="wa-acoes"><button class="btn mini ouro" data-acao="orcamentoRapido" title="Montar a mensagem de orçamento com o valor que você definir">💰 Orçamento</button><button class="btn mini ouro" data-acao="dataEntrega" title="Informar a data de entrega (e gravar como prazo do cálculo)">📅 Data de entrega</button><button class="btn mini ouro" data-acao="prontoPagamento" title="Avisar que o cálculo está pronto e mandar os dados de pagamento">✅ Pronto + pagamento</button><button class="btn mini ouro" data-acao="cobrancaRapida" title="Lembrar o cliente do pagamento em aberto">💸 Cobrança</button><button class="btn mini ouro" data-acao="envioPago" title="Pagamento confirmado: mandar a mensagem com o PDF e o .PJC e marcar como pago/entregue">📦 Envio após pagamento</button><button class="btn mini sec" data-cadastro="${c.wa_id}" title="Preencher o cadastro com os dados da conversa">📋 Cadastro</button>${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini ouro" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(c.wa_id)}" title="Abrir no WhatsApp Web">WhatsApp Web ↗</a></div></div>
       ${EVOLUTION() ? '' : `<div class="wa-janela ${aberta ? 'ok' : 'fechada'}">${aberta ? `✔ Conversa aberta: pode responder livremente até ${fimJanela.toLocaleDateString('pt-BR') === new Date().toLocaleDateString('pt-BR') ? 'hoje' : 'amanhã'} às ${hora(fimJanela)}.`
         : `⏸ O cliente não escreve há mais de 24h. Pela regra do WhatsApp, só dá para enviar um <b>modelo aprovado</b> para retomar a conversa. <button class="btn mini" data-acao="waModelo">Enviar modelo "${esc(CFG.WA_TEMPLATE || 'retomar_contato')}"</button>`}</div>`}
       ${cfgRobo().ativo ? `<div class="wa-janela ${roboEmSilencio(c) ? 'fechada' : 'ok'}">${roboEmSilencio(c)
@@ -864,7 +864,7 @@ async function orcamentoRapido() {
   const valor = numBR(v.valor); if (!valor) return toast('Informe o valor');
   const entrega = v.prazo === 'data' ? (v.data ? 'até ' + dataBR(v.data) : 'em até 48h') : v.prazo;
   const nome = nomeParaMensagem(c.nome), lista = listaVariacoes('orcamento_valor'), modelo = lista[sortearVariacao('rap_orcamento_valor', lista.length)];
-  const txt = (nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome)
+  const txt = saudar(nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome)
     .replace(/\{valor\}/g, valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })).replace(/\{entrega\}/g, () => entrega)
     .replace(/\{processo\}/g, () => [(v.processo || '').trim() ? ` nº ${v.processo.trim()}` : '', (v.autor || '').trim() && (v.reu || '').trim() ? ` – ${v.autor.trim()} x ${v.reu.trim()}` : ''].join(''))
     .replace(/\{detalhe\}/g, () => (v.detalhe || '').trim() ? ` (${v.detalhe.trim()})` : '')
@@ -903,7 +903,7 @@ async function prontoPagamento() {
   if (esc2) { if (v.processo === ini.processo) v.processo = esc2.numero_processo || ''; if (v.autor === ini.autor) v.autor = esc2.reclamante || ''; if (v.reu === ini.reu) v.reu = esc2.reclamada || ''; if (String(v.valor) === String(ini.valor)) v.valor = esc2.valor_cobrado || v.valor; }
   const valor = numBR(v.valor); if (!valor) return toast('Informe o valor');
   const nome = nomeParaMensagem(c.nome), lista = listaVariacoes('pronto_pagamento'), modelo = lista[sortearVariacao('rap_pronto_pagamento', lista.length)];
-  const txt = (nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome)
+  const txt = saudar(nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome)
     .replace(/\{valor\}/g, valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })).replace(/\{pagamento\}/g, () => (v.pagamento || '').trim() || dadosPagamento());
   S.rascunhos[c.wa_id] = comSalvar(comRef(txt, refProcesso((v.processo || '').trim(), (v.autor || '').trim(), (v.reu || '').trim())), v.salvar);
   render(); const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
@@ -934,7 +934,7 @@ async function envioPago() {
     const atual = S.calculos.find(x => x.id === calc.id) || calc;
     const enviar = (S.arqEnvio || []).length || v.enviarArqs ? (atual.arquivos || []) : [];
     const nome = nomeParaMensagem(c.nome), lista = listaVariacoes('envio_pago'), modelo = lista[sortearVariacao('rap_envio_pago', lista.length)];
-    const txt = (nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome);
+    const txt = saudar(nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome);
     S.rascunhos[c.wa_id] = comSalvar(comRef(txt, refProcesso((v.processo || '').trim(), (v.autor || '').trim(), (v.reu || '').trim())), v.salvar);
     S.envioPendente = { wa: c.wa_id, calc: calc.id, arquivos: enviar, pago: !!v.pago, entregue: !!v.entregue };
     render(); const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
@@ -969,11 +969,37 @@ async function dataEntrega() {
   const calc = (v.calc && S.calculos.find(x => x.id === v.calc)) || base;
   if (calc && base && calc !== base) { if (v.processo === (base.numero_processo || '')) v.processo = calc.numero_processo || ''; if (v.autor === (base.reclamante || '')) v.autor = calc.reclamante || ''; if (v.reu === (base.reclamada || '')) v.reu = calc.reclamada || ''; }
   const nome = nomeParaMensagem(c.nome), lista = listaVariacoes('data_entrega'), modelo = lista[sortearVariacao('rap_data_entrega', lista.length)];
-  const txt = (nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome).replace(/\{prazo\}/g, () => dataBR(v.data));
+  const txt = saudar(nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome).replace(/\{prazo\}/g, () => dataBR(v.data));
   S.rascunhos[c.wa_id] = comSalvar(comRef(txt, refProcesso((v.processo || '').trim(), (v.autor || '').trim(), (v.reu || '').trim())), v.salvar);
   S.dataPendente = calc && v.gravar ? { wa: c.wa_id, calc: calc.id, data: v.data } : null;
   render(); const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
   toast(S.dataPendente ? 'Revise e envie: ao enviar, o prazo do cálculo vira ' + dataBR(v.data) : 'Revise e envie.');
+}
+// 💸 Cobrança: lembrete de pagamento com processo, partes, valor e Pix puxados do cálculo em aberto
+async function cobrancaRapida() {
+  const c = convAtiva(); if (!c) return;
+  const todos = calcsDaConversa(c), abertos = todos.filter(x => !x.pago).sort((a, b) => (a.status === 'entregue' ? 0 : 1) - (b.status === 'entregue' ? 0 : 1) || (a.data_entrega || '').localeCompare(b.data_entrega || ''));
+  if (!abertos.length) return toast(todos.length ? 'Nenhum cálculo a receber deste contato: todos estão pagos.' : 'Este contato ainda não tem cálculo cadastrado.');
+  const base = abertos[0];
+  const v = await abrirForm('💸 Cobrança', [
+    ...(abertos.length > 1 ? [{ k: 'calc', rot: 'Qual cálculo', tipo: 'select', vazio: false, full: true, opcoes: abertos.map(x => [x.id, `${x.numero_processo || 'sem nº'}${x.reclamante ? ' · ' + x.reclamante : ''} · ${brl0(x.valor_cobrado)}${x.data_entrega ? ' · entregue ' + dataBR(x.data_entrega) : ''}`]) }] : []),
+    { k: 'processo', rot: 'Nº do processo', full: true },
+    { k: 'autor', rot: 'Autor (reclamante)' }, { k: 'reu', rot: 'Réu (reclamada)' },
+    { k: 'valor', rot: 'Valor em aberto (R$)', tipo: 'number', req: true },
+    { k: 'pagamento', rot: 'Dados para pagamento (vão junto na mensagem; apague para não enviar)', tipo: 'textarea', full: true },
+    CAMPO_SALVAR
+  ], { calc: base.id, processo: base.numero_processo || '', autor: base.reclamante || '', reu: base.reclamada || '', valor: base.valor_cobrado || '', pagamento: dadosPagamento(), salvar: false }, { ok: 'Montar mensagem' });
+  if (!v) return;
+  const calc = (v.calc && S.calculos.find(x => x.id === v.calc)) || base;
+  if (calc !== base) { if (v.processo === (base.numero_processo || '')) v.processo = calc.numero_processo || ''; if (v.autor === (base.reclamante || '')) v.autor = calc.reclamante || ''; if (v.reu === (base.reclamada || '')) v.reu = calc.reclamada || ''; if (String(v.valor) === String(base.valor_cobrado || '')) v.valor = calc.valor_cobrado || v.valor; }
+  const valor = numBR(v.valor); if (!valor) return toast('Informe o valor');
+  const nome = nomeParaMensagem(c.nome), lista = listaVariacoes('cobranca'), modelo = lista[sortearVariacao('rap_cobranca', lista.length)];
+  let txt = saudar(nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome).replace(/\{valor\}/g, valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }));
+  txt = comRef(txt, refProcesso((v.processo || '').trim(), (v.autor || '').trim(), (v.reu || '').trim()));
+  if ((v.pagamento || '').trim()) txt += `\n\nDados para pagamento:\n${v.pagamento.trim()}`;
+  S.rascunhos[c.wa_id] = comSalvar(txt, v.salvar);
+  render(); const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
+  toast('Revise e envie. Quando o pagamento cair, use 📦 Envio após pagamento (ou marque como pago no cálculo).');
 }
 async function configRespostas() {
   const chaves = RESPOSTAS_RAPIDAS.filter(([, k]) => k !== '__apresentacao__');
@@ -1129,6 +1155,9 @@ function nomeParaMensagem(n) {
   return (p[1] && !/^(d[aeo]s?|em|e)$/i.test(p[1]) ? p.slice(0, 2) : p.slice(0, 1)).join(' ');
 }
 // sem nome: "Olá, {nome}!" → "Olá!", "Perfeito, {nome}, obrigado!" → "Perfeito, obrigado!"
+// "Bom dia/Boa tarde/Boa noite" das mensagens prontas segue o horário de agora
+const saudacaoAgora = () => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; };
+const saudar = t => String(t).replace(/^(Bom dia|Boa tarde|Boa noite)/, () => saudacaoAgora());
 const tirarNome = t => t.replace(/,\s*\{nome\}/g, '').replace(/\{nome\},?\s*/g, '');
 function preencherRapida(i) {
   const c = convAtiva(), l = leadDaConversa(c);
@@ -1143,13 +1172,13 @@ function preencherRapida(i) {
     return;
   }
   const lista = listaVariacoes(chave), modelo = lista[sortearVariacao('rap_' + chave, lista.length)];
-  const txt = (nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome).replace(/\{valor\}/g, ((calc && calc.valor_cobrado) || (l && l.valor_orcado) || (primeiroCalculo(l) ? PRECO_PRIMEIRO : PRECO_BASE)).toLocaleString('pt-BR', { minimumFractionDigits: 2 }))
+  const txt = saudar(nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome).replace(/\{valor\}/g, ((calc && calc.valor_cobrado) || (l && l.valor_orcado) || (primeiroCalculo(l) ? PRECO_PRIMEIRO : PRECO_BASE)).toLocaleString('pt-BR', { minimumFractionDigits: 2 }))
     .replace(/(?:até|para|em) \{prazo\}/g, m => calc && calc.prazo_entrega ? m.replace('{prazo}', dataBR(calc.prazo_entrega)) : 'em até 48h') // sem data: "até {prazo}" vira "em até 48h"
     .replace(/\{prazo\}/g, calc && calc.prazo_entrega ? dataBR(calc.prazo_entrega) : 'em até 48h')
     .replace(/\{pagamento\}/g, () => dadosPagamento());
   if (/\{prazo\}/.test(modelo) && !(calc && calc.prazo_entrega)) toast('Este contato não tem cálculo com prazo cadastrado: a mensagem saiu com "em até 48h". Ajuste antes de enviar.');
   // pronto/envio: cita o processo e as partes do cálculo (passa mais segurança ao cliente)
-  S.rascunhos[c.wa_id] = ['pronto_pagamento', 'envio_pago', 'data_entrega'].includes(chave) && calc ? comRef(txt, refProcesso(calc.numero_processo, calc.reclamante, calc.reclamada)) : txt; render();
+  S.rascunhos[c.wa_id] = ['pronto_pagamento', 'envio_pago', 'data_entrega', 'cobranca'].includes(chave) && calc ? comRef(txt, refProcesso(calc.numero_processo, calc.reclamante, calc.reclamada)) : txt; render();
   const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
 }
 async function waEnviar(opts) {
@@ -1529,7 +1558,7 @@ function textoProsp(p, etapa = etapaProsp(p), idx) {
   const i = idx === undefined ? sortearVariacao('prosp_' + etapa, lista.length) : ((idx % lista.length) + lista.length) % lista.length;
   S.varAbordagem = { etapa, i, n: lista.length };
   // funções no replace: um "$&" no nome do contato não é expandido
-  return String(lista[i] || '').replace(/\{,\s*nome\}/g, () => nome ? `, ${nome}` : '').replace(/\{nome\}/g, () => nome)
+  return saudar(String(lista[i] || '')).replace(/\{,\s*nome\}/g, () => nome ? `, ${nome}` : '').replace(/\{nome\}/g, () => nome)
     .replace(/\{eu\}/g, () => c.remetente ? `Aqui é ${c.remetente}, ` : 'Aqui é ').replace(/\{escritorio\}/g, () => p.escritorio || 'seu escritório').replace(/\{link\}/g, () => linkPortfolio(p))
     .replace(/\s*\{oferta\}/g, () => c.oferta ? ' ' + c.oferta : '') // sem oferta configurada, o marcador some
     .replace(/^([\s\S]*?)(\n\n[^\n]*$)/, (t, corpo, fim) => etapa === 'primeiro' && c.oferta && !t.includes(c.oferta) ? `${corpo}\n\n${c.oferta}${fim}` : t); // textos próprios sem {oferta}: a oferta entra antes do último parágrafo
@@ -3138,7 +3167,7 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), orcamentoRapido, dataEntrega, prontoPagamento, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
+    novaDespesa: () => editarDespesa(null), orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
     selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
