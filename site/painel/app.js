@@ -1377,9 +1377,26 @@ const linkInsta = h => h ? (/^https?:/.test(h) ? h : `https://instagram.com/${h.
 
 function telaProspeccao() {
   const c = cfgProsp(), fila = filaProsp(), feitosHoje = contatadosHoje();
-  const f = S.filtroProsp, q = (f.q || '').toLowerCase();
-  const lista = S.prospects.filter(p => (!f.status || p.status === f.status) && (!q || [p.nome, p.escritorio, p.cidade, p.email, p.whatsapp, p.obs].join(' ').toLowerCase().includes(q)))
-    .sort((a, b) => (b.ultimo_contato || b.created_at).localeCompare(a.ultimo_contato || a.created_at));
+  const f = S.filtroProsp, q = (f.q || '').toLowerCase(), hj = hoje();
+  const cidadeDe = p => (p.cidade || '').split('/')[0].trim() || '(sem cidade)';
+  const ORDENS = { recentes: (a, b) => (b.ultimo_contato || b.created_at).localeCompare(a.ultimo_contato || a.created_at), novos: (a, b) => b.created_at.localeCompare(a.created_at),
+    retorno: (a, b) => (a.proximo_contato || '9999').localeCompare(b.proximo_contato || '9999'), nome: (a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'), cidade: (a, b) => cidadeDe(a).localeCompare(cidadeDe(b), 'pt-BR') || (a.nome || '').localeCompare(b.nome || '', 'pt-BR') };
+  const filtrada = S.prospects.filter(p => (!f.status || p.status === f.status) && (!q || [p.nome, p.escritorio, p.cidade, p.email, p.whatsapp, p.obs].join(' ').toLowerCase().includes(q))
+      && (!f.cidade || cidadeDe(p) === f.cidade) && (!f.fonte || (p.fonte || '(sem origem)') === f.fonte)
+      && (!f.tel || (f.tel === 'sem' ? !digitos(p.whatsapp) : tipoTel(p.whatsapp) === f.tel))
+      && (!f.retorno || (f.retorno === 'vencido' ? contatavel(p) && p.proximo_contato && p.proximo_contato <= hj : f.retorno === 'semana' ? contatavel(p) && p.proximo_contato && p.proximo_contato <= somaDias(hj, 7) : !p.tentativas)))
+    .sort(ORDENS[f.ordem] || ORDENS.recentes);
+  const POR_PAG = 20, paginas = Math.max(1, Math.ceil(filtrada.length / POR_PAG)), pag = Math.min(Math.max(1, f.pag || 1), paginas);
+  const lista = filtrada.slice((pag - 1) * POR_PAG, pag * POR_PAG);
+  const contaPor = fn => { const m = {}; S.prospects.forEach(p => { const k = fn(p); m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR')); };
+  const opt = (v, rot, atual) => `<option value="${esc(v)}" ${v === (atual || '') ? 'selected' : ''}>${esc(rot)}</option>`;
+  const filtrosAtivos = ['status', 'q', 'cidade', 'fonte', 'tel', 'retorno'].filter(k => f[k]).length;
+  const numsPag = (() => { const out = []; for (let i = 1; i <= paginas; i++) if (i === 1 || i === paginas || Math.abs(i - pag) <= 2) out.push(i); else if (out[out.length - 1] !== '…') out.push('…'); return out; })();
+  const paginacao = paginas > 1 ? `<div class="linha" style="justify-content:space-between;margin-top:12px;flex-wrap:wrap;gap:8px">
+      <span class="desc">Mostrando ${(pag - 1) * POR_PAG + 1}–${Math.min(pag * POR_PAG, filtrada.length)} de ${filtrada.length}</span>
+      <div class="linha" style="gap:4px"><button class="btn mini sec" data-pag-prosp="${pag - 1}" ${pag === 1 ? 'disabled' : ''}>‹ Anterior</button>
+      ${numsPag.map(n => n === '…' ? '<span class="desc">…</span>' : `<button class="btn mini ${n === pag ? '' : 'sec'}" data-pag-prosp="${n}">${n}</button>`).join('')}
+      <button class="btn mini sec" data-pag-prosp="${pag + 1}" ${pag === paginas ? 'disabled' : ''}>Próxima ›</button></div></div>` : '';
   const cont = k => S.prospects.filter(p => p.status === k).length;
   const respostas = S.prospects.filter(p => ['respondeu', 'interessado', 'cliente'].includes(p.status)).length;
   const abordados = S.prospects.filter(p => p.tentativas > 0).length;
@@ -1401,8 +1418,15 @@ function telaProspeccao() {
   <div class="grade">
     ${cardBuscaAuto(termo, cidade, qBusca, busca)}
     <div class="card larga"><div class="linha" style="justify-content:space-between"><h2>Lista</h2>
-      <div class="linha"><input class="f" id="buscaProsp" placeholder="Buscar…" value="${esc(f.q || '')}">
-      <select class="f" id="fProsp"><option value="">Todos os status</option>${Object.entries(STATUS_PROSP).map(([k, v]) => `<option value="${k}" ${k === f.status ? 'selected' : ''}>${v} (${cont(k)})</option>`).join('')}</select></div></div>
+      <div class="linha"><span class="desc">${filtrada.length} de ${S.prospects.length} contato(s)</span>${filtrosAtivos ? '<button class="btn mini sec" data-acao="limparFiltroProsp">✕ Limpar filtros</button>' : ''}</div></div>
+      <div class="linha" style="flex-wrap:wrap;gap:8px;margin:10px 0 4px">
+      <input class="f" id="buscaProsp" placeholder="Buscar nome, telefone, obs…" value="${esc(f.q || '')}" style="flex:1;min-width:200px">
+      <select class="f" id="fProsp"><option value="">Todos os status</option>${Object.entries(STATUS_PROSP).map(([k, v]) => `<option value="${k}" ${k === f.status ? 'selected' : ''}>${v} (${cont(k)})</option>`).join('')}</select>
+      <select class="f" data-filtro-prosp="cidade">${opt('', 'Todas as cidades', f.cidade)}${contaPor(cidadeDe).map(([c, n]) => opt(c, `${c} (${n})`, f.cidade)).join('')}</select>
+      <select class="f" data-filtro-prosp="tel">${opt('', 'Qualquer telefone', f.tel)}${opt('celular', '📱 Celular (WhatsApp)', f.tel)}${opt('fixo', '☎ Fixo', f.tel)}${opt('sem', 'Sem telefone', f.tel)}</select>
+      <select class="f" data-filtro-prosp="retorno">${opt('', 'Qualquer retorno', f.retorno)}${opt('vencido', '⏰ Retorno vencido/hoje', f.retorno)}${opt('semana', 'Retorno nos próximos 7 dias', f.retorno)}${opt('nunca', 'Nunca abordados', f.retorno)}</select>
+      <select class="f" data-filtro-prosp="fonte">${opt('', 'Qualquer origem', f.fonte)}${contaPor(p => p.fonte || '(sem origem)').map(([c, n]) => opt(c, `${c} (${n})`, f.fonte)).join('')}</select>
+      <select class="f" data-filtro-prosp="ordem">${opt('', 'Ordem: último contato', f.ordem)}${opt('novos', 'Ordem: adicionados por último', f.ordem)}${opt('retorno', 'Ordem: retorno mais próximo', f.ordem)}${opt('nome', 'Ordem: nome A–Z', f.ordem)}${opt('cidade', 'Ordem: cidade', f.ordem)}</select></div>
       ${lista.length ? `<div class="tabela"><table><tr><th>Contato</th><th>Cidade</th><th>Telefone</th><th>Links</th><th>Status</th><th>Último contato</th><th>Retorno</th><th></th></tr>
       ${lista.map(p => `<tr><td><b class="link" data-prosp="${p.id}">${esc(p.nome)}</b>${p.escritorio && p.escritorio !== p.nome ? `<div class="desc" style="margin:0">${esc(p.escritorio)}</div>` : ''}</td>
         <td>${esc(p.cidade || '—')}</td>
@@ -1412,7 +1436,7 @@ function telaProspeccao() {
         <td>${p.ultimo_contato ? dataBR(p.ultimo_contato) : '—'}</td>
         <td>${p.proximo_contato && contatavel(p) ? `<span class="${p.proximo_contato <= hoje() ? 'tag t-warn' : ''}">${dataBR(p.proximo_contato)}</span>` : '—'}</td>
         <td style="white-space:nowrap">${contatavel(p) ? `<button class="btn mini ouro" data-abordar="${p.id}">📲 Abordar</button>` : ''}</td></tr>`).join('')}</table></div>`
-      : `<div class="vazio">${S.prospects.length ? 'Nada com esse filtro' : 'Lista vazia. Comece pesquisando acima e adicionando contatos.'}</div>`}</div>
+      : `<div class="vazio">${S.prospects.length ? 'Nada com esse filtro' : 'Lista vazia. Comece pesquisando acima e adicionando contatos.'}</div>`}${paginacao}</div>
   </div>`;
 }
 
@@ -2875,7 +2899,7 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-filtro-wa],[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-pag-prosp],[data-cidade-prosp],[data-filtro-wa],[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
   if (d.filtroWa) { S.filtroWa = d.filtroWa; return render(); }
@@ -2896,6 +2920,7 @@ document.addEventListener('click', e => {
   if (d.ufMapa !== undefined) { S.ufMapa = d.ufMapa || null; if (rota() !== 'mapa') location.hash = 'mapa'; return render(); }
   if (d.metricaMapa) { S.metricaMapa = d.metricaMapa; localSet('pf_metrica_mapa', d.metricaMapa); return render(); }
   if (d.prospectarUf) return prospectarUF(d.prospectarUf);
+  if (d.pagProsp) { S.filtroProsp.pag = Number(d.pagProsp); render(); return document.querySelector('#buscaProsp')?.closest('.card')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
   if (d.cidadeProsp) { S.buscaProsp.cidade = d.cidadeProsp; return buscarAuto(false); }
   if (d.prosp) return editarProsp(S.prospects.find(x => x.id === d.prosp));
   if (d.abordar) return abrirAbordagem(d.abordar);
@@ -2921,7 +2946,7 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), buscarAuto: () => buscarAuto(false), buscarMais: () => buscarAuto(true), addAchados,
+    novaDespesa: () => editarDespesa(null), buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
     selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
@@ -2947,7 +2972,8 @@ document.addEventListener('change', e => {
   if (e.target.dataset.utm && e.target.tagName === 'SELECT') { S.utm[e.target.dataset.utm] = e.target.value; return render(); }
   if (e.target.dataset.trafDireto) return seguro(() => salvarTrafego({ [e.target.dataset.trafDireto]: e.target.value.trim() || null }));
   if (e.target.dataset.emailTipo) return alternarEmail(e.target.dataset.emailTipo, e.target.checked);
-  if (id === 'fProsp') { S.filtroProsp.status = e.target.value; return render(); }
+  if (id === 'fProsp') { S.filtroProsp.status = e.target.value; S.filtroProsp.pag = 1; return render(); }
+  if (e.target.dataset && e.target.dataset.filtroProsp) { S.filtroProsp[e.target.dataset.filtroProsp] = e.target.value; S.filtroProsp.pag = 1; return render(); }
   if (e.target.dataset.buscaProsp) { const k = e.target.dataset.buscaProsp; if (S.buscaProsp[k] === e.target.value) return; S.buscaProsp[k] = e.target.value; return render(); } // o input já guardou: não redesenha à toa
   if (id === 'periodo') { S.periodo = e.target.value; localSet('pf_periodo', S.periodo); render(); }
   if (id === 'filtroCalc') { S.filtroCalc = e.target.value; render(); }
@@ -2964,7 +2990,7 @@ document.addEventListener('input', e => {
   const id = e.target.id;
   if (e.target.dataset.rast) S.rascRast[e.target.dataset.rast] = e.target.value;
   if (e.target.dataset.utm && e.target.tagName === 'INPUT') { S.utm[e.target.dataset.utm] = e.target.value; const u = urlUtm(); $('#utmUrl').textContent = u; $('#utmAbrir').href = u; }
-  if (id === 'buscaProsp') { S.filtroProsp.q = e.target.value; render(); }
+  if (id === 'buscaProsp') { S.filtroProsp.q = e.target.value; S.filtroProsp.pag = 1; render(); }
   if (e.target.dataset.buscaProsp) S.buscaProsp[e.target.dataset.buscaProsp] = e.target.value;
   if (id === 'busca') { S.busca = e.target.value; render(); }
   if (id === 'buscaLeads') { S.filtroLeads.q = e.target.value; render(); }
