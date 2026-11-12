@@ -21,3 +21,6 @@ verify_jwt = true
 
 [functions.buscar-escritorios]
 verify_jwt = true
+
+[functions.enviar-calculo-email]
+verify_jwt = true

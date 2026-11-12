@@ -911,6 +911,19 @@ async function prontoPagamento() {
 }
 // 📦 Envio após pagamento: confirma o pagamento, manda a mensagem e os arquivos do cálculo (PDF e .PJC)
 // e marca o cálculo como pago e entregue
+// e-mail do cliente: cadastro do cliente, depois o contato da prospecção com o mesmo telefone
+function emailDoCalculo(calc, c) {
+  const cli = S.clientes.find(x => x.id === (calc && calc.cliente_id)) || S.clientes.find(x => x.id === (c && c.cliente_id));
+  if (cli && cli.email) return cli.email;
+  const p = S.prospects.find(x => x.email && digitos(x.whatsapp).slice(-8) === digitos(c && c.wa_id).slice(-8));
+  return p ? p.email : '';
+}
+async function enviarCalculoEmail(calcId, para) {
+  if (DEMO) { toast('Modo demonstração: e-mail para ' + para + ' simulado.'); return; }
+  const { data, error } = await sb.functions.invoke('enviar-calculo-email', { body: { calc_id: calcId, para } });
+  if (error) { let d = {}; try { d = await error.context.json(); } catch { } throw new Error(d.mensagem || (error.context?.status === 404 ? 'publique a função enviar-calculo-email no Supabase' : error.message)); }
+  toast(`✉ E-mail enviado para ${para}${data.links ? ' (arquivos grandes: foram como links)' : ` com ${data.anexos} anexo(s)`}`);
+}
 async function envioPago() {
   const c = convAtiva(); if (!c) return;
   const todos = calcsDaConversa(c), base = todos.find(x => !x.pago) || todos.find(x => x.status !== 'entregue') || todos[0];
@@ -921,22 +934,30 @@ async function envioPago() {
     ...(todos.length > 1 ? [{ k: 'calc', rot: 'Qual cálculo', tipo: 'select', vazio: false, full: true, opcoes: todos.map(x => [x.id, `${x.numero_processo || 'sem nº'}${x.reclamante ? ' · ' + x.reclamante : ''} · ${x.pago ? 'pago' : 'a pagar'}`]) }] : []),
     { k: 'processo', rot: 'Nº do processo', full: true },
     { k: 'autor', rot: 'Autor (reclamante)' }, { k: 'reu', rot: 'Réu (reclamada)' },
-    arqs.length ? { k: 'enviarArqs', rot: `Enviar junto os arquivos do cálculo: ${arqs.map(a => a.nome).join(', ')}`, tipo: 'checkbox', full: true }
-      : { k: 'arquivos', rot: 'PDF e .PJC do cálculo (escolha os dois; ficam guardados no cálculo e vão junto na mensagem)', tipo: 'file', accept: '.pdf,.pjc,.PJC,application/pdf', full: true },
+    { k: 'arquivos', rot: arqs.length ? `Subir outros arquivos (já guardados: ${arqs.map(a => a.nome).join(', ')})` : 'Subir o PDF e o .PJC do cálculo (escolha os dois; ficam guardados no cálculo e no portal do cliente)', tipo: 'file', accept: '.pdf,.pjc,.PJC,application/pdf', full: true },
+    ...(arqs.length ? [{ k: 'enviarArqs', rot: 'Enviar os arquivos guardados no cálculo pelo WhatsApp', tipo: 'checkbox', full: true }] : []),
+    { k: 'email', rot: 'E-mail do cliente (para mandar também por e-mail)', ph: 'cliente@escritorio.com.br', full: true },
+    { k: 'porEmail', rot: '✉ Enviar também por e-mail, com o PDF e o .PJC anexados', tipo: 'checkbox', full: true },
     { k: 'pago', rot: 'Marcar o cálculo como pago hoje', tipo: 'checkbox' }, { k: 'entregue', rot: 'Marcar o cálculo como entregue hoje', tipo: 'checkbox' },
     CAMPO_SALVAR
-  ], { salvar: false, calc: base.id, processo: base.numero_processo || '', autor: base.reclamante || '', reu: base.reclamada || '', enviarArqs: true, pago: !base.pago, entregue: base.status !== 'entregue' }, { ok: 'Montar mensagem' });
+  ], { salvar: false, email: emailDoCalculo(base, c), porEmail: !!emailDoCalculo(base, c), calc: base.id, processo: base.numero_processo || '', autor: base.reclamante || '', reu: base.reclamada || '', enviarArqs: true, pago: !base.pago, entregue: base.status !== 'entregue' }, { ok: 'Montar mensagem' });
   if (!v) return;
   const calc = (v.calc && S.calculos.find(x => x.id === v.calc)) || base;
   if (calc !== base) { if (v.processo === (base.numero_processo || '')) v.processo = calc.numero_processo || ''; if (v.autor === (base.reclamante || '')) v.autor = calc.reclamante || ''; if (v.reu === (base.reclamada || '')) v.reu = calc.reclamada || ''; }
   await seguro(async () => {
     if ((S.arqEnvio || []).length) { toast('Guardando os arquivos no cálculo…'); await anexarEntregas(calc.id, S.arqEnvio); }
     const atual = S.calculos.find(x => x.id === calc.id) || calc;
-    const enviar = (S.arqEnvio || []).length || v.enviarArqs ? (atual.arquivos || []) : [];
+    const novos = (S.arqEnvio || []).length, todosArq = atual.arquivos || [];
+    const enviar = novos ? todosArq.slice(-novos).concat(v.enviarArqs ? todosArq.slice(0, -novos) : []) : (v.enviarArqs ? todosArq : []);
+    const email = (v.email || '').trim();
+    if (email && v.porEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('E-mail inválido: ' + email);
+    // guarda o e-mail no cadastro do cliente, se ainda não tiver
+    const cliE = S.clientes.find(x => x.id === (atual.cliente_id || c.cliente_id));
+    if (email && cliE && !cliE.email) await atualizar('clientes', cliE.id, { email }).catch(() => { });
     const nome = nomeParaMensagem(c.nome), lista = listaVariacoes('envio_pago'), modelo = lista[sortearVariacao('rap_envio_pago', lista.length)];
     const txt = saudar(nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome);
     S.rascunhos[c.wa_id] = comSalvar(comRef(txt, refProcesso((v.processo || '').trim(), (v.autor || '').trim(), (v.reu || '').trim())), v.salvar);
-    S.envioPendente = { wa: c.wa_id, calc: calc.id, arquivos: enviar, pago: !!v.pago, entregue: !!v.entregue };
+    S.envioPendente = { wa: c.wa_id, calc: calc.id, arquivos: enviar, pago: !!v.pago, entregue: !!v.entregue, email: v.porEmail && email && todosArq.length ? email : '' };
     render(); const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
     toast(enviar.length ? `Revise e envie: depois da mensagem vão ${enviar.length} arquivo(s) e o cálculo é atualizado.` : 'Revise e envie. Nenhum arquivo guardado no cálculo: anexe pelo 📎.');
   });
@@ -1206,6 +1227,7 @@ async function waEnviar(opts) {
     const patch = { ...(e.pago ? { pago: true, data_pagamento: hoje() } : {}), ...(e.entregue ? { status: 'entregue', data_entrega: hoje() } : {}) };
     if (Object.keys(patch).length) await atualizar('calculos', e.calc, patch).catch(er => console.warn('envio', er));
     toast(`Enviado${e.arquivos.length ? ` com ${e.arquivos.length} arquivo(s)` : ''}${e.pago ? ' · cálculo pago' : ''}${e.entregue ? ' · entregue' : ''}`);
+    if (e.email) await enviarCalculoEmail(e.calc, e.email).catch(er => toast('E-mail não enviado: ' + (er.message || er)));
   }
   if (S.orcPendente && S.orcPendente.wa === c.wa_id && /R\$/.test(opts.texto || '')) { // orçamento enviado: lead vai para "Orçamento enviado"
     const o = S.orcPendente; S.orcPendente = null;
