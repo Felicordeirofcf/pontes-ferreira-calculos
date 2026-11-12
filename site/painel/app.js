@@ -2146,7 +2146,7 @@ function alertasTrafego(t) {
 // O Google Ads não manda os números para cá sozinho: você baixa o relatório (CSV) lá e importa aqui.
 // O painel junta com o que ele já sabe pelo utm_term (palavra-chave): visitas, pedidos, clientes fechados e faturamento.
 const GADS_TIPOS = { palavras: 'Palavras-chave', termos: 'Termos de pesquisa', dias: 'Por dia', campanhas: 'Campanhas' };
-const GADS_RUINS = /gr[aá]tis|gratuit|calculadora|curso|apostila|download|baixar|como fazer|como calcular|tutorial|vaga|emprego|concurso|sal[aá]rio d|quanto ganha|meus direitos|fgts|seguro desemprego|rescis[aã]o|planilha|modelo|pdf|manual|treinamento|online gr|aplicativo|app\b|excel/i;
+const GADS_RUINS = /gr[aá]tis|gratuit|calculadora|curso|apostila|download|baixar|como fazer|como calcular|tutorial|vaga|emprego|concurso|sal[aá]rio d|quanto ganha|meus direitos|fgts|seguro desemprego|rescis[aã]o|planilha|modelo|pdf|manual|treinamento|online gr|aplicativo|app\b|excel|significa|o que (?:é|e)\b|oque|quanto tempo|demora|homologad|juntada|iniciada|fase de|justi[cç]a do trabalho|\bia\b|intelig[eê]ncia artificial|rescis[oó]ri/i;
 const normTermo = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/["\[\]+]/g, '').replace(/\s+/g, ' ').trim();
 // CSV com aspas, vírgula/ponto e vírgula/tab (o Google exporta com 1–2 linhas de título antes do cabeçalho)
 function lerCsv(texto) {

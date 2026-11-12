@@ -41,7 +41,7 @@ const molde = (titulo: string, sub: string, corpo: string) => `<div style="font-
 // Regras do monitoramento do tráfego pago (copiadas de site/painel/monitor-ads.js por scripts/sincronizar-robo.mjs)
 // <monitor-ads>
 const MON_FREQ = { diaria: 'Todo dia', semanal: 'Toda segunda', mensal: 'Todo dia 1º' };
-const MON_RUINS = /gr[aá]tis|gratuit|calculadora|curso|apostila|download|baixar|como fazer|como calcular|tutorial|vaga|emprego|concurso|sal[aá]rio d|quanto ganha|meus direitos|fgts|seguro desemprego|rescis[aã]o|planilha|modelo|pdf|manual|treinamento|aplicativo|excel/i;
+const MON_RUINS = /gr[aá]tis|gratuit|calculadora|curso|apostila|download|baixar|como fazer|como calcular|tutorial|vaga|emprego|concurso|sal[aá]rio d|quanto ganha|meus direitos|fgts|seguro desemprego|rescis[aã]o|planilha|modelo|pdf|manual|treinamento|aplicativo|excel|significa|o que (?:é|e)\b|oque|quanto tempo|demora|homologad|juntada|iniciada|fase de|justi[cç]a do trabalho|\bia\b|intelig[eê]ncia artificial|rescis[oó]ri/i;
 const monNorm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/["\[\]+]/g, '').replace(/\s+/g, ' ').trim();
 const monDia = ts => String(ts || '').slice(0, 10);
 const monSomaDias = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
