@@ -83,7 +83,7 @@ function canalLead(l) {
   if (CANAIS.includes(l.origem)) return l.origem;
   if (/prospec/.test(u)) return 'Prospecção';
   const med = (l.utm_medium || '').toLowerCase();
-  if (!l.gclid && !l.fbclid && /organico|bio|post|story|grupo|assinatura/.test(med)) return /instagram|\big\b/.test(u) ? 'Instagram orgânico' : /indicacao/.test(u) ? 'Indicação' : 'Site orgânico';
+  if (!l.gclid && !l.fbclid && /organico|seo|bio|post|story|grupo|assinatura/.test(med)) return /instagram|\big\b/.test(u) ? 'Instagram orgânico' : /indicacao/.test(u) ? 'Indicação' : 'Site orgânico';
   if (l.gclid || /google|gads|adwords/.test(u + ' ' + o)) return 'Google Ads';
   if (l.fbclid || /meta|facebook|instagram|\bfb\b|\big\b/.test(u + ' ' + o)) return 'Meta Ads';
   if (!o || o === 'organico' || o === 'site') return 'Site orgânico';
