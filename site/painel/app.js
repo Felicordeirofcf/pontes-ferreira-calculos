@@ -168,7 +168,7 @@ function semearDemo() {
       numero_processo: cnj(proc), origem: canal, gclid: canal === 'Google Ads' ? 'demo' : null, status,
       utm_campaign: canal === 'Google Ads' ? (rnd() < .85 ? 'google_pesquisa_calculo' : 'google_remarketing') : canal === 'Meta Ads' ? pick(['meta_topo_reels', 'meta_topo_reels', 'meta_remarketing']) : null,
       utm_term: canal === 'Google Ads' ? pick(['cálculo de liquidação trabalhista', 'pje calc', 'calculista trabalhista', 'impugnação aos cálculos trabalhista', 'liquidação de sentença trabalhista']) : null,
-      valor_orcado: 150 + Math.floor(rnd() * 4) * 50, respondido_em: status === 'novo' ? null : new Date(d.getTime() + (5 + rnd() * 90) * 6e4).toISOString(),
+      valor_orcado: 250 + Math.floor(rnd() * 4) * 50, respondido_em: status === 'novo' ? null : new Date(d.getTime() + (5 + rnd() * 90) * 6e4).toISOString(),
       motivo_perda: status === 'perdido' ? pick(['Preço', 'Fez internamente', 'Sem resposta', 'Prazo']) : null
     };
     leads.push(l);
@@ -185,7 +185,7 @@ function semearDemo() {
         tipo: l.tipo, autores, complexidade: autores > 1 ? 'complexa' : pick(['simples', 'simples', 'média']),
         status: entregue ? 'entregue' : pick(['recebido', 'andamento', 'revisao']), data_entrada: ent, prazo_entrega: prazo,
         data_entrega: entregue ? somaDias(ent, rnd() < .85 ? 1 : 3) : null,
-        valor_cobrado: autores > 1 ? 150 * autores * .8 : l.valor_orcado, valor_apurado: Math.round(15000 + rnd() * 120000),
+        valor_cobrado: autores > 1 ? 250 * autores * .8 : l.valor_orcado, valor_apurado: Math.round(15000 + rnd() * 120000),
         pago: entregue && rnd() < .8, data_pagamento: null
       });
       const c2 = calculos[calculos.length - 1]; if (c2.pago) c2.data_pagamento = somaDias(c2.data_entrega, Math.floor(rnd() * 6));
@@ -317,7 +317,7 @@ const camposCalculo = () => [
   { k: 'data_entrada', rot: 'Entrada', tipo: 'date', padrao: hoje(), req: true },
   { k: 'prazo_entrega', rot: 'Prazo de entrega', tipo: 'date', padrao: somaDias(hoje(), 2) },
   { k: 'data_entrega', rot: 'Entregue em', tipo: 'date' },
-  { k: 'valor_cobrado', rot: 'Valor cobrado (R$)', tipo: 'number', padrao: 150 },
+  { k: 'valor_cobrado', rot: 'Valor cobrado (R$)', tipo: 'number', padrao: 250 },
   { k: 'valor_apurado', rot: 'Valor apurado no cálculo (R$)', tipo: 'number' },
   { k: 'pago', rot: 'Pago', tipo: 'checkbox' }, { k: 'data_pagamento', rot: 'Pago em', tipo: 'date' },
   { k: 'obs', rot: 'Observações', tipo: 'textarea', full: true }
@@ -377,7 +377,7 @@ async function moverLead(l, status) {
     if (m === null) return render(); patch.motivo_perda = m;
   }
   if (status === 'orcamento' && !l.valor_orcado) {
-    const v = prompt('Valor orçado (R$):', '150');
+    const v = prompt('Valor orçado (R$):', '250');
     if (v) patch.valor_orcado = Number(v.replace(',', '.')) || null;
   }
   await seguro(async () => {
@@ -389,7 +389,7 @@ async function moverLead(l, status) {
 async function leadParaCalculo(l) {
   let cli = S.clientes.find(c => (l.cliente_id && c.id === l.cliente_id) || (digitos(c.whatsapp) && digitos(c.whatsapp).slice(-9) === digitos(l.whatsapp).slice(-9)));
   const v = await abrirForm('Converter lead em cálculo', camposCalculo().filter(f => f.k !== 'cliente_id'), {
-    numero_processo: l.numero_processo, tipo: l.tipo, valor_cobrado: l.valor_orcado || 150,
+    numero_processo: l.numero_processo, tipo: l.tipo, valor_cobrado: l.valor_orcado || 250,
     prazo_entrega: somaDias(hoje(), (l.prazo || '').includes('48h') ? 1 : 2)
   });
   if (!v) return;
@@ -884,7 +884,7 @@ function preencherRapida(i) {
   const c = convAtiva(), l = leadDaConversa(c);
   const calc = l ? S.calculos.filter(x => x.lead_id === l.id || (l.cliente_id && x.cliente_id === l.cliente_id)).sort((a, b) => (b.data_entrada || '').localeCompare(a.data_entrada || ''))[0] : null;
   const nome = ((c && c.nome) || '').split(' ').slice(0, 2).join(' ');
-  const txt = RESPOSTAS_RAPIDAS[i][1].replace('{nome}', nome).replace('{valor}', ((calc && calc.valor_cobrado) || (l && l.valor_orcado) || 150).toLocaleString('pt-BR', { minimumFractionDigits: 2 }))
+  const txt = RESPOSTAS_RAPIDAS[i][1].replace('{nome}', nome).replace('{valor}', ((calc && calc.valor_cobrado) || (l && l.valor_orcado) || 250).toLocaleString('pt-BR', { minimumFractionDigits: 2 }))
     .replace('{prazo}', calc && calc.prazo_entrega ? dataBR(calc.prazo_entrega) : 'em até 48h');
   S.rascunhos[c.wa_id] = txt; render();
   const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
@@ -1217,7 +1217,7 @@ const FONTES_PROSP = ['Google Maps', 'Instagram', 'LinkedIn', 'Site do escritór
 const PROSP_PADRAO = {
   meta_dia: 20, dias_follow1: 3, dias_follow2: 7, max_tentativas: 3, remetente: '',
   textos: {
-    primeiro: 'Olá{, nome}! Tudo bem? {eu}da *Pontes Ferreira Cálculos Judiciais*.\n\nFazemos cálculos trabalhistas no PJe-Calc para escritórios: liquidação, impugnação e cálculo da inicial, a partir de R$ 150, com entrega em até 48h (arquivo .PJC + relatório em PDF + resumo do que foi deferido).\n\nNossa apresentação: {link}\n\nPosso fazer o orçamento do seu próximo cálculo? Se preferir não receber mensagens, é só me avisar. 🙂',
+    primeiro: 'Olá{, nome}! Tudo bem? {eu}da *Pontes Ferreira Cálculos Judiciais*.\n\nFazemos cálculos trabalhistas no PJe-Calc para escritórios: liquidação, impugnação e cálculo da inicial, a partir de R$ 250, com entrega em até 48h (arquivo .PJC + relatório em PDF + resumo do que foi deferido).\n\nNossa apresentação: {link}\n\nPosso fazer o orçamento do seu próximo cálculo? Se preferir não receber mensagens, é só me avisar. 🙂',
     follow1: 'Olá{, nome}! Passando para saber se conseguiu ver nossa apresentação. Se tiver algum cálculo com prazo correndo, é só enviar o PDF ou o número do processo que faço o orçamento hoje mesmo: {link}',
     follow2: 'Olá{, nome}! Último contato por aqui, prometo 🙂 Deixo nosso link para quando precisar de cálculo trabalhista: {link}\nObrigado pela atenção!',
     email_assunto: 'Cálculos trabalhistas no PJe-Calc para o seu escritório'
@@ -1505,9 +1505,9 @@ const KIT = [
       ['Inicial', ['cálculo para petição inicial trabalhista', 'liquidação dos pedidos inicial', 'cálculo da inicial trabalhista']]
     ],
     negativas: ['grátis', 'gratis', 'gratuito', 'online grátis', 'calculadora', 'rescisão', 'curso', 'apostila', 'download', 'baixar', 'como fazer', 'tutorial', 'vaga', 'emprego', 'concurso', 'salário de calculista', 'quanto ganha', 'meus direitos', 'fgts saque', 'seguro desemprego', 'planilha', 'modelo', 'pdf', 'manual', 'treinamento'],
-    titulos: ['Cálculo Trabalhista R$ 150', 'Só Informe o Nº do Processo', 'Envie o PDF, Nós Calculamos', 'Cálculo Trabalhista em 48h', 'Liquidação no PJe-Calc', 'Entrega do Arquivo .PJC', 'Para Advogados Trabalhistas', 'Prazo Correndo? Fale Agora', 'Orçamento em 1 Hora Útil', 'Impugnação de Cálculos', 'Preço Fechado Antes', 'Pontes Ferreira Cálculos', 'Todos os TRTs do Brasil', 'Resumo do Que Foi Deferido', 'Orçamento pelo WhatsApp'],
-    descricoes: ['A partir de R$ 150. Envie o PDF ou só o número do processo. Entrega do .PJC em 48h.', 'Leitura de sentença, acórdão e embargos. Você recebe .PJC, relatório PDF e resumo.', 'Prazo de liquidação correndo? Envie o processo e receba o orçamento ainda hoje.', 'Cálculos para advogados trabalhistas de todo o Brasil. Preço fechado antes de começar.'],
-    sitelinks: [['Preços', 'A partir de R$ 150', 'Preço fechado antes de começar', SITE_URL + '#precos'], ['Enviar o processo', 'PDF ou só o número', 'Orçamento em 1 hora útil', SITE_URL + '#form'], ['Serviços', 'Liquidação e impugnação', 'Inicial, atualização e parecer', SITE_URL + '#servicos'], ['Como funciona', 'Quatro passos', 'Sem reunião, tudo online', SITE_URL + '#como-funciona']],
+    titulos: ['Cálculo Trabalhista R$ 250', 'Só Informe o Nº do Processo', 'Envie o PDF, Nós Calculamos', 'Cálculo Trabalhista em 48h', 'Liquidação no PJe-Calc', 'Entrega do Arquivo .PJC', 'Para Advogados Trabalhistas', 'Prazo Correndo? Fale Agora', 'Orçamento em 1 Hora Útil', 'Impugnação de Cálculos', 'Preço Fechado Antes', 'Pontes Ferreira Cálculos', 'Todos os TRTs do Brasil', 'Resumo do Que Foi Deferido', 'Orçamento pelo WhatsApp'],
+    descricoes: ['A partir de R$ 250. Envie o PDF ou só o número do processo. Entrega do .PJC em 48h.', 'Leitura de sentença, acórdão e embargos. Você recebe .PJC, relatório PDF e resumo.', 'Prazo de liquidação correndo? Envie o processo e receba o orçamento ainda hoje.', 'Cálculos para advogados trabalhistas de todo o Brasil. Preço fechado antes de começar.'],
+    sitelinks: [['Preços', 'A partir de R$ 250', 'Preço fechado antes de começar', SITE_URL + '#precos'], ['Enviar o processo', 'PDF ou só o número', 'Orçamento em 1 hora útil', SITE_URL + '#form'], ['Serviços', 'Liquidação e impugnação', 'Inicial, atualização e parecer', SITE_URL + '#servicos'], ['Como funciona', 'Quatro passos', 'Sem reunião, tudo online', SITE_URL + '#como-funciona']],
     destaques: ['Entrega em 48h', 'Arquivo .PJC incluso', 'Todos os TRTs', 'Orçamento em 1h', 'Preço fechado', 'Envie só o nº']
   },
   {
@@ -1523,9 +1523,9 @@ const KIT = [
       ['Sufixo do URL final', UTM_GOOGLE('google_remarketing')],
       ['URL final', SITE_URL + '#form']
     ],
-    titulos: ['Seu Prazo Ainda Está Correndo?', 'Cálculo Trabalhista R$ 150', 'Envie Só o Nº do Processo', 'Entrega do .PJC em 48h', 'Orçamento em 1 Hora Útil'],
-    descricoes: ['Ainda precisa do cálculo? Envie o PDF ou o número do processo e receba o orçamento hoje.', 'Cálculo no PJe-Calc a partir de R$ 150, com relatório e resumo do que foi deferido.'],
-    extra: 'Imagens: suba o logotipo (quadrado e horizontal) e 2–3 imagens (1200×628 e 1200×1200) com o texto "Cálculo trabalhista em 48h · a partir de R$ 150".'
+    titulos: ['Seu Prazo Ainda Está Correndo?', 'Cálculo Trabalhista R$ 250', 'Envie Só o Nº do Processo', 'Entrega do .PJC em 48h', 'Orçamento em 1 Hora Útil'],
+    descricoes: ['Ainda precisa do cálculo? Envie o PDF ou o número do processo e receba o orçamento hoje.', 'Cálculo no PJe-Calc a partir de R$ 250, com relatório e resumo do que foi deferido.'],
+    extra: 'Imagens: suba o logotipo (quadrado e horizontal) e 2–3 imagens (1200×628 e 1200×1200) com o texto "Cálculo trabalhista em 48h · a partir de R$ 250".'
   },
   {
     id: 'meta_topo_reels', canal: 'Meta Ads', nome: 'Topo | Clique para WhatsApp', diaria: 13, verbaMes: 400,
@@ -1540,9 +1540,9 @@ const KIT = [
       ['Mensagem inicial', 'Olá! Vim pelo anúncio e quero um orçamento de cálculo trabalhista.']
     ],
     criativos: [
-      ['Reels 20s: "Intimado para apresentar cálculos?"', 'Tela do PJe-Calc gravada + legenda grande.', 'Intimado para apresentar os cálculos e sem tempo para o PJe-Calc? 📄\n\nEnvie o PDF ou só o número do processo. Em até 48h você recebe o arquivo .PJC, o relatório e o resumo do que foi deferido.\n\nA partir de R$ 150. Orçamento em 1 hora útil pelo WhatsApp.', 'Cálculo trabalhista em 48h'],
+      ['Reels 20s: "Intimado para apresentar cálculos?"', 'Tela do PJe-Calc gravada + legenda grande.', 'Intimado para apresentar os cálculos e sem tempo para o PJe-Calc? 📄\n\nEnvie o PDF ou só o número do processo. Em até 48h você recebe o arquivo .PJC, o relatório e o resumo do que foi deferido.\n\nA partir de R$ 250. Orçamento em 1 hora útil pelo WhatsApp.', 'Cálculo trabalhista em 48h'],
       ['Carrossel: "5 erros na liquidação que custam caro"', 'Cards: 1) índice errado (ADC 58) · 2) termo inicial da prescrição · 3) reflexos em cascata · 4) base do intervalo · 5) INSS cota empregado · 6) "Quer que a gente confira a sua conta?"', 'Um erro de índice ou de reflexo pode custar milhares de reais na liquidação. Veja os 5 mais comuns 👉\n\nQuer que a gente confira a sua conta? Chame no WhatsApp.', 'Confira sua conta de liquidação'],
-      ['Imagem: antes × depois', 'Conta do perito × conta revisada (valores ilustrativos).', 'R$ 23 mil de diferença numa impugnação. Revisamos a conta do perito e entregamos a impugnação com o .PJC.\n\nA partir de R$ 150.', 'Impugnação de cálculos']
+      ['Imagem: antes × depois', 'Conta do perito × conta revisada (valores ilustrativos).', 'R$ 23 mil de diferença numa impugnação. Revisamos a conta do perito e entregamos a impugnação com o .PJC.\n\nA partir de R$ 250.', 'Impugnação de cálculos']
     ]
   },
   {
@@ -1608,7 +1608,7 @@ function metricasTrafego() {
   const gasto = soma(gastos, d => d.valor);
   const fechados = leads.filter(l => l.status === 'fechado');
   const faturado = soma(fechados, valorDoLead);
-  const ticket = Number(traf().ticket_medio) || (() => { const e = S.calculos.filter(c => c.valor_cobrado); return e.length ? soma(e, c => c.valor_cobrado) / e.length : 150; })();
+  const ticket = Number(traf().ticket_medio) || (() => { const e = S.calculos.filter(c => c.valor_cobrado); return e.length ? soma(e, c => c.valor_cobrado) / e.length : 250; })();
   const porCamp = {};
   const linha = k => porCamp[k] || (porCamp[k] = { k, canal: '', leads: 0, orc: 0, fech: 0, gasto: 0, fat: 0 });
   leads.forEach(l => { const r = linha(campanhaDoLead(l)); r.canal = canalLead(l); r.leads++; if (l.status !== 'novo') r.orc++; if (l.status === 'fechado') { r.fech++; r.fat += valorDoLead(l); } });
@@ -1682,7 +1682,7 @@ function trafegoAtivacao() {
   ${passo('ids', '2. Colar os códigos de rastreamento', `
     <ol><li><b>GA4</b>: Administrador → Fluxos de dados → seu site → copie o <b>ID da métrica</b> (G-…).</li>
     <li><b>Google Ads</b>: Metas → Conversões → <b>+ Nova ação de conversão</b> → Site → digite <code>pontesferreiracalculos.com</code> → <b>"Adicionar uma ação de conversão manualmente"</b>:
-      categoria <b>Enviar formulário de lead</b>, nome <b>Lead do site</b>, valor <b>"Usar valores diferentes"</b> (padrão R$ ${Number(r.valor_lead) || 150}), contagem <b>Uma</b>. Concluir → <b>"Usar a tag do Google"</b> → copie o trecho <code>send_to: 'AW-…/…'</code> e cole abaixo (pode colar inteiro no primeiro campo que eu separo).</li>
+      categoria <b>Enviar formulário de lead</b>, nome <b>Lead do site</b>, valor <b>"Usar valores diferentes"</b> (padrão R$ ${Number(r.valor_lead) || 250}), contagem <b>Uma</b>. Concluir → <b>"Usar a tag do Google"</b> → copie o trecho <code>send_to: 'AW-…/…'</code> e cole abaixo (pode colar inteiro no primeiro campo que eu separo).</li>
     <li><b>Meta Pixel</b>: Gerenciador de Eventos → <b>Conectar fontes de dados</b> → Web → nome "Pontes Ferreira" → copie o <b>ID do conjunto de dados/Pixel</b>.</li>
     <li><b>Microsoft Clarity</b> (grátis, mapa de calor e gravação das visitas): <a href="https://clarity.microsoft.com" target="_blank">clarity.microsoft.com</a> → Novo projeto → site <code>pontesferreiracalculos.com</code> → Configurações → <b>Visão geral</b> → copie o <b>ID do projeto</b>.</li></ol>
     <div class="form-trafego" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:10px">
@@ -1691,7 +1691,7 @@ function trafegoAtivacao() {
       ${campoRast('gads_label', 'Rótulo da conversão "Lead do site"', 'AbCdEfGhIjK123')}
       ${campoRast('meta_pixel_id', 'ID do Meta Pixel', '123456789012345')}
       ${campoRast('clarity_id', 'ID do Microsoft Clarity (mapa de calor)', 'abc12de3fg')}
-      ${campoRast('valor_lead', 'Valor estimado de cada lead (R$)', '150')}
+      ${campoRast('valor_lead', 'Valor estimado de cada lead (R$)', '250')}
     </div>
     <div class="linha" style="margin-top:12px"><button class="btn" data-acao="salvarRast">Salvar códigos</button>
     <span style="color:var(--ink-2);font-size:13px">Google: ${temGoogle ? '✅ completo' : '⏳ faltando'} · Meta: ${temMeta ? '✅ completo' : '⏳ faltando'} · Clarity: ${r.clarity_id ? '✅' : '⏳ opcional'}</span></div>`, temAlgum)}
@@ -1817,7 +1817,7 @@ function leadsOfflineGoogle() {
   return S.leads.filter(l => l.status === 'fechado' && l.gclid && l.gclid !== 'demo' && noPeriodo(l.created_at, somaDias(hoje(), -89))).map(l => {
     const c = S.calculos.filter(x => x.lead_id === l.id).sort((a, b) => (a.data_entrada || '').localeCompare(b.data_entrada || ''))[0];
     const quando = c?.data_entrada ? c.data_entrada + ' 12:00:00' : new Date(new Date(l.created_at).getTime() + 36e5).toISOString().slice(0, 19).replace('T', ' ');
-    return { l, quando, valor: valorDoLead(l) || Number(traf().ticket_medio) || 150 };
+    return { l, quando, valor: valorDoLead(l) || Number(traf().ticket_medio) || 250 };
   });
 }
 function trafegoOffline() {
@@ -1862,7 +1862,7 @@ async function salvarRast() {
   const m = (r.gads_id || '').match(/(AW-\d+)\s*\/\s*([A-Za-z0-9_-]+)/); // colou o send_to inteiro
   if (m) { r.gads_id = m[1]; r.gads_label = m[2]; }
   r.ga4_id = (r.ga4_id || '').toUpperCase(); r.gads_id = (r.gads_id || '').toUpperCase(); r.meta_pixel_id = digitos(r.meta_pixel_id); r.clarity_id = (r.clarity_id || '').trim().toLowerCase();
-  r.valor_lead = Number(String(r.valor_lead || '').replace(',', '.')) || 150;
+  r.valor_lead = Number(String(r.valor_lead || '').replace(',', '.')) || 250;
   const erros = Object.entries(VALIDA_RAST).filter(([k, [ok]]) => r[k] && !ok(r[k])).map(([k, [, msg]]) => msg);
   if (erros.length) { S.rascRast = { ...r }; render(); return toast('Confira: ' + erros.join(' · ')); }
   if (!(r.ga4_id || r.gads_id || r.meta_pixel_id || r.clarity_id)) r.ativo = false;

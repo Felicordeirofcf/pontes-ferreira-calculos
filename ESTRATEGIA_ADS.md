@@ -48,7 +48,7 @@ A métrica que importa é **custo por cliente que fechou**, não custo por cliqu
 `grátis, gratuito, online grátis, calculadora, rescisão, curso, apostila, download, baixar, como fazer, tutorial, vaga, emprego, concurso, salário de calculista, quanto ganha, meus direitos, FGTS saque, seguro desemprego`
 
 **Anúncio responsivo, exemplos de títulos (30 caracteres):**
-- Cálculo Trabalhista R$ 150
+- Cálculo Trabalhista R$ 250
 - Só Informe o Nº do Processo
 - Envie o PDF, Nós Calculamos
 - Cálculo Trabalhista em 48h
@@ -61,7 +61,7 @@ A métrica que importa é **custo por cliente que fechou**, não custo por cliqu
 - Preço Fechado Antes
 
 **Descrições (90 caracteres):**
-- A partir de R$ 150. Envie o PDF ou só o número do processo. Entrega do .PJC em 48h.
+- A partir de R$ 250. Envie o PDF ou só o número do processo. Entrega do .PJC em 48h.
 - Leitura completa de sentença, acórdão e embargos. Você recebe .PJC, PDF e resumo.
 - Prazo de liquidação correndo? Envie o PDF pelo WhatsApp e receba orçamento hoje.
 

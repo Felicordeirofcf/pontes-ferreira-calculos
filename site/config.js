@@ -23,6 +23,6 @@ window.PF_CONFIG = {
     gads_id: '',         // AW-1234567890
     gads_label: '',      // rótulo da conversão "Lead", ex.: AbCdEfGhIjKlMnOp
     meta_pixel_id: '',   // 15 a 16 dígitos
-    valor_lead: 150      // valor estimado de cada lead, em R$
+    valor_lead: 250      // valor estimado de cada lead, em R$
   }
 };

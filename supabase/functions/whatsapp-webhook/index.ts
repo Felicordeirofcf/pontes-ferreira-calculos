@@ -37,12 +37,12 @@ const digitos = (s: string) => String(s || '').replace(/\D/g, '');
 // (rode: node scripts/sincronizar-robo.mjs). Não edite a cópia no webhook.
 
 const ROBO_TEXTOS = {
-  boas_vindas: 'Olá, {nome}! 👋 Aqui é a *Pontes Ferreira Cálculos Judiciais*.\nFazemos cálculos trabalhistas no PJe-Calc a partir de R$ 150, com entrega em até 48h.',
+  boas_vindas: 'Olá, {nome}! 👋 Aqui é a *Pontes Ferreira Cálculos Judiciais*.\nFazemos cálculos trabalhistas no PJe-Calc a partir de R$ 250, com entrega em até 48h.',
   menu: 'Como posso ajudar? Responda com o número:\n\n1️⃣ Pedir orçamento de cálculo\n2️⃣ Preços e prazos\n3️⃣ Acompanhar um cálculo\n4️⃣ Falar com a equipe',
   orcamento: 'Ótimo! Envie aqui o *PDF integral do processo* (baixado do PJe) ou só o *número do processo*, que a gente puxa os autos. 📄\n\nSe houver prazo correndo, me diga a data.',
   recebido: 'Recebido ✅ Já vamos analisar e em até 1 hora útil você recebe o orçamento aqui mesmo.',
   recebido_fora: 'Recebido ✅ Nosso horário é {horario}. Assim que abrirmos, enviamos o orçamento aqui mesmo.',
-  precos: '💰 *Preços*\n• Cálculo de 1 autor: a partir de R$ 150\n• Mais de um autor ou caso complexo: sob consulta\n• Entrega: até 48h (urgente: consulte)\n\nVocê recebe o arquivo .PJC, o relatório em PDF e o resumo do que foi deferido.\n\nDigite *1* para enviar o processo ou *4* para falar com a equipe.',
+  precos: '💰 *Preços*\n• Cálculo de 1 autor: a partir de R$ 250\n• Mais de um autor ou caso complexo: sob consulta\n• Entrega: até 48h (urgente: consulte)\n\nVocê recebe o arquivo .PJC, o relatório em PDF e o resumo do que foi deferido.\n\nDigite *1* para enviar o processo ou *4* para falar com a equipe.',
   atendente: 'Certo! Um especialista da equipe vai te responder em instantes. 🙂',
   atendente_fora: 'Certo! Nosso horário é {horario}. Assim que abrirmos, um especialista te responde aqui. Se quiser adiantar, já pode enviar o PDF ou o número do processo.',
   nao_entendi: 'Não entendi 😅 Responda só com o número da opção:',
