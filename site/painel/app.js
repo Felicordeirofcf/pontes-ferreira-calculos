@@ -86,6 +86,13 @@ function toast(msg) {
   const d = document.createElement('div'); d.textContent = msg; $('#toast').appendChild(d);
   setTimeout(() => d.remove(), 4500);
 }
+// aviso de progresso único (atualiza o mesmo balão em vez de empilhar vários)
+function progresso(msg) {
+  let d = $('#toast [data-progresso]');
+  if (!msg) { if (d) d.remove(); return; }
+  if (!d) { d = document.createElement('div'); d.dataset.progresso = '1'; $('#toast').appendChild(d); }
+  d.textContent = msg;
+}
 
 function inicioPeriodo(p = S.periodo) {
   const d = new Date();
@@ -1235,6 +1242,10 @@ async function waEnviar(opts) {
     const obsPartes = o.partes && !/Partes:/i.test(lo?.obs || '') ? { obs: [lo?.obs, `Partes: ${o.partes}`].filter(Boolean).join('\n') } : {};
     if (lo) await atualizar('leads', lo.id, { valor_orcado: o.valor, ...obsPartes, ...(o.processo && !lo.numero_processo ? { numero_processo: o.processo } : {}), ...(['novo', 'perdido'].includes(lo.status) ? { status: 'orcamento' } : {}) }).then(() => toast('Lead em "Orçamento enviado" com ' + brl0(o.valor))).catch(e => console.warn('orçamento', e));
   }
+  if (S.listaPendente && digitos(c.wa_id).slice(-8) === S.listaPendente.chave) {
+    const lp = S.listaPendente; S.listaPendente = null;
+    await salvarItemLista(lp.item, { status: 'contatado', contatado_em: new Date().toISOString() }).catch(er => console.warn('lista', er));
+  }
   if (S.prospPendente && digitos(c.wa_id).slice(-8) === S.prospPendente.chave) { // abordagem de prospecção enviada: agora conta
     const pr = S.prospects.find(x => x.id === S.prospPendente.id); S.prospPendente = null;
     if (pr) await marcarContatado(pr).catch(e => console.warn('prospecção', e));
@@ -1657,7 +1668,7 @@ function telaProspeccao() {
   <div class="grade">
     ${cardBuscaAuto(termo, cidade, qBusca, busca)}
     <div class="card larga"><div class="linha" style="justify-content:space-between"><h2>Lista</h2>
-      <div class="linha"><span class="desc">${filtrada.length} de ${contaAba(aba)} em "${ABAS_PROSP[aba][0]}"</span>${filtrosAtivos ? '<button class="btn mini sec" data-acao="limparFiltroProsp">✕ Limpar filtros</button>' : ''}</div></div>
+      <div class="linha"><span class="desc">${filtrada.length} de ${contaAba(aba)} em "${ABAS_PROSP[aba][0]}"</span>${aba === 'sem_tel' && contaAba('sem_tel') ? '<button class="btn mini ouro" data-acao="localizarTodos">🔍 Localizar todos</button>' : ''}${filtrosAtivos ? '<button class="btn mini sec" data-acao="limparFiltroProsp">✕ Limpar filtros</button>' : ''}</div></div>
       <div class="seg" style="margin:12px 0 4px;flex-wrap:wrap">${Object.entries(ABAS_PROSP).map(([k, [rot]]) => `<button class="${k === aba ? 'on' : ''}" data-aba-prosp="${k}">${rot} <span class="desc">(${contaAba(k)})</span></button>`).join('')}</div>
       <div class="linha" style="flex-wrap:wrap;gap:8px;margin:10px 0 4px">
       <input class="f" id="buscaProsp" placeholder="Buscar nome, telefone, obs…" value="${esc(f.q || '')}" style="flex:1;min-width:200px">
@@ -1878,8 +1889,13 @@ async function buscarAuto(mais) {
   render();
 }
 // 🔍 Localizar: procura o escritório pelo nome no Google Maps e preenche telefone, site e mapa
-async function localizarTelefone(id) {
-  const p = S.prospects.find(x => x.id === id); if (!p) return;
+// onde estão os contatos: 'prosp' (Prospecção) ou 'lista' (Listas de empresas)
+const FONTE_LOCAL = {
+  prosp: { itens: () => S.prospects, salvar: (p, patch) => atualizar('prospects', p.id, patch) },
+  lista: { itens: () => (listaAtual() || {}).itens || [], salvar: (p, patch) => salvarItemLista(p.id, patch) }
+};
+async function localizarTelefone(id, tipo = 'prosp') {
+  const F = FONTE_LOCAL[tipo], p = F.itens().find(x => x.id === id); if (!p) return;
   const termo = (p.escritorio || p.nome || '').trim(), cidade = (p.cidade || 'Brasil').trim();
   const fundo = document.createElement('div'); fundo.className = 'modal-fundo';
   fundo.innerHTML = `<div class="modal"><h2>🔍 Localizar telefone</h2><div class="desc">Procurando <b>${esc(termo)}</b> em ${esc(cidade)} no Google Maps…</div><div id="locRes" class="vazio">Buscando…</div>
@@ -1905,10 +1921,153 @@ async function localizarTelefone(id) {
   fundo.querySelectorAll('[data-usar-local]').forEach(b => b.onclick = () => seguro(async () => {
     const l = lugares[Number(b.dataset.usarLocal)];
     const extra = [tipoTel(l.telefone) === 'fixo' ? 'Telefone fixo: ligar ou procurar o WhatsApp no site.' : '', l.nota ? `Google: ★ ${l.nota} (${l.avaliacoes} avaliações).` : '', l.endereco || ''].filter(Boolean).join(' ');
-    await atualizar('prospects', p.id, { whatsapp: l.telefone, site: p.site || l.site || null, maps: p.maps || l.maps || null, obs: [p.obs, extra].filter(Boolean).join('\n').slice(0, 1500) });
+    await F.salvar(p, { whatsapp: l.telefone, site: p.site || l.site || null, maps: p.maps || l.maps || null, obs: [p.obs, extra].filter(Boolean).join('\n').slice(0, 1500) });
     fechar(); toast(`Telefone de ${p.nome} salvo: ${l.telefone}`); render();
   }));
 }
+// nome do escritório parecido? (ignora "advogados", "associados", "sociedade"… e acentos)
+const PALAVRAS_GENERICAS = new Set(['advogados', 'advogado', 'advogada', 'associados', 'associadas', 'sociedade', 'individual', 'advocacia', 'de', 'da', 'do', 'das', 'dos', 'e', 'ss', 'ltda', 'eireli', 'escritorio', 'adv', 'assessoria', 'juridica', 'consultoria']);
+const palavrasNome = n => roboNorm(n).replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(w => w.length > 1 && !PALAVRAS_GENERICAS.has(w));
+function nomeParecido(a, b) { const x = palavrasNome(a), y = new Set(palavrasNome(b)); if (!x.length) return 0; return x.filter(w => y.has(w)).length / x.length; }
+// 🔍 Localizar todos: busca cada contato sem telefone e salva o resultado mais parecido (com telefone)
+async function localizarTodos(tipo = 'prosp') {
+  const F = FONTE_LOCAL[tipo];
+  const alvo = F.itens().filter(p => !digitos(p.whatsapp) && !['cliente', 'sem_interesse', 'nao_contatar', 'descartado', 'movido'].includes(p.status));
+  if (!alvo.length) return toast('Nenhum contato sem telefone.');
+  if (!confirm(`Procurar no Google Maps o telefone de ${alvo.length} contato(s)? Cada um usa 1 busca da sua cota gratuita do Google.`)) return;
+  const res = [];
+  for (const [n, p] of alvo.entries()) {
+    progresso(`🔍 Localizando ${n + 1} de ${alvo.length}: ${p.nome}`);
+    const termo = (p.escritorio || p.nome || '').trim(), cidade = (p.cidade || 'Brasil').trim();
+    try {
+      let lugares;
+      if (DEMO) lugares = n % 4 === 3 ? [] : [{ nome: termo, telefone: n % 2 ? '(11) 3' + (100 + n) + '-4455' : '(11) 9' + (8100 + n) + '-1234', site: 'https://exemplo.adv.br', maps: 'https://maps.google.com', nota: 4.6, avaliacoes: 12, endereco: 'Endereço de exemplo · ' + cidade }];
+      else {
+        const { data, error } = await sb.functions.invoke('buscar-escritorios', { body: { termo, cidade } });
+        if (error) { let d = {}; try { d = await error.context.json(); } catch { } throw new Error(d.mensagem || error.message); }
+        lugares = data.lugares || [];
+      }
+      const melhor = lugares.filter(l => l.telefone).map(l => ({ l, sim: nomeParecido(termo, l.nome) })).sort((a, b) => b.sim - a.sim)[0];
+      if (melhor && melhor.sim >= 0.5) {
+        const l = melhor.l, extra = [tipoTel(l.telefone) === 'fixo' ? 'Telefone fixo: ligar ou procurar o WhatsApp no site.' : '', l.nota ? `Google: ★ ${l.nota} (${l.avaliacoes} avaliações).` : '', l.endereco ? 'Endereço: ' + l.endereco : '', `Telefone localizado automaticamente (Google Maps: "${l.nome}").`].filter(Boolean).join(' ');
+        await F.salvar(p, { whatsapp: l.telefone, site: p.site || l.site || null, maps: p.maps || l.maps || null, obs: [p.obs, extra].filter(Boolean).join('\n').slice(0, 1500) });
+        res.push({ p, ok: true, l, sim: melhor.sim });
+      } else res.push({ p, ok: false, motivo: lugares.length ? `achei "${lugares[0].nome}", mas o nome não confere` : 'nada no Google Maps' });
+    } catch (e) {
+      res.push({ p, ok: false, motivo: e.message || String(e) });
+      if (/GOOGLE_PLACES_KEY|sem_chave|publicada/i.test(e.message || '')) break; // sem a busca configurada, não adianta continuar
+    }
+  }
+  progresso(null); render();
+  const achou = res.filter(r => r.ok), falta = res.filter(r => !r.ok);
+  const fundo = document.createElement('div'); fundo.className = 'modal-fundo';
+  fundo.innerHTML = `<div class="modal"><h2>🔍 Resultado: ${achou.length} de ${res.length} localizados</h2>
+    ${achou.length ? `<div class="tabela"><table><tr><th>Contato</th><th>Telefone salvo</th><th>Encontrado no Google</th></tr>${achou.map(r => `<tr><td>${esc(r.p.nome)}</td><td style="white-space:nowrap">${esc(r.l.telefone)} ${tipoTel(r.l.telefone) === 'celular' ? '<span class="tag t-good">📱</span>' : '<span class="tag t-neutro">☎ fixo</span>'}</td><td class="desc">${esc(r.l.nome)}${r.sim < 1 ? ' <span class="tag t-warn">confira</span>' : ''}</td></tr>`).join('')}</table></div>` : ''}
+    ${falta.length ? `<h3 class="sub" style="margin-top:12px">Não localizados (${falta.length}): use 🔍 Localizar em cada um ou pesquise no Google</h3><ul style="margin:6px 0 0 18px">${falta.map(r => `<li>${esc(r.p.nome)} <span class="desc">· ${esc(r.motivo)}</span></li>`).join('')}</ul>` : ''}
+    <div class="desc" style="margin-top:10px">Os marcados "confira" tiveram nome só parecido: abra o 📍 do contato e veja se é o escritório certo antes de abordar.</div>
+    <div class="rodape"><button class="btn" id="locOk">Ok</button></div></div>`;
+  document.body.appendChild(fundo);
+  $('#locOk').onclick = () => fundo.remove();
+}
+/* ---------------- Listas de empresas (separadas da Prospecção) ----------------
+   Listas importadas de planilhas (ex.: escritórios credenciados da CAIXA). Ficam guardadas no banco
+   (ajustes 'listas', privado), não entram na fila nem nos números da Prospecção. */
+const STATUS_LISTA = { a_contatar: 'A contatar', contatado: 'Contatado', respondeu: 'Respondeu', descartado: 'Descartado', movido: 'Na Prospecção' };
+const TAG_LISTA = { a_contatar: 't-neutro', contatado: 't-azul', respondeu: 't-warn', descartado: 't-crit', movido: 't-good' };
+const MSG_LISTA_PADRAO = 'Olá! {eu}da *Pontes Ferreira Cálculos*.\n\nAtendemos escritórios que defendem a CAIXA em reclamações trabalhistas de prestadoras de serviço (subsidiariedade): liquidação, impugnação aos cálculos e atualização no PJe-Calc, com entrega em até 48h, arquivo .PJC e relatório em PDF.{oferta}\n\nNosso site: https://pontesferreiracalculos.com/\n\nPosso orçar o próximo cálculo do escritório? Se preferir não receber mensagens, é só me avisar.';
+const listasDb = () => S.ajustes.listas || { listas: [] };
+const listaAtual = () => { const L = listasDb(); return L.listas.find(x => x.id === (S.listaSel || L.atual)) || L.listas[0] || null; };
+async function salvarListas(novo) { await ajustesDb.salvar('listas', novo); S.ajustes.listas = novo; }
+async function salvarItemLista(itemId, patch) {
+  const L = listasDb(), l = listaAtual(); if (!l) return;
+  const nova = { ...l, itens: l.itens.map(i => i.id === itemId ? { ...i, ...patch } : i) };
+  await salvarListas({ ...L, listas: L.listas.map(x => x.id === l.id ? nova : x) });
+}
+function importarLista() {
+  const fundo = document.createElement('div'); fundo.className = 'modal-fundo';
+  fundo.innerHTML = `<div class="modal"><h2>📋 Importar lista de empresas</h2>
+    <label class="rotulo">Nome da lista</label><input class="f" id="listaNome" style="width:100%" placeholder="ex.: Credenciados CAIXA (TST)">
+    <p class="desc" style="margin-top:10px">Copie as linhas da planilha (com o cabeçalho) e cole abaixo. Colunas reconhecidas: Nome, Escritório, Cidade, WhatsApp/Telefone, E-mail, Site, Obs.</p>
+    <textarea id="listaTxt" rows="9" style="width:100%;border:1px solid var(--axis);border-radius:8px;padding:10px;font:12px monospace"></textarea>
+    <div class="desc" id="listaPrev"></div>
+    <div class="rodape"><button type="button" class="btn sec" id="listaCanc">Cancelar</button><button class="btn" id="listaOk">Importar</button></div></div>`;
+  document.body.appendChild(fundo);
+  $('#listaTxt').oninput = () => { const n = lerListaColada($('#listaTxt').value).length; $('#listaPrev').textContent = n ? `${n} empresa(s)` : ''; };
+  $('#listaCanc').onclick = () => fundo.remove();
+  $('#listaOk').onclick = () => seguro(async () => {
+    const itens = lerListaColada($('#listaTxt').value).map(i => ({ id: uid(), status: 'a_contatar', ...i }));
+    if (!itens.length) return toast('Cole as linhas da planilha');
+    const nome = ($('#listaNome').value || '').trim() || itens[0].fonte || 'Lista ' + dataBR(hoje());
+    const L = listasDb(), id = uid();
+    await salvarListas({ ...L, atual: id, listas: [...L.listas, { id, nome, criada_em: new Date().toISOString(), mensagem: MSG_LISTA_PADRAO, itens }] });
+    S.listaSel = id; fundo.remove(); toast(`${itens.length} empresa(s) na lista "${nome}"`); render();
+  });
+  setTimeout(() => $('#listaNome').focus(), 30);
+}
+function textoLista(l, item) {
+  const c = cfgProsp();
+  return saudar(String(l.mensagem || MSG_LISTA_PADRAO)).replace(/\{eu\}/g, () => c.remetente ? `Aqui é ${c.remetente}, ` : 'Aqui é ')
+    .replace(/\{nome\}/g, () => nomeParaMensagem(item.nome)).replace(/\{escritorio\}/g, () => item.escritorio || item.nome || 'seu escritório')
+    .replace(/\s*\{oferta\}/g, () => c.oferta ? ' ' + c.oferta : '');
+}
+async function mensagemLista(itemId) {
+  const l = listaAtual(), item = l && l.itens.find(i => i.id === itemId); if (!item || !digitos(item.whatsapp)) return;
+  const txt = textoLista(l, item);
+  if (painelWaOk()) { S.listaPendente = { item: item.id, chave: digitos(item.whatsapp).slice(-8) }; abrirNoPainel(item.whatsapp, item.nome, txt); toast('Revise e envie: ao enviar, a empresa fica como "Contatado".'); }
+  else { window.open(waLink(item.whatsapp, txt), ALVO_WA); await salvarItemLista(item.id, { status: 'contatado', contatado_em: new Date().toISOString() }); render(); }
+}
+async function editarMsgLista() {
+  const l = listaAtual(); if (!l) return;
+  const v = await abrirForm('✉ Mensagem desta lista', [{ k: 'mensagem', rot: 'Texto enviado às empresas da lista. Marcadores: {eu} (seu nome), {nome}, {escritorio}, {oferta} (oferta do 1º cálculo)', tipo: 'textarea', full: true }], { mensagem: l.mensagem || MSG_LISTA_PADRAO });
+  if (!v) return;
+  const L = listasDb(); await seguro(async () => { await salvarListas({ ...L, listas: L.listas.map(x => x.id === l.id ? { ...x, mensagem: v.mensagem } : x) }); toast('Mensagem salva'); render(); });
+}
+async function moverParaProsp(itemId) {
+  const l = listaAtual(), i = l && l.itens.find(x => x.id === itemId); if (!i) return;
+  await seguro(async () => {
+    if (!duplicado({ nome: i.nome, cidade: i.cidade, whatsapp: i.whatsapp }))
+      await criar('prospects', { nome: i.nome, escritorio: i.escritorio || i.nome, cidade: i.cidade || null, whatsapp: i.whatsapp || null, email: i.email || null, site: i.site || null, maps: i.maps || null, area: i.area || 'Trabalhista', fonte: l.nome.slice(0, 60), obs: i.obs || null, status: 'a_contatar' });
+    await salvarItemLista(i.id, { status: 'movido' }); toast(`${i.nome} foi para a Prospecção`); render();
+  });
+}
+async function excluirLista() {
+  const l = listaAtual(); if (!l || !confirm(`Excluir a lista "${l.nome}" (${l.itens.length} empresas)? Quem já foi movido para a Prospecção continua lá.`)) return;
+  const L = listasDb(); await seguro(async () => { await salvarListas({ ...L, atual: null, listas: L.listas.filter(x => x.id !== l.id) }); S.listaSel = null; render(); });
+}
+function telaListas() {
+  const L = listasDb(), l = listaAtual();
+  const topo = `<div class="topo"><h1>Listas de empresas</h1><div class="acoes">
+    ${L.listas.length ? `<select class="f" id="listaSel">${L.listas.map(x => `<option value="${x.id}" ${l && x.id === l.id ? 'selected' : ''}>${esc(x.nome)} (${x.itens.length})</option>`).join('')}</select>` : ''}
+    ${l ? '<button class="btn sec" data-acao="editarMsgLista">✉ Mensagem</button><button class="btn sec" data-acao="excluirLista">🗑 Excluir lista</button>' : ''}
+    <button class="btn" data-acao="importarLista">📋 Importar lista</button></div></div>`;
+  if (!l) return topo + `<div class="card larga"><div class="vazio">Nenhuma lista ainda. Clique em <b>📋 Importar lista</b> e cole as linhas da planilha (ex.: escritórios credenciados). As listas ficam separadas da Prospecção.</div></div>`;
+  const f = S.filtroLista || '', q = (S.buscaLista || '').toLowerCase();
+  const semTel = i => !digitos(i.whatsapp) && !['descartado', 'movido'].includes(i.status);
+  const itens = l.itens.filter(i => (!f || (f === 'sem_tel' ? semTel(i) : i.status === f)) && (!q || [i.nome, i.cidade, i.obs, i.whatsapp].join(' ').toLowerCase().includes(q)));
+  const cont = k => l.itens.filter(i => k === 'sem_tel' ? semTel(i) : i.status === k).length;
+  const comTel = l.itens.filter(i => digitos(i.whatsapp)).length;
+  const abas = [['', 'Todas', l.itens.length], ['sem_tel', '📞 Sem telefone', cont('sem_tel')], ...Object.entries(STATUS_LISTA).map(([k, v]) => [k, v, cont(k)])];
+  return topo + `
+  <div class="kpis">
+    ${kpi('Empresas na lista', l.itens.length, 'importada em ' + dataBR(l.criada_em))}
+    ${kpi('Com telefone', comTel, l.itens.length ? pct(comTel / l.itens.length) + ' localizadas' : '—')}
+    ${kpi('Sem telefone', cont('sem_tel'), 'use 🔍 Localizar todos', cont('sem_tel') > 0)}
+    ${kpi('Contatadas', cont('contatado') + cont('respondeu') + cont('movido'), `${cont('respondeu')} responderam`)}
+  </div>
+  <div class="card larga"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h2 style="margin:0">${esc(l.nome)}</h2>
+    <div class="linha">${cont('sem_tel') ? '<button class="btn ouro" data-acao="localizarTodosLista">🔍 Localizar todos</button>' : ''}<input class="f" id="buscaLista" placeholder="Buscar…" value="${esc(S.buscaLista || '')}"></div></div>
+    <div class="seg" style="margin:12px 0 6px;flex-wrap:wrap">${abas.map(([k, rot, n]) => `<button class="${k === f ? 'on' : ''}" data-filtro-lista="${k || 'todas'}">${rot} <span class="desc">(${n})</span></button>`).join('')}</div>
+    ${itens.length ? `<div class="tabela"><table><tr><th>Empresa</th><th>Cidade</th><th>Telefone</th><th>Links</th><th>Status</th><th></th></tr>
+    ${itens.map(i => `<tr><td><b>${esc(i.nome)}</b>${i.obs ? `<div class="desc" style="margin:0;max-width:520px">${esc(String(i.obs).split('\n')[0].slice(0, 160))}</div>` : ''}</td>
+      <td>${esc(i.cidade || '—')}</td>
+      <td style="white-space:nowrap">${digitos(i.whatsapp) ? `${esc(i.whatsapp)} ${tipoTel(i.whatsapp) === 'celular' ? '<span class="tag t-good">📱</span>' : '<span class="tag t-neutro">☎</span>'}` : `<button class="btn mini ouro" data-localizar-lista="${i.id}">🔍 Localizar</button>`}</td>
+      <td style="white-space:nowrap">${linkExt(i.site, '🌐')}${linkExt(i.maps, '📍')}</td>
+      <td><select class="f mini" data-status-lista="${i.id}">${Object.entries(STATUS_LISTA).map(([k, v]) => `<option value="${k}" ${k === (i.status || 'a_contatar') ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+      <td style="white-space:nowrap">${digitos(i.whatsapp) && i.status !== 'movido' ? `<button class="btn mini ouro" data-msg-lista="${i.id}">💬 Mensagem</button>` : ''}${i.status !== 'movido' ? ` <button class="btn mini sec" data-mover-lista="${i.id}" title="Levar para a Prospecção (entra na fila com follow-ups)">→ Prospecção</button>` : ''}</td></tr>`).join('')}</table></div>`
+      : '<div class="vazio">Nada com esse filtro</div>'}
+  </div>`;
+}
+
 async function addAchados() {
   const A = S.achados; if (!A || !A.sel.size) return;
   const escolhidos = A.lugares.filter(l => A.sel.has(l.id) && !l.ja);
@@ -3073,12 +3232,13 @@ function telaAjustes() {
 }
 
 /* ---------------- menu e busca rápida (Ctrl+K) ---------------- */
-const GRUPOS_NAV = [['Operação', ['painel', 'agenda', 'leads', 'prospeccao', 'whatsapp', 'calculos', 'clientes']], ['Crescimento', ['mapa', 'trafego']], ['Gestão', ['financeiro', 'configuracoes']]];
+const GRUPOS_NAV = [['Operação', ['painel', 'agenda', 'leads', 'prospeccao', 'listas', 'whatsapp', 'calculos', 'clientes']], ['Crescimento', ['mapa', 'trafego']], ['Gestão', ['financeiro', 'configuracoes']]];
 const ic = d => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
 const ICONES = {
   painel: ic('<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>'),
   agenda: ic('<rect x="3" y="4.5" width="18" height="16.5" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M7.5 13.5h3M13.5 13.5h3M7.5 17h3"/>'),
   mapa: ic('<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>'),
+  listas: ic('<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 3v18M11 8h6M11 12h6M11 16h4"/>'),
   leads: ic('<path d="M3 5h18l-7 8v6l-4 2v-8z"/>'),
   prospeccao: ic('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".8"/>'),
   whatsapp: ic('<path d="M4 20l1.3-3.9A8 8 0 1 1 8 19z"/>'),
@@ -3141,9 +3301,9 @@ document.addEventListener('keydown', e => {
 });
 
 /* ---------------- shell, rotas e eventos ---------------- */
-const ROTAS = { painel: ['Painel', telaPainel], mapa: ['Mapa do Brasil', telaMapa], leads: ['Leads · CRM', telaLeads], agenda: ['Agenda', telaAgenda], prospeccao: ['Prospecção', telaProspeccao], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro], configuracoes: ['Configurações', telaConfiguracoes], trafego: ['Tráfego pago', telaTrafego] };
+const ROTAS = { painel: ['Painel', telaPainel], mapa: ['Mapa do Brasil', telaMapa], leads: ['Leads · CRM', telaLeads], agenda: ['Agenda', telaAgenda], prospeccao: ['Prospecção', telaProspeccao], listas: ['Listas de empresas', telaListas], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro], configuracoes: ['Configurações', telaConfiguracoes], trafego: ['Tráfego pago', telaTrafego] };
 const rota = () => { const r = location.hash.slice(1); return ROTAS[r] && (r !== 'whatsapp' || WA_PAINEL()) ? r : 'painel'; };
-const CAMPOS_FOCO = ['busca', 'buscaLeads', 'buscaWa', 'waTexto', 'buscaProsp'];
+const CAMPOS_FOCO = ['busca', 'buscaLeads', 'buscaWa', 'waTexto', 'buscaProsp', 'buscaLista'];
 
 // caixa de mensagem do WhatsApp cresce até mostrar o texto inteiro (máx. metade da tela)
 function ajustarCaixaWa() {
@@ -3178,7 +3338,7 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-localizar],[data-usar-local],[data-aba-prosp],[data-pag-prosp],[data-cidade-prosp],[data-filtro-wa],[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-localizar-lista],[data-msg-lista],[data-mover-lista],[data-filtro-lista],[data-localizar],[data-usar-local],[data-aba-prosp],[data-pag-prosp],[data-cidade-prosp],[data-filtro-wa],[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
   if (d.filtroWa) { S.filtroWa = d.filtroWa; return render(); }
@@ -3200,6 +3360,10 @@ document.addEventListener('click', e => {
   if (d.metricaMapa) { S.metricaMapa = d.metricaMapa; localSet('pf_metrica_mapa', d.metricaMapa); return render(); }
   if (d.prospectarUf) return prospectarUF(d.prospectarUf);
   if (d.localizar) return localizarTelefone(d.localizar);
+  if (d.localizarLista) return localizarTelefone(d.localizarLista, 'lista');
+  if (d.msgLista) return mensagemLista(d.msgLista);
+  if (d.moverLista) return moverParaProsp(d.moverLista);
+  if (d.filtroLista) { S.filtroLista = d.filtroLista === 'todas' ? '' : d.filtroLista; return render(); }
   if (d.abaProsp) { S.filtroProsp.aba = d.abaProsp; S.filtroProsp.pag = 1; S.filtroProsp.ordem = ''; return render(); }
   if (d.pagProsp) { S.filtroProsp.pag = Number(d.pagProsp); render(); return document.querySelector('#buscaProsp')?.closest('.card')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
   if (d.cidadeProsp) { S.buscaProsp.cidade = d.cidadeProsp; return buscarAuto(false); }
@@ -3227,7 +3391,7 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
+    novaDespesa: () => editarDespesa(null), localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
     selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
@@ -3247,6 +3411,8 @@ document.addEventListener('change', e => {
   const id = e.target.id;
   if (e.target.dataset.feito) { const k = e.target.dataset.feito; return seguro(async () => { await salvarTrafego({ feito: { ...(traf().feito || {}), [k]: e.target.checked } }); render(); }); }
   if (e.target.id === 'f_arquivos') { S.arqEnvio = [...e.target.files]; return; }
+  if (id === 'listaSel') { S.listaSel = e.target.value; S.filtroLista = ''; return render(); }
+  if (e.target.dataset && e.target.dataset.statusLista) return seguro(async () => { await salvarItemLista(e.target.dataset.statusLista, { status: e.target.value }); render(); });
   if (e.target.dataset && e.target.dataset.achado && S.achados) { const sel = S.achados.sel; e.target.checked ? sel.add(e.target.dataset.achado) : sel.delete(e.target.dataset.achado); return render(); }
   if (e.target.dataset && e.target.dataset.monRegra) return alternarRegraMon(e.target.dataset.monRegra, e.target.checked);
   if (id === 'monEmail') return seguro(async () => { const novo = { ...cfgMonAds(), email: e.target.checked }; await ajustesDb.salvar('monitor_ads', novo); S.ajustes.monitor_ads = novo; toast(novo.email ? 'Avisos por e-mail ligados' : 'Avisos por e-mail desligados'); });
@@ -3280,6 +3446,7 @@ document.addEventListener('input', e => {
   if (e.target.dataset.rast) S.rascRast[e.target.dataset.rast] = e.target.value;
   if (e.target.dataset.utm && e.target.tagName === 'INPUT') { S.utm[e.target.dataset.utm] = e.target.value; const u = urlUtm(); $('#utmUrl').textContent = u; $('#utmAbrir').href = u; }
   if (id === 'buscaProsp') { S.filtroProsp.q = e.target.value; S.filtroProsp.pag = 1; render(); }
+  if (id === 'buscaLista') { S.buscaLista = e.target.value; render(); }
   if (e.target.dataset.buscaProsp) S.buscaProsp[e.target.dataset.buscaProsp] = e.target.value;
   if (id === 'busca') { S.busca = e.target.value; render(); }
   if (id === 'buscaLeads') { S.filtroLeads.q = e.target.value; render(); }
