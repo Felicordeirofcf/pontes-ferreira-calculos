@@ -411,7 +411,8 @@ async function moverLead(l, status) {
     if (m === null) return render(); patch.motivo_perda = m;
   }
   if (status === 'orcamento' && !l.valor_orcado) {
-    const v = prompt('Valor orçado (R$):', '250');
+    const primeiroDaProsp = canalLead(l) === 'Prospecção' && !S.calculos.some(c => c.lead_id === l.id || (l.cliente_id && c.cliente_id === l.cliente_id));
+    const v = prompt(primeiroDaProsp && valorOferta() ? `Valor orçado (R$) · 1º cálculo de cliente da prospecção, com a oferta:` : 'Valor orçado (R$):', String(primeiroDaProsp && valorOferta() || 250));
     if (v) patch.valor_orcado = numBR(v) || null;
   }
   await seguro(async () => {
@@ -1340,9 +1341,13 @@ function prospectarUF(uf) {
 /* ---------------- Prospecção (abordagem 1 a 1) ---------------- */
 const STATUS_PROSP = { a_contatar: 'A contatar', contatado: 'Contatado', respondeu: 'Respondeu', interessado: 'Interessado', cliente: 'Virou cliente', sem_interesse: 'Sem interesse', nao_contatar: 'Não contatar' };
 const TAG_PROSP = { a_contatar: 't-neutro', contatado: 't-azul', respondeu: 't-warn', interessado: 't-warn', cliente: 't-good', sem_interesse: 't-neutro', nao_contatar: 't-crit' };
+// abas da lista: quem já foi abordado sai de "A contatar" e vai para "Contatados"
+const ABAS_PROSP = { a_contatar: ['A contatar', ['a_contatar']], contatados: ['Contatados', ['contatado']], responderam: ['Responderam', ['respondeu', 'interessado']],
+  clientes: ['Clientes', ['cliente']], encerrados: ['Encerrados', ['sem_interesse', 'nao_contatar']], todos: ['Todos', null] };
 const FONTES_PROSP = ['Google Maps', 'Instagram', 'LinkedIn', 'Site do escritório', 'Jusbrasil', 'Indicação', 'Evento / OAB', 'Outros'];
 const PROSP_PADRAO = {
   meta_dia: 20, dias_follow1: 3, dias_follow2: 7, max_tentativas: 3, remetente: '',
+  oferta: 'No primeiro cálculo você tem 20% de desconto: sai por R$ 200.', // entra no 1º contato no lugar de {oferta}
   textos: { // padrão: as 15 variações de mensagens.js (separadas por ---)
     primeiro: VARIACOES.primeiro.join('\n---\n'), follow1: VARIACOES.follow1.join('\n---\n'), follow2: VARIACOES.follow2.join('\n---\n'),
     email_assunto: 'Cálculos trabalhistas no PJe-Calc para o seu escritório'
@@ -1361,14 +1366,25 @@ function textoProsp(p, etapa = etapaProsp(p), idx) {
   S.varAbordagem = { etapa, i, n: lista.length };
   // funções no replace: um "$&" no nome do contato não é expandido
   return String(lista[i] || '').replace(/\{,\s*nome\}/g, () => nome ? `, ${nome}` : '').replace(/\{nome\}/g, () => nome)
-    .replace(/\{eu\}/g, () => c.remetente ? `Aqui é ${c.remetente}, ` : 'Aqui é ').replace(/\{escritorio\}/g, () => p.escritorio || 'seu escritório').replace(/\{link\}/g, () => linkPortfolio(p));
+    .replace(/\{eu\}/g, () => c.remetente ? `Aqui é ${c.remetente}, ` : 'Aqui é ').replace(/\{escritorio\}/g, () => p.escritorio || 'seu escritório').replace(/\{link\}/g, () => linkPortfolio(p))
+    .replace(/\s*\{oferta\}/g, () => c.oferta ? ' ' + c.oferta : '') // sem oferta configurada, o marcador some
+    .replace(/^([\s\S]*?)(\n\n[^\n]*$)/, (t, corpo, fim) => etapa === 'primeiro' && c.oferta && !t.includes(c.oferta) ? `${corpo}\n\n${c.oferta}${fim}` : t); // textos próprios sem {oferta}: a oferta entra antes do último parágrafo
 }
+// valor do 1º cálculo com a oferta (lido do texto: "sai por R$ 200")
+function valorOferta() { const m = String(cfgProsp().oferta || '').match(/R\$\s*([\d.,]+)/); return m ? numBR(m[1]) || null : null; }
 const contatavel = p => !['cliente', 'sem_interesse', 'nao_contatar', 'respondeu', 'interessado'].includes(p.status) && (p.whatsapp || p.email);
+// nota do Google guardada pela busca automática ("Google: ★ 4.8 (52 avaliações)")
+function notaGoogle(p) { const m = String(p.obs || '').match(/★\s*([\d.,]+)\s*\((\d+)/); return m ? { nota: Number(m[1].replace(',', '.')), av: Number(m[2]) } : null; }
+// escritório ativo e com clientes primeiro: nota alta com muitas avaliações vale mais que 5,0 com 1 avaliação
+const scoreProsp = p => { const g = notaGoogle(p); return g ? g.nota * Math.log10(g.av + 1) : 0; };
+const prioritario = p => { const g = notaGoogle(p); return !!g && g.nota >= 4 && g.av >= 5; };
+const seloNota = p => { const g = notaGoogle(p); return g ? `<span class="tag ${prioritario(p) ? 't-good' : 't-neutro'}" title="${prioritario(p) ? 'Prioridade: escritório bem avaliado e com clientes no Google' : 'Nota no Google'}">${prioritario(p) ? '⭐' : '★'} ${String(g.nota).replace('.', ',')} (${g.av})</span>` : ''; };
 function filaProsp() {
   const c = cfgProsp(), h = hoje();
   const followups = S.prospects.filter(p => contatavel(p) && p.status === 'contatado' && (p.tentativas || 0) < c.max_tentativas && p.proximo_contato && p.proximo_contato <= h)
     .sort((a, b) => a.proximo_contato.localeCompare(b.proximo_contato));
-  const novos = S.prospects.filter(p => contatavel(p) && p.status === 'a_contatar' && !(p.tentativas > 0)).sort((a, b) => a.created_at.localeCompare(b.created_at));
+  // novos: primeiro os bem avaliados no Google (mais clientes = mais cálculos), depois por ordem de chegada
+  const novos = S.prospects.filter(p => contatavel(p) && p.status === 'a_contatar' && !(p.tentativas > 0)).sort((a, b) => scoreProsp(b) - scoreProsp(a) || a.created_at.localeCompare(b.created_at));
   return [...followups, ...novos];
 }
 const contatadosHoje = () => S.prospects.filter(p => p.ultimo_contato && dia(p.ultimo_contato) === hoje()).length;
@@ -1379,18 +1395,22 @@ function telaProspeccao() {
   const c = cfgProsp(), fila = filaProsp(), feitosHoje = contatadosHoje();
   const f = S.filtroProsp, q = (f.q || '').toLowerCase(), hj = hoje();
   const cidadeDe = p => (p.cidade || '').split('/')[0].trim() || '(sem cidade)';
-  const ORDENS = { recentes: (a, b) => (b.ultimo_contato || b.created_at).localeCompare(a.ultimo_contato || a.created_at), novos: (a, b) => b.created_at.localeCompare(a.created_at),
+  const ORDENS = { prioridade: (a, b) => scoreProsp(b) - scoreProsp(a) || (b.ultimo_contato || b.created_at).localeCompare(a.ultimo_contato || a.created_at), recentes: (a, b) => (b.ultimo_contato || b.created_at).localeCompare(a.ultimo_contato || a.created_at), novos: (a, b) => b.created_at.localeCompare(a.created_at),
     retorno: (a, b) => (a.proximo_contato || '9999').localeCompare(b.proximo_contato || '9999'), nome: (a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'), cidade: (a, b) => cidadeDe(a).localeCompare(cidadeDe(b), 'pt-BR') || (a.nome || '').localeCompare(b.nome || '', 'pt-BR') };
-  const filtrada = S.prospects.filter(p => (!f.status || p.status === f.status) && (!q || [p.nome, p.escritorio, p.cidade, p.email, p.whatsapp, p.obs].join(' ').toLowerCase().includes(q))
+  const aba = ABAS_PROSP[f.aba] ? f.aba : 'a_contatar', grupoAba = ABAS_PROSP[aba][1];
+  const naAba = p => !grupoAba || grupoAba.includes(p.status || 'a_contatar');
+  const filtrada = S.prospects.filter(p => naAba(p) && (!q || [p.nome, p.escritorio, p.cidade, p.email, p.whatsapp, p.obs].join(' ').toLowerCase().includes(q))
       && (!f.cidade || cidadeDe(p) === f.cidade) && (!f.fonte || (p.fonte || '(sem origem)') === f.fonte)
       && (!f.tel || (f.tel === 'sem' ? !digitos(p.whatsapp) : tipoTel(p.whatsapp) === f.tel))
-      && (!f.retorno || (f.retorno === 'vencido' ? contatavel(p) && p.proximo_contato && p.proximo_contato <= hj : f.retorno === 'semana' ? contatavel(p) && p.proximo_contato && p.proximo_contato <= somaDias(hj, 7) : !p.tentativas)))
-    .sort(ORDENS[f.ordem] || ORDENS.recentes);
+      && (!f.retorno || (f.retorno === 'vencido' ? contatavel(p) && p.proximo_contato && p.proximo_contato <= hj : f.retorno === 'semana' ? contatavel(p) && p.proximo_contato && p.proximo_contato <= somaDias(hj, 7) : !p.tentativas))
+      && (!f.nota || (f.nota === 'top' ? prioritario(p) : f.nota === 'com' ? !!notaGoogle(p) : !notaGoogle(p))))
+    .sort(ORDENS[f.ordem] || (aba === 'contatados' ? ORDENS.retorno : aba === 'a_contatar' || aba === 'todos' ? ORDENS.prioridade : ORDENS.recentes));
   const POR_PAG = 20, paginas = Math.max(1, Math.ceil(filtrada.length / POR_PAG)), pag = Math.min(Math.max(1, f.pag || 1), paginas);
   const lista = filtrada.slice((pag - 1) * POR_PAG, pag * POR_PAG);
   const contaPor = fn => { const m = {}; S.prospects.forEach(p => { const k = fn(p); m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR')); };
   const opt = (v, rot, atual) => `<option value="${esc(v)}" ${v === (atual || '') ? 'selected' : ''}>${esc(rot)}</option>`;
-  const filtrosAtivos = ['status', 'q', 'cidade', 'fonte', 'tel', 'retorno'].filter(k => f[k]).length;
+  const filtrosAtivos = ['q', 'cidade', 'fonte', 'tel', 'retorno', 'nota'].filter(k => f[k]).length;
+  const contaAba = k => S.prospects.filter(p => !ABAS_PROSP[k][1] || ABAS_PROSP[k][1].includes(p.status || 'a_contatar')).length;
   const numsPag = (() => { const out = []; for (let i = 1; i <= paginas; i++) if (i === 1 || i === paginas || Math.abs(i - pag) <= 2) out.push(i); else if (out[out.length - 1] !== '…') out.push('…'); return out; })();
   const paginacao = paginas > 1 ? `<div class="linha" style="justify-content:space-between;margin-top:12px;flex-wrap:wrap;gap:8px">
       <span class="desc">Mostrando ${(pag - 1) * POR_PAG + 1}–${Math.min(pag * POR_PAG, filtrada.length)} de ${filtrada.length}</span>
@@ -1418,17 +1438,18 @@ function telaProspeccao() {
   <div class="grade">
     ${cardBuscaAuto(termo, cidade, qBusca, busca)}
     <div class="card larga"><div class="linha" style="justify-content:space-between"><h2>Lista</h2>
-      <div class="linha"><span class="desc">${filtrada.length} de ${S.prospects.length} contato(s)</span>${filtrosAtivos ? '<button class="btn mini sec" data-acao="limparFiltroProsp">✕ Limpar filtros</button>' : ''}</div></div>
+      <div class="linha"><span class="desc">${filtrada.length} de ${contaAba(aba)} em "${ABAS_PROSP[aba][0]}"</span>${filtrosAtivos ? '<button class="btn mini sec" data-acao="limparFiltroProsp">✕ Limpar filtros</button>' : ''}</div></div>
+      <div class="seg" style="margin:12px 0 4px;flex-wrap:wrap">${Object.entries(ABAS_PROSP).map(([k, [rot]]) => `<button class="${k === aba ? 'on' : ''}" data-aba-prosp="${k}">${rot} <span class="desc">(${contaAba(k)})</span></button>`).join('')}</div>
       <div class="linha" style="flex-wrap:wrap;gap:8px;margin:10px 0 4px">
       <input class="f" id="buscaProsp" placeholder="Buscar nome, telefone, obs…" value="${esc(f.q || '')}" style="flex:1;min-width:200px">
-      <select class="f" id="fProsp"><option value="">Todos os status</option>${Object.entries(STATUS_PROSP).map(([k, v]) => `<option value="${k}" ${k === f.status ? 'selected' : ''}>${v} (${cont(k)})</option>`).join('')}</select>
       <select class="f" data-filtro-prosp="cidade">${opt('', 'Todas as cidades', f.cidade)}${contaPor(cidadeDe).map(([c, n]) => opt(c, `${c} (${n})`, f.cidade)).join('')}</select>
       <select class="f" data-filtro-prosp="tel">${opt('', 'Qualquer telefone', f.tel)}${opt('celular', '📱 Celular (WhatsApp)', f.tel)}${opt('fixo', '☎ Fixo', f.tel)}${opt('sem', 'Sem telefone', f.tel)}</select>
       <select class="f" data-filtro-prosp="retorno">${opt('', 'Qualquer retorno', f.retorno)}${opt('vencido', '⏰ Retorno vencido/hoje', f.retorno)}${opt('semana', 'Retorno nos próximos 7 dias', f.retorno)}${opt('nunca', 'Nunca abordados', f.retorno)}</select>
       <select class="f" data-filtro-prosp="fonte">${opt('', 'Qualquer origem', f.fonte)}${contaPor(p => p.fonte || '(sem origem)').map(([c, n]) => opt(c, `${c} (${n})`, f.fonte)).join('')}</select>
-      <select class="f" data-filtro-prosp="ordem">${opt('', 'Ordem: último contato', f.ordem)}${opt('novos', 'Ordem: adicionados por último', f.ordem)}${opt('retorno', 'Ordem: retorno mais próximo', f.ordem)}${opt('nome', 'Ordem: nome A–Z', f.ordem)}${opt('cidade', 'Ordem: cidade', f.ordem)}</select></div>
+      <select class="f" data-filtro-prosp="nota">${opt('', 'Qualquer avaliação', f.nota)}${opt('top', '⭐ Nota 4+ e 5+ avaliações', f.nota)}${opt('com', 'Com nota no Google', f.nota)}${opt('sem', 'Sem nota', f.nota)}</select>
+      <select class="f" data-filtro-prosp="ordem">${opt('', aba === 'contatados' ? 'Ordem: retorno mais próximo' : aba === 'a_contatar' || aba === 'todos' ? 'Ordem: prioridade (nota Google)' : 'Ordem: último contato', f.ordem)}${aba === 'a_contatar' || aba === 'todos' ? '' : opt('prioridade', 'Ordem: prioridade (nota Google)', f.ordem)}${opt('recentes', 'Ordem: último contato', f.ordem)}${opt('novos', 'Ordem: adicionados por último', f.ordem)}${opt('retorno', 'Ordem: retorno mais próximo', f.ordem)}${opt('nome', 'Ordem: nome A–Z', f.ordem)}${opt('cidade', 'Ordem: cidade', f.ordem)}</select></div>
       ${lista.length ? `<div class="tabela"><table><tr><th>Contato</th><th>Cidade</th><th>Telefone</th><th>Links</th><th>Status</th><th>Último contato</th><th>Retorno</th><th></th></tr>
-      ${lista.map(p => `<tr><td><b class="link" data-prosp="${p.id}">${esc(p.nome)}</b>${p.escritorio && p.escritorio !== p.nome ? `<div class="desc" style="margin:0">${esc(p.escritorio)}</div>` : ''}</td>
+      ${lista.map(p => `<tr><td><b class="link" data-prosp="${p.id}">${esc(p.nome)}</b> ${seloNota(p)}${p.escritorio && p.escritorio !== p.nome ? `<div class="desc" style="margin:0">${esc(p.escritorio)}</div>` : ''}</td>
         <td>${esc(p.cidade || '—')}</td>
         <td style="white-space:nowrap">${celTelefone(p)}</td>
         <td style="white-space:nowrap">${linkExt(p.site, '🌐')}${linkExt(linkInsta(p.instagram), '📸')}${linkExt(p.linkedin, '💼')}${linkExt(p.maps, '📍')}</td>
@@ -1573,7 +1594,7 @@ function cardBuscaAuto(termo, cidade, qBusca, busca) {
     return `<tr style="${l.ja ? 'opacity:.5' : ''}"><td><input type="checkbox" data-achado="${esc(l.id)}" ${sel.has(l.id) ? 'checked' : ''} ${l.ja ? 'disabled' : ''}></td>
       <td><b>${esc(l.nome)}</b>${l.tipo ? `<div class="desc">${esc(l.tipo)}</div>` : ''}</td><td>${esc(l.cidade)}</td>
       <td style="white-space:nowrap">${l.telefone ? esc(l.telefone) : '—'} ${t === 'celular' ? '<span class="tag t-good" title="Celular: dá para chamar no WhatsApp">📱 WhatsApp</span>' : t === 'fixo' ? '<span class="tag t-neutro" title="Fixo: ligar ou procurar o WhatsApp no site">☎ fixo</span>' : ''}</td>
-      <td>${l.nota ? `★ ${String(l.nota).replace('.', ',')} <span class="desc">(${l.avaliacoes})</span>` : '<span class="desc">sem nota</span>'}</td>
+      <td>${l.nota ? (l.nota >= 4 && l.avaliacoes >= 5 ? `<span class="tag t-good" title="Prioridade: bem avaliado e com clientes">⭐ ${String(l.nota).replace('.', ',')} (${l.avaliacoes})</span>` : `★ ${String(l.nota).replace('.', ',')} <span class="desc">(${l.avaliacoes})</span>`) : '<span class="desc">sem nota</span>'}</td>
       <td style="white-space:nowrap">${l.site ? `<a class="btn mini sec" target="_blank" rel="noopener" href="${esc(urlExt(l.site))}">🌐</a>` : ''}${l.maps ? ` <a class="btn mini sec" target="_blank" rel="noopener" href="${esc(urlExt(l.maps))}">📍</a>` : ''}</td>
       <td>${l.ja ? '<span class="tag t-neutro">já na lista</span>' : ''}</td></tr>`;
   };
@@ -1593,7 +1614,7 @@ function cardBuscaAuto(termo, cidade, qBusca, busca) {
         <div class="desc" style="margin-top:6px">O Google dá uma cota gratuita por mês (cada busca traz até 20 escritórios). Enquanto isso, use os links abaixo.</div></div>`
       : A.erro ? `<div class="demo" style="margin-top:12px"><span>⚠ ${esc(A.erro)}</span></div>` : ''}
     ${lugares.length ? `<div class="linha" style="margin:14px 0 6px;justify-content:space-between;flex-wrap:wrap;gap:8px">
-        <div><b>${lugares.length}</b> encontrado(s) para "${esc(A.termo)}" em ${esc(A.cidade)} · ${novos.length} novo(s) · ${celNovos.length} com celular</div>
+        <div><b>${lugares.length}</b> encontrado(s) para "${esc(A.termo)}" em ${esc(A.cidade)} · ${novos.length} novo(s) · ${celNovos.length} com celular · ${novos.filter(l => l.nota >= 4 && l.avaliacoes >= 5).length} ⭐ bem avaliado(s) <span class="desc">(aparecem primeiro)</span></div>
         <div class="linha"><button class="btn mini sec" data-acao="selCelulares">Marcar novos com celular</button><button class="btn mini sec" data-acao="selNenhum">Desmarcar</button>
         <button class="btn" data-acao="addAchados" ${sel.size ? '' : 'disabled'}>+ Adicionar ${sel.size} à lista</button></div></div>
       <div class="tabela"><table><tr><th></th><th>Escritório</th><th>Cidade</th><th>Telefone</th><th>Google</th><th>Links</th><th></th></tr>${lugares.map(linha).join('')}</table></div>
@@ -1626,7 +1647,9 @@ async function buscarAuto(mais) {
     }
     lugares.forEach(l => { l.ja = !!duplicado({ nome: l.nome, cidade: l.cidade, whatsapp: l.telefone }) || S.prospects.some(p => p.maps && l.maps && p.maps === l.maps); });
     const vistos = new Set(S.achados.lugares.map(l => l.id));
-    const todos = S.achados.lugares.concat(lugares.filter(l => !vistos.has(l.id)));
+    // bem avaliados e com mais avaliações no topo (escritório ativo gera mais cálculo)
+    const pontos = l => (l.nota || 0) * Math.log10((l.avaliacoes || 0) + 1);
+    const todos = S.achados.lugares.concat(lugares.filter(l => !vistos.has(l.id))).sort((a, b) => (a.ja - b.ja) || pontos(b) - pontos(a));
     const sel = S.achados.sel; lugares.forEach(l => { if (!l.ja && tipoTel(l.telefone) === 'celular') sel.add(l.id); }); // já vêm marcados os novos com celular
     S.achados = { ...S.achados, lugares: todos, proxima, carregando: false, sel };
     if (!lugares.length) toast('Nenhum escritório encontrado. Tente outro termo ou uma cidade vizinha.');
@@ -1708,17 +1731,18 @@ async function configProsp() {
   const c = cfgProsp();
   const v = await abrirForm('⚙ Mensagens da prospecção', [
     { k: 'remetente', rot: 'Seu nome na mensagem (ex.: Felipe). Vazio = "Aqui é da Pontes Ferreira"' },
+    { k: 'oferta', rot: 'Oferta do 1º cálculo (entra na apresentação). Vazio = sem oferta', full: true },
     { k: 'meta_dia', rot: 'Meta de abordagens por dia', tipo: 'number' },
     { k: 'dias_follow1', rot: '2º contato depois de (dias)', tipo: 'number' }, { k: 'dias_follow2', rot: '3º contato depois de (dias, contando do 1º)', tipo: 'number' },
     { k: 'max_tentativas', rot: 'Máximo de contatos por pessoa', tipo: 'number' },
-    { k: 't_primeiro', rot: '1º contato (apresentação): várias versões separadas por uma linha ---. Marcadores: {nome}, {link}, {eu}', tipo: 'textarea', full: true },
+    { k: 't_primeiro', rot: '1º contato (apresentação): várias versões separadas por uma linha ---. Marcadores: {nome}, {link}, {eu}, {oferta}', tipo: 'textarea', full: true },
     { k: 't_follow1', rot: '2º contato (lembrete): versões separadas por ---', tipo: 'textarea', full: true },
     { k: 't_follow2', rot: '3º contato (último): versões separadas por ---', tipo: 'textarea', full: true },
     { k: 't_email_assunto', rot: 'Assunto do e-mail', full: true }
   ], { ...c, ...Object.fromEntries(Object.entries(c.textos).map(([k, x]) => ['t_' + k, x])) });
   if (!v) return;
   const textos = {}; Object.keys(PROSP_PADRAO.textos).forEach(k => { if (v['t_' + k] && v['t_' + k] !== PROSP_PADRAO.textos[k]) textos[k] = v['t_' + k]; delete v['t_' + k]; });
-  const novo = { meta_dia: v.meta_dia || 20, dias_follow1: v.dias_follow1 || 3, dias_follow2: v.dias_follow2 || 7, max_tentativas: v.max_tentativas || 3, remetente: v.remetente || '', textos };
+  const novo = { meta_dia: v.meta_dia || 20, dias_follow1: v.dias_follow1 || 3, dias_follow2: v.dias_follow2 || 7, max_tentativas: v.max_tentativas || 3, remetente: v.remetente || '', oferta: (v.oferta || '').trim(), textos };
   await seguro(async () => { await ajustesDb.salvar('prospeccao', novo); S.ajustes.prospeccao = novo; toast('Mensagens salvas'); render(); });
 }
 
@@ -2899,7 +2923,7 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-pag-prosp],[data-cidade-prosp],[data-filtro-wa],[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-aba-prosp],[data-pag-prosp],[data-cidade-prosp],[data-filtro-wa],[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
   if (d.filtroWa) { S.filtroWa = d.filtroWa; return render(); }
@@ -2920,6 +2944,7 @@ document.addEventListener('click', e => {
   if (d.ufMapa !== undefined) { S.ufMapa = d.ufMapa || null; if (rota() !== 'mapa') location.hash = 'mapa'; return render(); }
   if (d.metricaMapa) { S.metricaMapa = d.metricaMapa; localSet('pf_metrica_mapa', d.metricaMapa); return render(); }
   if (d.prospectarUf) return prospectarUF(d.prospectarUf);
+  if (d.abaProsp) { S.filtroProsp.aba = d.abaProsp; S.filtroProsp.pag = 1; S.filtroProsp.ordem = ''; return render(); }
   if (d.pagProsp) { S.filtroProsp.pag = Number(d.pagProsp); render(); return document.querySelector('#buscaProsp')?.closest('.card')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
   if (d.cidadeProsp) { S.buscaProsp.cidade = d.cidadeProsp; return buscarAuto(false); }
   if (d.prosp) return editarProsp(S.prospects.find(x => x.id === d.prosp));
@@ -2946,7 +2971,7 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
+    novaDespesa: () => editarDespesa(null), buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
     selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
