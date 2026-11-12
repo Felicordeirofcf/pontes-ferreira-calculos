@@ -1948,8 +1948,177 @@ function exportMeta() {
   baixarArquivo(`meta-clientes-${hoje()}.csv`, csv(linhas));
 }
 
+/* ---------------- Configurações + Monitor de respostas ---------------- */
+// Palavras que o monitor procura nas mensagens RECEBIDAS (editáveis em Configurações)
+const MONITOR_PADRAO = {
+  fechamento: 'pode seguir, pode fazer, pode começar, pode iniciar, fechado, fechamos, aprovado, vamos fazer, vamos seguir, ok pode, manda o pix, qual o pix, chave pix, dados para pagamento, vou pagar, segue o comprovante, comprovante, pago',
+  interesse: 'quanto, valor, preço, preco, orçamento, orcamento, prazo, como funciona, vocês fazem, voces fazem, atende, consegue, tenho um processo, preciso de um cálculo, preciso de calculo, liquidação, impugnação, inicial',
+  urgencia: 'urgente, urgência, prazo vence, vence amanhã, vence hoje, amanhã, até sexta, essa semana, prazo curto',
+  objecao: 'caro, muito caro, está caro, desconto, mais barato, valor alto',
+  desinteresse: 'não tenho interesse, nao tenho interesse, sem interesse, não preciso, nao preciso, já tenho calculista, ja tenho calculista, faço internamente, fazemos internamente, não obrigado, nao obrigado, remover, pare de, não me mande, nao me mande, descadastrar, não quero, nao quero'
+};
+const cfgMonitor = () => ({ ...MONITOR_PADRAO, ...(S.ajustes.monitor || {}) });
+const termos = txt => String(txt || '').split(',').map(x => roboNorm(x)).filter(Boolean);
+const temTermo = (texto, lista) => lista.find(t => roboNorm(texto).includes(t));
+
+async function carregarMensagensMonitor(forcar) {
+  if (S.monitor && !forcar && Date.now() - S.monitor.em < 120000) return;
+  S.monitor = { em: Date.now(), carregando: true, msgs: S.monitor?.msgs || [] };
+  try {
+    let msgs = [];
+    if (DEMO) msgs = L.get('wa_mensagens');
+    else {
+      const desde = new Date(Date.now() - 45 * 864e5).toISOString();
+      for (let pag = 0; pag < 10; pag++) { // até 10 mil mensagens, em páginas de 1000
+        const { data, error } = await sb.from('wa_mensagens').select('wa_id,direcao,tipo,texto,arquivo_nome,created_at,bot').gte('created_at', desde).order('created_at', { ascending: true }).range(pag * 1000, pag * 1000 + 999);
+        if (error) throw error; msgs = msgs.concat(data || []); if (!data || data.length < 1000) break;
+      }
+    }
+    S.monitor = { em: Date.now(), carregando: false, msgs };
+  } catch (e) { console.warn('monitor', e); S.monitor = { em: Date.now(), carregando: false, msgs: [], erro: e.message }; }
+  if (rota() === 'configuracoes') render();
+}
+
+/* nota de 0 a 100 + motivos + próxima ação, para cada conversa */
+function avaliarConversa(c, msgs) {
+  const cfg = cfgMonitor(), l = leadDaConversa(c);
+  const prosp = S.prospects.find(p => p.whatsapp && digitos(p.whatsapp).slice(-9) === digitos(c.wa_id).slice(-9));
+  const entrada = msgs.filter(m => m.direcao === 'in'), saida = msgs.filter(m => m.direcao === 'out');
+  const ultima = msgs[msgs.length - 1], ultIn = entrada[entrada.length - 1];
+  const motivos = []; let nota = 10, negativo = false;
+  const add = (pts, txt) => { nota += pts; motivos.push([pts, txt]); };
+  if (l?.status === 'fechado' || c.cliente_id) return { c, l, prosp, nota: 100, faixa: 'cliente', motivos: [[0, 'já é cliente']], acao: ['cliente', 'Atender / novo cálculo'], ultima, ultIn };
+  if (l?.status === 'perdido') return { c, l, prosp, nota: 0, faixa: 'perdido', motivos: [[0, `marcado como perdido${l.motivo_perda ? ': ' + l.motivo_perda : ''}`]], acao: ['nada', '—'], ultima, ultIn };
+  if (!entrada.length) {
+    add(0, saida.length ? 'ainda não respondeu' : 'sem mensagens');
+    if (ultima && minutosDesde(ultima.created_at) > 3 * 1440) add(-5, 'sem resposta há mais de 3 dias');
+  } else {
+    const primeiraIn = msgs[0]?.direcao === 'in';
+    if (primeiraIn) add(15, 'procurou você primeiro'); else add(20, 'respondeu à sua mensagem');
+    const textos = entrada.map(m => m.texto || '').join(' \n ');
+    const f = temTermo(textos, termos(cfg.fechamento)); if (f) add(35, `sinal de fechamento: "${f}"`);
+    const i = temTermo(textos, termos(cfg.interesse)); if (i) add(15, `demonstrou interesse: "${i}"`);
+    const u = temTermo(textos, termos(cfg.urgencia)); if (u) add(10, `tem urgência: "${u}"`);
+    if (entrada.some(m => roboCnj(m.texto)) || l?.numero_processo) add(20, 'enviou o número do processo');
+    else if (entrada.some(m => m.tipo === 'document' && /\.pdf$/i.test(m.arquivo_nome || ''))) add(20, 'enviou o PDF do processo');
+    const o = temTermo(textos, termos(cfg.objecao)); if (o) add(-10, `objeção de preço: "${o}"`);
+    const d = temTermo(textos, termos(cfg.desinteresse)); if (d) { add(-60, `sem interesse: "${d}"`); negativo = true; }
+    if (entrada.length >= 3) add(10, `${entrada.length} mensagens dele(a)`);
+    // respondeu rápido a alguma mensagem sua
+    const rapida = entrada.some(m => { const antes = saida.filter(s => s.created_at < m.created_at).pop(); return antes && (new Date(m.created_at) - new Date(antes.created_at)) < 3600e3; });
+    if (rapida) add(10, 'responde rápido');
+    const diasSemFalar = Math.max(0, minutosDesde(ultIn.created_at)) / 1440;
+    if (diasSemFalar > 14) add(-25, `não fala há ${Math.floor(diasSemFalar)} dias`); else if (diasSemFalar > 7) add(-15, `não fala há ${Math.floor(diasSemFalar)} dias`);
+  }
+  if (l?.status === 'orcamento') add(10, 'orçamento enviado');
+  if (/48h|urgente/i.test(l?.prazo || '')) add(10, 'pedido urgente no site');
+  nota = Math.max(0, Math.min(99, Math.round(nota)));
+  const faixa = negativo || nota < 15 ? 'fria' : nota >= 70 ? 'alta' : nota >= 40 ? 'media' : 'baixa';
+  // próxima ação sugerida
+  const esperando = ultima?.direcao === 'in' && !ultima.bot;
+  const minEsp = esperando ? Math.max(0, minutosDesde(ultima.created_at)) : 0;
+  let acao;
+  if (negativo) acao = prosp ? ['naocontatar', 'Marcar "Não contatar"'] : ['perdido', 'Marcar como perdido'];
+  else if (esperando) acao = ['responder', `Responder agora (esperando há ${fmtMin(minEsp)})`];
+  else if (motivos.some(([, t]) => t.startsWith('sinal de fechamento'))) acao = ['calculo', 'Converter em cálculo'];
+  else if ((motivos.some(([, t]) => /processo|interesse/.test(t))) && l?.status !== 'orcamento') acao = ['orcamento', 'Enviar orçamento'];
+  else if (motivos.some(([, t]) => t.startsWith('objeção'))) acao = ['negociar', 'Mostrar o que está incluído / negociar'];
+  else if (ultima?.direcao === 'out' && minutosDesde(ultima.created_at) > 2 * 1440) acao = ['followup', 'Fazer follow-up'];
+  else acao = ['aguardar', 'Aguardar resposta'];
+  return { c, l, prosp, nota, faixa, motivos, acao, ultima, ultIn, esperando, minEsp };
+}
+const FAIXAS = { alta: ['🔥 Alta chance', 't-good'], media: ['🌤 Média', 't-warn'], baixa: ['❄ Baixa', 't-azul'], fria: ['⛔ Sem interesse', 't-crit'], cliente: ['✅ Cliente', 't-good'], perdido: ['Perdido', 't-neutro'] };
+
+function telaConfiguracoes() {
+  const aba = S.abaConfig || 'monitor';
+  const abas = { monitor: 'Monitor de respostas', ajustes: 'Ajustes do sistema' };
+  return `<div class="topo"><h1>Configurações</h1><div class="acoes">${aba === 'monitor' ? '<button class="btn sec" data-acao="atualizarMonitor">↻ Atualizar</button><button class="btn sec" data-acao="configMonitor">⚙ Palavras do monitor</button>' : ''}</div></div>
+  <div class="seg" style="margin-bottom:16px">${Object.entries(abas).map(([k, v]) => `<button class="${k === aba ? 'on' : ''}" data-aba-config="${k}">${v}</button>`).join('')}</div>
+  ${aba === 'monitor' ? telaMonitor() : telaAjustes()}`;
+}
+
+function telaMonitor() {
+  carregarMensagensMonitor();
+  const porWa = {};
+  (S.monitor?.msgs || []).forEach(m => (porWa[m.wa_id] = porWa[m.wa_id] || []).push(m));
+  const filtro = S.filtroMonitor || 'ativos';
+  const todos = S.wa_conversas.map(c => avaliarConversa(c, (porWa[c.wa_id] || []).sort((a, b) => a.created_at.localeCompare(b.created_at))));
+  const ativos = todos.filter(x => !['cliente', 'perdido'].includes(x.faixa));
+  const lista = (filtro === 'ativos' ? ativos : filtro === 'esperando' ? ativos.filter(x => x.esperando) : filtro === 'todos' ? todos : todos.filter(x => x.faixa === filtro))
+    .sort((a, b) => (b.esperando - a.esperando) || (b.nota - a.nota));
+  const previsao = soma(ativos, x => (x.nota / 100) * (Number(x.l?.valor_orcado) || 250));
+  const esperando = ativos.filter(x => x.esperando);
+  const abordados = S.prospects.filter(p => p.tentativas > 0), resp = S.prospects.filter(p => ['respondeu', 'interessado', 'cliente'].includes(p.status));
+  const cont = f => ativos.filter(x => x.faixa === f).length;
+  return `
+  ${S.monitor?.carregando && !S.monitor.msgs.length ? '<div class="demo"><span>Lendo as conversas…</span></div>' : ''}
+  ${S.monitor?.erro ? `<div class="demo"><span>Não foi possível ler as mensagens: ${esc(S.monitor.erro)}</span></div>` : ''}
+  <div class="kpis">
+    ${kpi('Esperando sua resposta', esperando.length, esperando.length ? `a mais antiga há ${fmtMin(Math.max(...esperando.map(x => x.minEsp)))}` : 'tudo respondido 🎉', esperando.some(x => x.minEsp > MIN_RESPOSTA))}
+    ${kpi('🔥 Alta chance', cont('alta'), 'prováveis clientes')}
+    ${kpi('🌤 Média', cont('media'), 'precisam de um empurrão')}
+    ${kpi('❄ Baixa / ⛔', cont('baixa') + cont('fria'), `${cont('fria')} sem interesse`)}
+    ${kpi('Previsão de receita', brl0(previsao), 'soma de valor × chance de fechar')}
+    ${kpi('Taxa de resposta', abordados.length ? pct(resp.length / abordados.length) : '—', 'na prospecção')}
+  </div>
+  <div class="card larga"><div class="linha" style="justify-content:space-between"><h2>Quem vai virar cliente</h2>
+    <div class="seg">${[['ativos', 'Em aberto'], ['esperando', 'Esperando você'], ['alta', '🔥 Alta'], ['media', '🌤 Média'], ['baixa', '❄ Baixa'], ['fria', '⛔ Sem interesse'], ['todos', 'Todos']].map(([k, v]) => `<button class="${k === filtro ? 'on' : ''}" data-filtro-monitor="${k}">${v}</button>`).join('')}</div></div>
+    <div class="desc">Nota de 0 a 100 calculada pelas mensagens recebidas nos últimos 45 dias. Passe o mouse na nota para ver os motivos.</div>
+    ${lista.length ? `<div class="tabela"><table><tr><th>Contato</th><th>Chance</th><th>Por quê</th><th>Última mensagem</th><th>Próxima ação</th></tr>
+    ${lista.map(x => { const [rot, cls] = FAIXAS[x.faixa]; const ult = x.ultima; return `<tr>
+      <td><b class="link" data-conv-monitor="${x.c.wa_id}">${esc(x.c.nome || fmtTel(x.c.wa_id))}</b><div class="desc" style="margin:0">${x.l ? esc(STATUS_LEAD[x.l.status]) : x.prosp ? 'Prospecção · ' + esc(STATUS_PROSP[x.prosp.status]) : 'Conversa'}${x.l?.valor_orcado ? ' · ' + brl0(x.l.valor_orcado) : ''}</div></td>
+      <td style="white-space:nowrap"><div class="nota-barra" data-tip="${esc(x.motivos.map(([p, t]) => `${p > 0 ? '+' : ''}${p} ${t}`).join('\n'))}"><i style="width:${x.nota}%" class="${cls}"></i></div><span class="tag ${cls}">${rot} · ${x.nota}</span></td>
+      <td class="motivos">${x.motivos.filter(([p]) => p !== 0).slice(0, 3).map(([p, t]) => `<span class="${p > 0 ? 'mais' : 'menos'}">${p > 0 ? '▲' : '▼'} ${esc(t)}</span>`).join('') || '<span class="desc">—</span>'}</td>
+      <td style="max-width:260px"><span class="desc">${ult ? `${ult.direcao === 'in' ? '⬅' : '➡'} ${quandoCurto(ult.created_at)}` : ''}</span><div class="trecho">${esc((ult?.texto || (ult?.arquivo_nome ? '📎 ' + ult.arquivo_nome : '')).slice(0, 90))}</div></td>
+      <td>${botaoAcaoMonitor(x)}</td></tr>`; }).join('')}</table></div>`
+      : `<div class="vazio">${S.wa_conversas.length ? 'Nenhuma conversa neste filtro.' : 'As conversas do WhatsApp aparecem aqui assim que chegarem.'}</div>`}
+  </div>`;
+}
+function botaoAcaoMonitor(x) {
+  const [tipo, rot] = x.acao, cor = { responder: 'ouro', calculo: 'ouro', orcamento: '', naocontatar: 'perigo', perdido: 'perigo' }[tipo] ?? 'sec';
+  if (tipo === 'nada' || tipo === 'aguardar') return `<span class="desc">${esc(rot)}</span>`;
+  return `<button class="btn mini ${cor}" data-acao-monitor="${tipo}" data-wa="${x.c.wa_id}">${esc(rot)}</button>`;
+}
+async function executarAcaoMonitor(tipo, waId) {
+  const c = S.wa_conversas.find(x => x.wa_id === waId); if (!c) return;
+  const l = leadDaConversa(c), prosp = S.prospects.find(p => p.whatsapp && digitos(p.whatsapp).slice(-9) === digitos(waId).slice(-9));
+  await seguro(async () => {
+    if (tipo === 'responder' || tipo === 'negociar') return abrirConversa(waId);
+    if (tipo === 'orcamento' || tipo === 'followup') { await abrirConversa(waId); preencherRapida(RESPOSTAS_RAPIDAS.findIndex(r => r[1] === (tipo === 'orcamento' ? 'orcamento' : 'followup'))); return; }
+    if (tipo === 'calculo') return l ? leadParaCalculo(l) : toast('Crie o lead pela conversa antes de converter.');
+    if (tipo === 'naocontatar' && prosp) { await atualizar('prospects', prosp.id, { status: 'nao_contatar', proximo_contato: null }); if (l) await atualizar('leads', l.id, { status: 'perdido', motivo_perda: 'Sem interesse' }); toast('Marcado como Não contatar'); return render(); }
+    if (tipo === 'perdido' && l) { await atualizar('leads', l.id, { status: 'perdido', motivo_perda: 'Sem interesse' }); await registrar(l.id, 'status', 'Perdido: sem interesse (monitor de respostas)'); toast('Marcado como perdido'); return render(); }
+    if (tipo === 'cliente' && l) return editarCalculo(null);
+  });
+}
+async function configMonitor() {
+  const c = cfgMonitor();
+  const v = await abrirForm('⚙ Palavras do monitor de respostas', [
+    { k: 'fechamento', rot: 'Sinais de fechamento (+35) · separe por vírgula', tipo: 'textarea', full: true },
+    { k: 'interesse', rot: 'Sinais de interesse (+15)', tipo: 'textarea', full: true },
+    { k: 'urgencia', rot: 'Urgência (+10)', tipo: 'textarea', full: true },
+    { k: 'objecao', rot: 'Objeção de preço (−10)', tipo: 'textarea', full: true },
+    { k: 'desinteresse', rot: 'Sem interesse (−60, sugere "Não contatar")', tipo: 'textarea', full: true }
+  ], c);
+  if (!v) return;
+  const novo = {}; Object.keys(MONITOR_PADRAO).forEach(k => { if (v[k] && v[k] !== MONITOR_PADRAO[k]) novo[k] = v[k]; });
+  await seguro(async () => { await ajustesDb.salvar('monitor', novo); S.ajustes.monitor = novo; toast('Palavras salvas'); render(); });
+}
+function telaAjustes() {
+  const c = (rot, desc, botoes) => `<div class="card"><h2>${rot}</h2><div class="desc">${desc}</div><div class="linha">${botoes}</div></div>`;
+  const wa = EVOLUTION() ? (S.waEstado === 'open' ? `🟢 conectado${S.waNumero ? ' · ' + esc(fmtTel(S.waNumero)) : ''}` : '📵 desconectado') : (WA_PAINEL() ? 'API oficial' : 'manual (app do celular)');
+  return `<div class="grade">
+    ${c('WhatsApp', `Situação: <b>${wa}</b>`, `<a class="btn mini sec" href="#whatsapp">Abrir WhatsApp</a>${EVOLUTION() && S.waEstado !== 'open' ? '<button class="btn mini ouro" data-acao="waConectar">Conectar</button>' : ''}`)}
+    ${c('Mensagens prontas', 'Variações das respostas rápidas e das mensagens da prospecção.', '<button class="btn mini sec" data-acao="configRespostas">⚡ Respostas rápidas</button><button class="btn mini sec" data-acao="configProsp">🎯 Mensagens da prospecção</button>')}
+    ${c('Atendimento automático', `Robô do WhatsApp: <b>${cfgRobo().ativo ? 'ligado' : 'desligado'}</b>.`, '<button class="btn mini sec" data-acao="configurarRobo">⚙ Configurar robô</button><button class="btn mini sec" data-acao="testarRobo">🧪 Testar</button>')}
+    ${c('Monitor de respostas', 'Palavras que indicam fechamento, interesse, urgência, objeção e desinteresse.', '<button class="btn mini sec" data-acao="configMonitor">⚙ Palavras do monitor</button>')}
+    ${c('Anúncios e rastreamento', `Google, Meta Pixel e Clarity: <b>${rast().ativo ? 'ligados' : 'desligados'}</b>.`, '<a class="btn mini sec" href="#trafego" data-aba-trafego="ativacao">Abrir Ativação</a>')}
+    ${c('Conta', DEMO ? 'Modo demonstração.' : 'Login: adm@pontesferreiracalculos.com', DEMO ? '' : '<button class="btn mini sec" data-acao="trocarSenha">Trocar senha</button><button class="btn mini sec" data-acao="sair">Sair</button>')}
+  </div>`;
+}
+
 /* ---------------- menu e busca rápida (Ctrl+K) ---------------- */
-const GRUPOS_NAV = [['Operação', ['painel', 'leads', 'prospeccao', 'whatsapp', 'calculos', 'clientes']], ['Crescimento', ['mapa', 'trafego']], ['Gestão', ['financeiro']]];
+const GRUPOS_NAV = [['Operação', ['painel', 'leads', 'prospeccao', 'whatsapp', 'calculos', 'clientes']], ['Crescimento', ['mapa', 'trafego']], ['Gestão', ['financeiro', 'configuracoes']]];
 const ic = d => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
 const ICONES = {
   painel: ic('<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>'),
@@ -1960,7 +2129,8 @@ const ICONES = {
   calculos: ic('<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 11h2M12 11h2M16 11h0M8 15h2M12 15h2M8 18h2M12 18h4"/>'),
   clientes: ic('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/>'),
   financeiro: ic('<path d="M3 17l5-5 4 4 8-9"/><path d="M15 7h5v5"/>'),
-  trafego: ic('<path d="M4 15V9l12-5v16L4 15z"/><path d="M8 16.5 9.5 21h3L11 17"/>')
+  trafego: ic('<path d="M4 15V9l12-5v16L4 15z"/><path d="M8 16.5 9.5 21h3L11 17"/>'),
+  configuracoes: ic('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>')
 };
 const PAL = { aberta: false, q: '', i: 0, itens: [] };
 function itensPaleta(q) {
@@ -2015,7 +2185,7 @@ document.addEventListener('keydown', e => {
 });
 
 /* ---------------- shell, rotas e eventos ---------------- */
-const ROTAS = { painel: ['Painel', telaPainel], mapa: ['Mapa do Brasil', telaMapa], leads: ['Leads · CRM', telaLeads], prospeccao: ['Prospecção', telaProspeccao], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro], trafego: ['Tráfego pago', telaTrafego] };
+const ROTAS = { painel: ['Painel', telaPainel], mapa: ['Mapa do Brasil', telaMapa], leads: ['Leads · CRM', telaLeads], prospeccao: ['Prospecção', telaProspeccao], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro], configuracoes: ['Configurações', telaConfiguracoes], trafego: ['Tráfego pago', telaTrafego] };
 const rota = () => { const r = location.hash.slice(1); return ROTAS[r] && (r !== 'whatsapp' || WA_PAINEL()) ? r : 'painel'; };
 const CAMPOS_FOCO = ['busca', 'buscaLeads', 'buscaWa', 'waTexto', 'buscaProsp'];
 
@@ -2044,9 +2214,13 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
+  if (d.abaConfig) { S.abaConfig = d.abaConfig; return render(); }
+  if (d.filtroMonitor) { S.filtroMonitor = d.filtroMonitor; return render(); }
+  if (d.convMonitor) return abrirConversa(d.convMonitor);
+  if (d.acaoMonitor) return executarAcaoMonitor(d.acaoMonitor, d.wa);
   if (d.waAbrir) { e.stopPropagation(); return abrirNoPainel(d.waAbrir, d.waNome, d.waTxt, { lead_id: d.waLeadId, cliente_id: d.waClienteId }); }
   if (d.waProsp) return enviarDiretoProsp(d.waProsp, 'wa');
   if (d.mailProsp) return enviarDiretoProsp(d.mailProsp, 'email');
@@ -2078,7 +2252,7 @@ document.addEventListener('click', e => {
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
     novaDespesa: () => editarDespesa(null), importarPJC, limparDemo, novaConversa,
-    novoGasto: () => novoGasto(), novoProsp: () => editarProsp(null), outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
+    novoGasto: () => novoGasto(), novoProsp: () => editarProsp(null), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
     waEnviar: waEnviarTexto, waAnexar,
     waModelo: () => seguro(() => waEnviar({ template: CFG.WA_TEMPLATE || 'retomar_contato', idioma: CFG.WA_TEMPLATE_IDIOMA || 'pt_BR' })),
     addAtividade: () => seguro(async () => {
@@ -2155,6 +2329,7 @@ function tempoReal() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'wa_mensagens' }, p => {
       const m = p.new, lista = S.wa_mensagens[m.wa_id];
       if (lista) { const i = lista.findIndex(x => x.id === m.id); if (i >= 0) lista[i] = m; else lista.push(m); }
+      if (S.monitor && p.eventType === 'INSERT') S.monitor.msgs.push(m);
       if (p.eventType === 'INSERT' && m.direcao === 'in' && !(m.wa_id === S.conversa && rota() === 'whatsapp' && !document.hidden)) {
         const c = S.wa_conversas.find(x => x.wa_id === m.wa_id);
         avisar(`WhatsApp de ${c?.nome || fmtTel(m.wa_id)}`, m.texto || `📎 ${m.arquivo_nome || 'arquivo'}`);
