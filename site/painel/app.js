@@ -806,7 +806,7 @@ function telaWhatsapp() {
     const fimJanela = aberta && c.ultima_entrada_em ? new Date(new Date(c.ultima_entrada_em).getTime() + 24 * 36e5) : new Date();
     const cliC = c.cliente_id && cliente(c.cliente_id);
     corpo = `<div class="wa-cab"><div class="wa-quem">${avatar(c.nome || c.wa_id, c.wa_id, 'g')}<div><b>${esc(c.nome || fmtTel(c.wa_id))}</b><div class="wa-sub">${fmtTel(c.wa_id)}${cliC ? ' · <span class="tag t-good">Cliente</span>' : l ? ` · <span class="tag t-azul">${esc(STATUS_LEAD[l.status])}</span>` : ''}${l?.temperatura ? ' ' + tagTemp(l) : ''}</div></div></div>
-        <div class="wa-acoes"><button class="btn mini ouro" data-acao="orcamentoRapido" title="Montar a mensagem de orçamento com o valor que você definir">💰 Orçamento</button><button class="btn mini ouro" data-acao="prontoPagamento" title="Avisar que o cálculo está pronto e mandar os dados de pagamento">✅ Pronto + pagamento</button><button class="btn mini ouro" data-acao="envioPago" title="Pagamento confirmado: mandar a mensagem com o PDF e o .PJC e marcar como pago/entregue">📦 Envio após pagamento</button><button class="btn mini sec" data-cadastro="${c.wa_id}" title="Preencher o cadastro com os dados da conversa">📋 Cadastro</button>${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini ouro" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(c.wa_id)}" title="Abrir no WhatsApp Web">WhatsApp Web ↗</a></div></div>
+        <div class="wa-acoes"><button class="btn mini ouro" data-acao="orcamentoRapido" title="Montar a mensagem de orçamento com o valor que você definir">💰 Orçamento</button><button class="btn mini ouro" data-acao="dataEntrega" title="Informar a data de entrega (e gravar como prazo do cálculo)">📅 Data de entrega</button><button class="btn mini ouro" data-acao="prontoPagamento" title="Avisar que o cálculo está pronto e mandar os dados de pagamento">✅ Pronto + pagamento</button><button class="btn mini ouro" data-acao="envioPago" title="Pagamento confirmado: mandar a mensagem com o PDF e o .PJC e marcar como pago/entregue">📦 Envio após pagamento</button><button class="btn mini sec" data-cadastro="${c.wa_id}" title="Preencher o cadastro com os dados da conversa">📋 Cadastro</button>${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini ouro" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(c.wa_id)}" title="Abrir no WhatsApp Web">WhatsApp Web ↗</a></div></div>
       ${EVOLUTION() ? '' : `<div class="wa-janela ${aberta ? 'ok' : 'fechada'}">${aberta ? `✔ Conversa aberta: pode responder livremente até ${fimJanela.toLocaleDateString('pt-BR') === new Date().toLocaleDateString('pt-BR') ? 'hoje' : 'amanhã'} às ${hora(fimJanela)}.`
         : `⏸ O cliente não escreve há mais de 24h. Pela regra do WhatsApp, só dá para enviar um <b>modelo aprovado</b> para retomar a conversa. <button class="btn mini" data-acao="waModelo">Enviar modelo "${esc(CFG.WA_TEMPLATE || 'retomar_contato')}"</button>`}</div>`}
       ${cfgRobo().ativo ? `<div class="wa-janela ${roboEmSilencio(c) ? 'fechada' : 'ok'}">${roboEmSilencio(c)
@@ -857,8 +857,9 @@ async function orcamentoRapido() {
     { k: 'valor', rot: primeiro ? 'Valor do cálculo (R$) · 1º cálculo deste cliente' : 'Valor do cálculo (R$)', tipo: 'number', req: true },
     { k: 'prazo', rot: 'Entrega', tipo: 'select', vazio: false, opcoes: [['em até 48h', 'Em até 48h'], ['em até 24h (urgente)', 'Em até 24h (urgente)'], ['em até 3 dias úteis', 'Em até 3 dias úteis'], ['em até 5 dias úteis', 'Em até 5 dias úteis'], ['data', 'Numa data específica…']] },
     { k: 'data', rot: 'Data de entrega (se escolheu data específica)', tipo: 'date' },
-    { k: 'detalhe', rot: 'Detalhe do caso (opcional, ex.: 2 autores, período de 5 anos)', ph: 'deixe vazio se não precisar', full: true }
-  ], { processo: (l && l.numero_processo) || '', autor: partesDoLead(l).reclamante || '', reu: partesDoLead(l).reclamada || '', valor: (l && l.valor_orcado) || (primeiro ? PRECO_PRIMEIRO : PRECO_BASE), prazo: 'em até 48h' }, { ok: 'Montar mensagem' });
+    { k: 'detalhe', rot: 'Detalhe do caso (opcional, ex.: 2 autores, período de 5 anos)', ph: 'deixe vazio se não precisar', full: true },
+    CAMPO_SALVAR
+  ], { salvar: primeiro, processo: (l && l.numero_processo) || '', autor: partesDoLead(l).reclamante || '', reu: partesDoLead(l).reclamada || '', valor: (l && l.valor_orcado) || (primeiro ? PRECO_PRIMEIRO : PRECO_BASE), prazo: 'em até 48h' }, { ok: 'Montar mensagem' });
   if (!v) return;
   const valor = numBR(v.valor); if (!valor) return toast('Informe o valor');
   const entrega = v.prazo === 'data' ? (v.data ? 'até ' + dataBR(v.data) : 'em até 48h') : v.prazo;
@@ -868,7 +869,7 @@ async function orcamentoRapido() {
     .replace(/\{processo\}/g, () => [(v.processo || '').trim() ? ` nº ${v.processo.trim()}` : '', (v.autor || '').trim() && (v.reu || '').trim() ? ` – ${v.autor.trim()} x ${v.reu.trim()}` : ''].join(''))
     .replace(/\{detalhe\}/g, () => (v.detalhe || '').trim() ? ` (${v.detalhe.trim()})` : '')
     .replace(/\{primeiro\}/g, () => primeiro && valor < PRECO_BASE ? ` Esse é o valor especial do primeiro cálculo.` : '');
-  S.rascunhos[c.wa_id] = txt;
+  S.rascunhos[c.wa_id] = comSalvar(txt, v.salvar);
   S.orcPendente = { wa: c.wa_id, lead: l ? l.id : null, valor, processo: (v.processo || '').trim() || null, partes: (v.autor || '').trim() && (v.reu || '').trim() ? `${v.autor.trim()} x ${v.reu.trim()}` : null };
   render(); const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
   toast('Revise e envie: ao enviar, o lead vai para "Orçamento enviado" com R$ ' + valor.toLocaleString('pt-BR'));
@@ -893,8 +894,9 @@ async function prontoPagamento() {
     { k: 'processo', rot: 'Nº do processo', full: true },
     { k: 'autor', rot: 'Autor (reclamante)' }, { k: 'reu', rot: 'Réu (reclamada)' },
     { k: 'valor', rot: 'Valor (R$)', tipo: 'number', req: true },
-    { k: 'pagamento', rot: 'Dados para pagamento', tipo: 'textarea', full: true }
-  ], ini, { ok: 'Montar mensagem' });
+    { k: 'pagamento', rot: 'Dados para pagamento', tipo: 'textarea', full: true },
+    CAMPO_SALVAR
+  ], { ...ini, salvar: false }, { ok: 'Montar mensagem' });
   if (!v) return;
   // escolheu outro cálculo na lista: o que você não mudou vem desse cálculo
   const esc2 = v.calc && v.calc !== ini.calc ? S.calculos.find(x => x.id === v.calc) : null;
@@ -903,7 +905,7 @@ async function prontoPagamento() {
   const nome = nomeParaMensagem(c.nome), lista = listaVariacoes('pronto_pagamento'), modelo = lista[sortearVariacao('rap_pronto_pagamento', lista.length)];
   const txt = (nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome)
     .replace(/\{valor\}/g, valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })).replace(/\{pagamento\}/g, () => (v.pagamento || '').trim() || dadosPagamento());
-  S.rascunhos[c.wa_id] = comRef(txt, refProcesso((v.processo || '').trim(), (v.autor || '').trim(), (v.reu || '').trim()));
+  S.rascunhos[c.wa_id] = comSalvar(comRef(txt, refProcesso((v.processo || '').trim(), (v.autor || '').trim(), (v.reu || '').trim())), v.salvar);
   render(); const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
   toast('Revise e envie. Depois do comprovante, use "Envio após pagamento" e anexe o PDF e o .PJC.');
 }
@@ -921,8 +923,9 @@ async function envioPago() {
     { k: 'autor', rot: 'Autor (reclamante)' }, { k: 'reu', rot: 'Réu (reclamada)' },
     arqs.length ? { k: 'enviarArqs', rot: `Enviar junto os arquivos do cálculo: ${arqs.map(a => a.nome).join(', ')}`, tipo: 'checkbox', full: true }
       : { k: 'arquivos', rot: 'PDF e .PJC do cálculo (escolha os dois; ficam guardados no cálculo e vão junto na mensagem)', tipo: 'file', accept: '.pdf,.pjc,.PJC,application/pdf', full: true },
-    { k: 'pago', rot: 'Marcar o cálculo como pago hoje', tipo: 'checkbox' }, { k: 'entregue', rot: 'Marcar o cálculo como entregue hoje', tipo: 'checkbox' }
-  ], { calc: base.id, processo: base.numero_processo || '', autor: base.reclamante || '', reu: base.reclamada || '', enviarArqs: true, pago: !base.pago, entregue: base.status !== 'entregue' }, { ok: 'Montar mensagem' });
+    { k: 'pago', rot: 'Marcar o cálculo como pago hoje', tipo: 'checkbox' }, { k: 'entregue', rot: 'Marcar o cálculo como entregue hoje', tipo: 'checkbox' },
+    CAMPO_SALVAR
+  ], { salvar: false, calc: base.id, processo: base.numero_processo || '', autor: base.reclamante || '', reu: base.reclamada || '', enviarArqs: true, pago: !base.pago, entregue: base.status !== 'entregue' }, { ok: 'Montar mensagem' });
   if (!v) return;
   const calc = (v.calc && S.calculos.find(x => x.id === v.calc)) || base;
   if (calc !== base) { if (v.processo === (base.numero_processo || '')) v.processo = calc.numero_processo || ''; if (v.autor === (base.reclamante || '')) v.autor = calc.reclamante || ''; if (v.reu === (base.reclamada || '')) v.reu = calc.reclamada || ''; }
@@ -932,12 +935,45 @@ async function envioPago() {
     const enviar = (S.arqEnvio || []).length || v.enviarArqs ? (atual.arquivos || []) : [];
     const nome = nomeParaMensagem(c.nome), lista = listaVariacoes('envio_pago'), modelo = lista[sortearVariacao('rap_envio_pago', lista.length)];
     const txt = (nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome);
-    S.rascunhos[c.wa_id] = comRef(txt, refProcesso((v.processo || '').trim(), (v.autor || '').trim(), (v.reu || '').trim()));
+    S.rascunhos[c.wa_id] = comSalvar(comRef(txt, refProcesso((v.processo || '').trim(), (v.autor || '').trim(), (v.reu || '').trim())), v.salvar);
     S.envioPendente = { wa: c.wa_id, calc: calc.id, arquivos: enviar, pago: !!v.pago, entregue: !!v.entregue };
     render(); const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
     toast(enviar.length ? `Revise e envie: depois da mensagem vão ${enviar.length} arquivo(s) e o cálculo é atualizado.` : 'Revise e envie. Nenhum arquivo guardado no cálculo: anexe pelo 📎.');
   });
   S.arqEnvio = [];
+}
+// pedido para salvar o contato, acrescentado no fim da mensagem (opção nos pop-ups)
+const PEDIDOS_SALVAR = [
+  '📲 Aproveita e salva nosso contato como *Pontes Ferreira Cálculos*, assim as mensagens e os arquivos chegam certinho.',
+  '📲 Se ainda não salvou, salve nosso número como *Pontes Ferreira Cálculos*. Os links e arquivos abrem sem problema.',
+  '📲 Dica: salve este contato como *Pontes Ferreira Cálculos* para não perder nenhuma atualização do seu cálculo.',
+  '📲 Salva a gente aí como *Pontes Ferreira Cálculos* · (21) 98770-8652. Fica fácil chamar no próximo cálculo.',
+  '📲 Para receber tudo sem filtro, salve nosso contato: *Pontes Ferreira Cálculos*.'];
+const comSalvar = (txt, sim) => sim ? `${txt}\n\n${PEDIDOS_SALVAR[sortearVariacao('pedido_salvar', PEDIDOS_SALVAR.length)]}` : txt;
+const CAMPO_SALVAR = { k: 'salvar', rot: '📲 Pedir também para salvar nosso contato', tipo: 'checkbox', full: true };
+// 📅 Data de entrega: pop-up com processo, partes e a data; ao enviar, grava o prazo no cálculo
+async function dataEntrega() {
+  const c = convAtiva(); if (!c) return;
+  const l = leadDaConversa(c), todos = calcsDaConversa(c), abertos = todos.filter(x => x.status !== 'entregue'), base = abertos[0] || todos[0] || null;
+  const v = await abrirForm('📅 Informar data de entrega', [
+    ...(abertos.length > 1 ? [{ k: 'calc', rot: 'Qual cálculo', tipo: 'select', vazio: false, full: true, opcoes: abertos.map(x => [x.id, `${x.numero_processo || 'sem nº'}${x.reclamante ? ' · ' + x.reclamante : ''}`]) }] : []),
+    { k: 'processo', rot: 'Nº do processo', full: true },
+    { k: 'autor', rot: 'Autor (reclamante)' }, { k: 'reu', rot: 'Réu (reclamada)' },
+    { k: 'data', rot: 'Data de entrega', tipo: 'date', req: true },
+    ...(base ? [{ k: 'gravar', rot: 'Gravar esta data como prazo do cálculo e mudar para "Em andamento"', tipo: 'checkbox', full: true }] : []),
+    CAMPO_SALVAR
+  ], { calc: base ? base.id : '', processo: (base && base.numero_processo) || (l && l.numero_processo) || '', autor: (base && base.reclamante) || partesDoLead(l).reclamante || '', reu: (base && base.reclamada) || partesDoLead(l).reclamada || '',
+    data: (base && base.prazo_entrega) || somaDias(hoje(), 2), gravar: true, salvar: false }, { ok: 'Montar mensagem' });
+  if (!v) return;
+  if (!v.data) return toast('Escolha a data de entrega');
+  const calc = (v.calc && S.calculos.find(x => x.id === v.calc)) || base;
+  if (calc && base && calc !== base) { if (v.processo === (base.numero_processo || '')) v.processo = calc.numero_processo || ''; if (v.autor === (base.reclamante || '')) v.autor = calc.reclamante || ''; if (v.reu === (base.reclamada || '')) v.reu = calc.reclamada || ''; }
+  const nome = nomeParaMensagem(c.nome), lista = listaVariacoes('data_entrega'), modelo = lista[sortearVariacao('rap_data_entrega', lista.length)];
+  const txt = (nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome).replace(/\{prazo\}/g, () => dataBR(v.data));
+  S.rascunhos[c.wa_id] = comSalvar(comRef(txt, refProcesso((v.processo || '').trim(), (v.autor || '').trim(), (v.reu || '').trim())), v.salvar);
+  S.dataPendente = calc && v.gravar ? { wa: c.wa_id, calc: calc.id, data: v.data } : null;
+  render(); const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
+  toast(S.dataPendente ? 'Revise e envie: ao enviar, o prazo do cálculo vira ' + dataBR(v.data) : 'Revise e envie.');
 }
 async function configRespostas() {
   const chaves = RESPOSTAS_RAPIDAS.filter(([, k]) => k !== '__apresentacao__');
@@ -1130,6 +1166,11 @@ async function waEnviar(opts) {
   }
   const lista = (S.wa_mensagens[c.wa_id] = S.wa_mensagens[c.wa_id] || []);
   if (!lista.some(x => x.id === msg.id)) lista.push(msg); // o tempo real pode já ter mostrado
+  if (S.dataPendente && S.dataPendente.wa === c.wa_id && opts.texto) {
+    const d = S.dataPendente; S.dataPendente = null;
+    const cc = S.calculos.find(x => x.id === d.calc);
+    if (cc) await atualizar('calculos', cc.id, { prazo_entrega: d.data, ...(cc.status === 'recebido' ? { status: 'andamento' } : {}) }).then(() => toast('Prazo do cálculo: ' + dataBR(d.data))).catch(er => console.warn('prazo', er));
+  }
   if (S.envioPendente && S.envioPendente.wa === c.wa_id && opts.texto) { // envio após pagamento: arquivos + cálculo pago/entregue
     const e = S.envioPendente; S.envioPendente = null;
     for (const a of e.arquivos) { try { await waEnviar({ arquivo_path: a.path, arquivo_nome: a.nome }); } catch (er) { toast(`Não consegui enviar ${a.nome}: ${er.message || er}`); } }
@@ -3097,7 +3138,7 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), orcamentoRapido, prontoPagamento, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
+    novaDespesa: () => editarDespesa(null), orcamentoRapido, dataEntrega, prontoPagamento, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
     selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
