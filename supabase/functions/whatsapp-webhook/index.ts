@@ -434,19 +434,32 @@ async function processarEvolution(b: any) {
       if (!m || (ORDEM.indexOf(m.status) >= ORDEM.indexOf(novo) && novo !== 'failed')) continue; // nunca volta de "lido" para "entregue"
       await db.from('wa_mensagens').update({ status: novo }).eq('id', m.id);
     }
+    console.log(`evolution: ${ups.length} atualização(ões) de status (tiques)`);
     return;
   }
   if (ev !== 'messages.upsert') return;
   const d = b.data || {};
   const lista = Array.isArray(d) ? d : Array.isArray(d.messages) ? d.messages : [d];
-  for (const m of lista) { try { await processarMsgEvolution(m); } catch (e) { console.error('evolution msg', e); } }
+  for (const m of lista) {
+    const k = m?.key || {}, j = String(k.remoteJid || ''), tipoJid = j.split('@')[1] || '?';
+    const mask = (j.split('@')[0] || '').replace(/^(\d{4})\d+(\d{2})$/, '$1*****$2');
+    try { const r = await processarMsgEvolution(m); console.log(`evolution: msg ${k.fromMe ? 'enviada' : 'recebida'} ${mask}@${tipoJid}${k.remoteJidAlt ? ' (alt ok)' : ''} → ${r || 'gravada'}`); }
+    catch (e) { console.error('evolution msg', mask, e); }
+  }
+}
+// guarda (só para o dono ver no painel) mensagens de números fora do CRM que não tinham cara de cliente
+async function guardarForaCrm(waId: string, nome: string, texto: string, ts: number) {
+  const { data } = await db.from('ajustes').select('valor').eq('chave', 'wa_fora_crm').maybeSingle();
+  const lista = ((data?.valor?.lista) || []).filter((x: any) => x.wa_id !== waId || Date.now() - new Date(x.em).getTime() > 6 * 3600e3);
+  lista.unshift({ wa_id: waId, nome: String(nome || '').slice(0, 80), texto: String(texto || '').slice(0, 160), em: new Date(ts).toISOString() });
+  await db.from('ajustes').upsert({ chave: 'wa_fora_crm', publico: false, valor: { lista: lista.slice(0, 40) } });
 }
 async function processarMsgEvolution(m: any) {
   const k = m.key || {}, numero = numeroDoJid(k);
-  if (!numero) return;
+  if (!numero) return String(k.remoteJid || '').endsWith('@g.us') ? 'ignorada (grupo)' : String(k.remoteJid || '').endsWith('@lid') ? 'DESCARTADA (número oculto @lid sem número alternativo)' : 'ignorada (status/canal)';
   const waId = await waIdDaConversa(numero);
   const msg = m.message || {};
-  if (msg.reactionMessage || msg.protocolMessage || msg.senderKeyDistributionMessage && Object.keys(msg).length === 1) return;
+  if (msg.reactionMessage || msg.protocolMessage || msg.senderKeyDistributionMessage && Object.keys(msg).length === 1) return 'ignorada (reação/sistema)';
   let tipo = 'outro', texto = '', arquivo_nome: string | null = null, mime = '';
   const doc = msg.documentMessage || msg.documentWithCaptionMessage?.message?.documentMessage;
   if (msg.conversation || msg.extendedTextMessage) { tipo = 'text'; texto = msg.conversation || msg.extendedTextMessage?.text || ''; }
@@ -456,11 +469,12 @@ async function processarMsgEvolution(m: any) {
   else if (msg.buttonsResponseMessage || msg.listResponseMessage || msg.templateButtonReplyMessage) { tipo = 'text'; texto = msg.buttonsResponseMessage?.selectedDisplayText || msg.listResponseMessage?.title || msg.templateButtonReplyMessage?.selectedDisplayText || ''; }
   else texto = `[${m.messageType || Object.keys(msg)[0] || 'mensagem'}]`;
   const ts = Number(m.messageTimestamp || Date.now() / 1000) * 1000;
-  if (Date.now() - ts > 6 * 3600e3) return;                // histórico/antigas (mais de 6h): não importa. Folga para mensagens que chegam atrasadas depois de uma queda do servidor
+  if (Date.now() - ts > 6 * 3600e3) return 'ignorada (antiga, mais de 6h)';                // histórico/antigas (mais de 6h): não importa. Folga para mensagens que chegam atrasadas depois de uma queda do servidor
   let conhecido = await contatoConhecido(waId);
   if (!conhecido) {
     // fora do CRM: só entra se for mensagem recebida com cara de cliente (amigos e família ficam só no celular)
-    if (k.fromMe || !temIntencao(texto, tipo, arquivo_nome, m)) return;
+    if (k.fromMe) return 'ignorada (enviada por você a número fora do CRM)';
+    if (!temIntencao(texto, tipo, arquivo_nome, m)) { await guardarForaCrm(waId, m.pushName || '', texto || (arquivo_nome ? '📎 ' + arquivo_nome : ''), ts).catch(e => console.error('fora crm', e)); return 'fora do CRM (guardada na caixa 📥 do painel)'; }
     conhecido = { tipo: 'novo' };
   }
 

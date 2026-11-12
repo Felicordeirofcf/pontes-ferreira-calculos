@@ -833,6 +833,7 @@ function telaWhatsapp() {
   }
   const rb = cfgRobo();
   return `<div class="topo"><h1>WhatsApp</h1><div class="acoes">
+    <button class="btn ${foraCrm().length ? 'ouro' : 'sec'}" data-acao="abrirForaCrm" title="Mensagens de números fora do CRM (não entraram no painel sozinhas)">📥 Fora do CRM${foraCrm().length ? ` (${foraCrm().length})` : ''}</button>
     <div class="grupo-btn"><button class="btn sec" data-acao="configRespostas" title="Editar as respostas rápidas">⚡ Respostas</button><button class="btn sec" data-acao="configurarRobo" title="Atendimento automático">🤖 Robô <span class="ponto-st ${rb.ativo ? 'on' : ''}"></span></button><button class="btn sec" data-acao="testarRobo" title="Testar o robô">🧪</button></div>
     <button class="btn ouro" data-acao="novaConversa">+ Nova conversa</button></div></div>
   ${EVOLUTION() ? faixaConexao() : DEMO ? '' : (CFG.WA_ATIVO ? '' : '<div class="demo">O WhatsApp ainda não está conectado à API oficial. Veja o passo 5 do <b>COMO_ATIVAR.md</b>. Até lá, use o botão "Abrir no app ↗".</div>')}
@@ -1029,6 +1030,33 @@ async function cobrancaRapida() {
   render(); const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
   toast('Revise e envie. Quando o pagamento cair, use 📦 Envio após pagamento (ou marque como pago no cálculo).');
 }
+// 📥 Mensagens de números fora do CRM que o webhook guardou (não viraram conversa automaticamente)
+const foraCrm = () => ((S.ajustes.wa_fora_crm || {}).lista || []).filter(x => !S.wa_conversas.some(c => digitos(c.wa_id).slice(-8) === digitos(x.wa_id).slice(-8)));
+async function recarregarForaCrm() { if (DEMO) return; const { data } = await sb.from('ajustes').select('valor').eq('chave', 'wa_fora_crm').maybeSingle(); S.ajustes.wa_fora_crm = data?.valor || {}; }
+async function abrirForaCrm() {
+  await recarregarForaCrm().catch(() => { });
+  const lista = foraCrm();
+  const fundo = document.createElement('div'); fundo.className = 'modal-fundo';
+  const desenhar = () => { const l = foraCrm(); fundo.innerHTML = `<div class="modal"><h2>📥 Mensagens de números fora do CRM</h2>
+    <p class="desc">Números que não são lead, cliente nem contato da prospecção e escreveram algo sem palavra de trabalho (ex.: "boa tarde"). Por isso não entraram no painel sozinhos. Se for cliente, traga para o painel; se for pessoal, ignore.</p>
+    ${l.length ? `<div class="tabela"><table><tr><th>Contato</th><th>Mensagem</th><th>Quando</th><th></th></tr>${l.map(x => `<tr><td><b>${esc(x.nome || fmtTel(x.wa_id))}</b><div class="desc">${esc(fmtTel(x.wa_id))}</div></td><td>${esc(x.texto || '—')}</td><td style="white-space:nowrap">${esc(new Date(x.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}</td>
+      <td style="white-space:nowrap"><button class="btn mini ouro" data-trazer="${esc(x.wa_id)}">Trazer para o painel</button> <button class="btn mini sec" data-ignorar="${esc(x.wa_id)}">Ignorar</button></td></tr>`).join('')}</table></div>` : '<div class="vazio">Nenhuma mensagem fora do CRM. 🎉</div>'}
+    <div class="rodape"><button class="btn sec" id="foraFechar">Fechar</button></div></div>`;
+    $('#foraFechar', fundo).onclick = () => { fundo.remove(); render(); };
+    fundo.querySelectorAll('[data-trazer]').forEach(b => b.onclick = () => seguro(async () => {
+      const x = foraCrm().find(y => y.wa_id === b.dataset.trazer); if (!x) return;
+      let c = S.wa_conversas.find(y => y.wa_id === x.wa_id);
+      if (!c) c = await criar('wa_conversas', { wa_id: x.wa_id, nome: x.nome || fmtTel(x.wa_id), nao_lidas: 1, ultima_msg: x.texto, ultima_msg_em: x.em, ultima_entrada_em: x.em });
+      if (x.texto) { const m = await db.insert('wa_mensagens', { wa_id: x.wa_id, direcao: 'in', tipo: 'text', texto: x.texto, status: 'received', created_at: x.em }).catch(() => null); if (m) (S.wa_mensagens[x.wa_id] = S.wa_mensagens[x.wa_id] || []).push(m); }
+      await removerForaCrm(x.wa_id); toast(`${x.nome || fmtTel(x.wa_id)} agora está no painel: as próximas mensagens entram sozinhas`); desenhar();
+    }));
+    fundo.querySelectorAll('[data-ignorar]').forEach(b => b.onclick = () => seguro(async () => { await removerForaCrm(b.dataset.ignorar); desenhar(); }));
+  };
+  document.body.appendChild(fundo); desenhar();
+}
+// a cada 2 min, na aba WhatsApp, confere se chegou mensagem nova de fora do CRM
+setInterval(() => { if (!DEMO && typeof rota === 'function' && rota() === 'whatsapp' && !document.hidden) { const antes = foraCrm().length; recarregarForaCrm().then(() => { if (foraCrm().length !== antes && !document.querySelector('.modal-fundo')) render(); }).catch(() => { }); } }, 120000);
+async function removerForaCrm(waId) { const v = { lista: ((S.ajustes.wa_fora_crm || {}).lista || []).filter(x => x.wa_id !== waId) }; await ajustesDb.salvar('wa_fora_crm', v); S.ajustes.wa_fora_crm = v; }
 async function configRespostas() {
   const chaves = RESPOSTAS_RAPIDAS.filter(([, k]) => k !== '__apresentacao__');
   const v = await abrirForm('⚙ Respostas rápidas (variações)', [
@@ -3391,7 +3419,7 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
+    novaDespesa: () => editarDespesa(null), abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
     selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
