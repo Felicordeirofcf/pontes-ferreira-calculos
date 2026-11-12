@@ -977,10 +977,20 @@ async function novaConversa() {
     abrirConversa(wa);
   });
 }
+// Nome usado nas respostas rápidas: só nome de pessoa. Nome de escritório/empresa ("Especialistas em Direito…",
+// "Saraiva e Almeida Advogados", "Dra. Ingrid | Advogada") não entra, e a mensagem sai sem nome ("Olá!").
+function nomeParaMensagem(n) {
+  let t = String(n || '').split(/[|(\-–,]/)[0].replace(/^(dra?\.?|dr\.?|doutora?)\s+/i, '').trim();
+  if (!t || /advoga|advocacia|escrit[oó]rio|sociedade|associad|consultori|jur[ií]dic|direito|especialist|c[aá]lculo|empresa|ltda|\bme\b|eireli|&|\d|@/i.test(t)) return '';
+  const p = t.split(/\s+/); if (p.length > 3) return '';
+  return (p[1] && !/^(d[aeo]s?|em|e)$/i.test(p[1]) ? p.slice(0, 2) : p.slice(0, 1)).join(' ');
+}
+// sem nome: "Olá, {nome}!" → "Olá!", "Perfeito, {nome}, obrigado!" → "Perfeito, obrigado!"
+const tirarNome = t => t.replace(/,\s*\{nome\}/g, '').replace(/\{nome\},?\s*/g, '');
 function preencherRapida(i) {
   const c = convAtiva(), l = leadDaConversa(c);
   const calc = l ? S.calculos.filter(x => x.lead_id === l.id || (l.cliente_id && x.cliente_id === l.cliente_id)).sort((a, b) => (b.data_entrada || '').localeCompare(a.data_entrada || ''))[0] : null;
-  const nome = ((c && c.nome) || '').split(' ').slice(0, 2).join(' ');
+  const nome = nomeParaMensagem(c && c.nome);
   const chave = RESPOSTAS_RAPIDAS[i][1];
   S.ultRapida = { wa: c.wa_id, i };
   if (chave === '__apresentacao__') {
@@ -990,7 +1000,7 @@ function preencherRapida(i) {
     return;
   }
   const lista = listaVariacoes(chave), modelo = lista[sortearVariacao('rap_' + chave, lista.length)];
-  const txt = modelo.replace(/\{nome\}/g, () => nome).replace(/\{valor\}/g, ((calc && calc.valor_cobrado) || (l && l.valor_orcado) || 250).toLocaleString('pt-BR', { minimumFractionDigits: 2 }))
+  const txt = (nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome).replace(/\{valor\}/g, ((calc && calc.valor_cobrado) || (l && l.valor_orcado) || 250).toLocaleString('pt-BR', { minimumFractionDigits: 2 }))
     .replace(/\{prazo\}/g, calc && calc.prazo_entrega ? dataBR(calc.prazo_entrega) : 'em até 48h');
   S.rascunhos[c.wa_id] = txt; render();
   const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
