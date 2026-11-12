@@ -1,3 +1,38 @@
+// Consentimento de cookies (LGPD) + Modo de Consentimento v2 do Google.
+// Antes do "Aceitar", Google Ads/Analytics funcionam sem cookies (medição anônima) e Meta Pixel/Clarity ficam desligados.
+(function () {
+  window.dataLayer = window.dataLayer || [];
+  window.gtag = window.gtag || function () { dataLayer.push(arguments); };
+  const ls = { get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { } } };
+  const escolha = ls.get('pf_cookies'); // 'sim' | 'nao' | null
+  const v = escolha === 'sim' ? 'granted' : 'denied';
+  gtag('consent', 'default', { ad_storage: v, ad_user_data: v, ad_personalization: v, analytics_storage: v, wait_for_update: 500 });
+  gtag('set', 'ads_data_redaction', escolha !== 'sim');
+  gtag('set', 'url_passthrough', true);
+  window.PF_CONSENTIU = () => ls.get('pf_cookies') === 'sim';
+  if (escolha || /^\/(painel|cliente)\//.test(location.pathname)) return;
+  const mostrar = () => {
+    const b = document.createElement('div');
+    b.id = 'pfCookies'; b.setAttribute('role', 'dialog'); b.setAttribute('aria-label', 'Aviso de cookies');
+    b.style.cssText = 'position:fixed;left:12px;right:84px;bottom:12px;max-width:560px;z-index:9998;background:#0b1a3d;color:#fff;border:1px solid rgba(226,177,60,.45);border-radius:14px;padding:14px 16px;box-shadow:0 12px 34px rgba(0,0,0,.35);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif';
+    b.innerHTML = 'Usamos cookies para medir nossos anúncios e melhorar o site. Os dados do seu processo nunca são usados para isso. <a href="/privacidade.html" style="color:#fbe7a1">Política de Privacidade</a>' +
+      '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button type="button" data-c="sim" style="background:linear-gradient(135deg,#fbe7a1,#e2b13c 45%,#b07a12);color:#1b1203;border:0;border-radius:9px;padding:8px 16px;font-weight:700;cursor:pointer">Aceitar</button>' +
+      '<button type="button" data-c="nao" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:9px;padding:8px 16px;cursor:pointer">Recusar</button></div>';
+    b.addEventListener('click', e => {
+      const c = e.target.getAttribute && e.target.getAttribute('data-c'); if (!c) return;
+      ls.set('pf_cookies', c); b.remove();
+      if (c === 'sim') {
+        gtag('consent', 'update', { ad_storage: 'granted', ad_user_data: 'granted', ad_personalization: 'granted', analytics_storage: 'granted' });
+        gtag('set', 'ads_data_redaction', false);
+        if (window.fbq) fbq('consent', 'grant');
+        window.dispatchEvent(new Event('pf-consentiu'));
+      }
+    });
+    document.body.appendChild(b);
+  };
+  if (document.body) mostrar(); else document.addEventListener('DOMContentLoaded', mostrar);
+})();
+
 // Monitoramento próprio do site (vai para o painel > Mapa do Brasil).
 // Registra visitas, cliques, WhatsApp, pedidos e rolagem, com estado/cidade aproximados.
 // Anônimo: sem IP, sem cookies; uma sessão = uma aba aberta.
@@ -59,6 +94,7 @@
         if (r.meta_pixel_id && !window.fbq) {
           const n = window.fbq = function () { n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments); }; window._fbq = n; n.push = n; n.loaded = true; n.version = '2.0'; n.queue = [];
           const sc = document.createElement('script'); sc.async = true; sc.src = 'https://connect.facebook.net/en_US/fbevents.js'; document.head.appendChild(sc);
+          fbq('consent', window.PF_CONSENTIU() ? 'grant' : 'revoke'); // só usa cookies do Meta depois do "Aceitar"
           fbq('init', r.meta_pixel_id); fbq('track', 'PageView');
         }
         return r;

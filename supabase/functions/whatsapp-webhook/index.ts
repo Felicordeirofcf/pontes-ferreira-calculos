@@ -171,6 +171,10 @@ async function atendimentoAutomatico(conv: any, m: any, tipo: string, texto: str
   if (conv.cliente_id && !cfg.responder_clientes) return;
   // você já conversou com esse contato nos últimos 7 dias: o robô não volta a dar boas-vindas no meio da negociação
   if (conv.bot_etapa === 'humano' && conv.humano_ate && Date.now() - new Date(conv.humano_ate).getTime() < 7 * 86400e3) return;
+  // duas mensagens chegando juntas ("Oi" + "tudo bem?"): só a primeira aciona o robô (evita resposta dobrada)
+  const { data: vez } = await db.from('wa_conversas').update({ bot_atualizado_em: new Date().toISOString() })
+    .eq('wa_id', conv.wa_id).or(`bot_atualizado_em.is.null,bot_atualizado_em.lt.${new Date(Date.now() - 3000).toISOString()}`).select('id');
+  if (!vez?.length) return;
   // a conversa recomeça do menu depois de 12h parada
   const parada = !conv.bot_atualizado_em || Date.now() - new Date(conv.bot_atualizado_em).getTime() > 12 * 3600e3;
   const etapa = parada || conv.bot_etapa === 'humano' ? null : conv.bot_etapa;
@@ -317,9 +321,11 @@ async function gravarEntrada(conv: any, waId: string, nome: string, m: any, x: a
 
   const resumo = tipo === 'text' ? texto : `📎 ${arquivo_nome || tipo}${texto ? ' · ' + texto : ''}`;
   await db.from('wa_conversas').update({
-    ultima_msg: resumo.slice(0, 200), ultima_msg_em: new Date().toISOString(), ultima_entrada_em: new Date().toISOString(),
-    nao_lidas: (conv.nao_lidas || 0) + 1, nome: conv.nome || nome
+    ultima_msg: resumo.slice(0, 200), ultima_msg_em: new Date().toISOString(), ultima_entrada_em: new Date().toISOString(), nome: conv.nome || nome
   }).eq('wa_id', waId);
+  // +1 não lida direto no banco (duas mensagens no mesmo segundo contam 2); sem a função no banco, usa o jeito antigo
+  const { error: eNl } = await db.rpc('wa_mais_uma_nao_lida', { p_wa_id: waId });
+  if (eNl) await db.from('wa_conversas').update({ nao_lidas: (conv.nao_lidas || 0) + 1 }).eq('wa_id', waId);
 
   // PDF recebido vira o processo do lead (se o lead ainda não tiver um)
   if (conv.lead_id && arquivo_path && /\.pdf$/i.test(arquivo_nome || '')) {
@@ -406,6 +412,19 @@ async function processarEvolution(b: any) {
   const ev = String(b.event || '').toLowerCase().replace(/[_-]/g, '.');
   if (ev === 'connection.update') {
     await db.from('ajustes').upsert({ chave: 'whatsapp_status', publico: false, valor: { state: b.data?.state || null, numero: b.sender ? digitos(b.sender) : null, atualizado: new Date().toISOString() } });
+    return;
+  }
+  if (ev === 'messages.update') { // tiques: enviado → entregue → lido
+    const ups = Array.isArray(b.data) ? b.data : [b.data || {}];
+    const MAPA: Record<string, string> = { SERVER_ACK: 'sent', DELIVERY_ACK: 'delivered', READ: 'read', PLAYED: 'read', ERROR: 'failed' };
+    const ORDEM = ['sent', 'delivered', 'read'];
+    for (const u of ups) {
+      const id = u?.keyId || u?.key?.id, novo = MAPA[String(u?.status || '').toUpperCase()];
+      if (!id || !novo || u?.fromMe === false) continue;
+      const { data: m } = await db.from('wa_mensagens').select('id,status').eq('wamid', id).maybeSingle();
+      if (!m || (ORDEM.indexOf(m.status) >= ORDEM.indexOf(novo) && novo !== 'failed')) continue; // nunca volta de "lido" para "entregue"
+      await db.from('wa_mensagens').update({ status: novo }).eq('id', m.id);
+    }
     return;
   }
   if (ev !== 'messages.upsert') return;

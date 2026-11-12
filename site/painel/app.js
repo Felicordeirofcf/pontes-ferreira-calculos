@@ -1009,6 +1009,10 @@ async function waEnviar(opts) {
   }
   const lista = (S.wa_mensagens[c.wa_id] = S.wa_mensagens[c.wa_id] || []);
   if (!lista.some(x => x.id === msg.id)) lista.push(msg); // o tempo real pode já ter mostrado
+  if (S.prospPendente && digitos(c.wa_id).slice(-8) === S.prospPendente.chave) { // abordagem de prospecção enviada: agora conta
+    const pr = S.prospects.find(x => x.id === S.prospPendente.id); S.prospPendente = null;
+    if (pr) await marcarContatado(pr).catch(e => console.warn('prospecção', e));
+  }
   const resumo = msg.tipo === 'document' ? `📎 ${msg.arquivo_nome}` : msg.texto;
   await atualizar('wa_conversas', c.id, { ultima_msg: (resumo || '').slice(0, 200), ultima_msg_em: msg.created_at, nao_lidas: 0, humano_ate: new Date(Date.now() + (Number(cfgRobo().pausa_horas) || 12) * 36e5).toISOString(), bot_etapa: 'humano' });
   if (l) {
@@ -1427,10 +1431,22 @@ function celTelefone(p) {
 }
 /* envia direto da lista, com a mensagem da etapa, e registra a abordagem */
 async function registrarAbordagem(p, canal, txt) {
-  const c = cfgProsp(), agora = new Date().toISOString();
-  if (canal === 'wa') { if (painelWaOk()) abrirNoPainel(p.whatsapp, p.nome, txt); else window.open(waLink(p.whatsapp, txt), ALVO_WA); }
+  const c = cfgProsp();
+  if (canal === 'wa') {
+    if (painelWaOk()) { // pelo WhatsApp do painel: só conta quando a mensagem for enviada de fato (waEnviar)
+      abrirNoPainel(p.whatsapp, p.nome, txt);
+      if (contatavel(p)) { S.prospPendente = { id: p.id, chave: digitos(p.whatsapp).slice(-8) }; toast('Revise e envie a mensagem: o contato é registrado quando ela sair.'); }
+      return;
+    }
+    window.open(waLink(p.whatsapp, txt), ALVO_WA);
+  }
   else window.open(`mailto:${encodeURIComponent(p.email)}?subject=${encodeURIComponent(c.textos.email_assunto)}&body=${encodeURIComponent(txt.replace(/\*/g, ''))}`, '_blank');
+  await marcarContatado(p);
+}
+// conta a tentativa de prospecção (1º contato, lembrete, último) e agenda o próximo retorno
+async function marcarContatado(p) {
   if (!contatavel(p)) return;
+  const c = cfgProsp(), agora = new Date().toISOString();
   const t = (p.tentativas || 0) + 1, prox = t >= c.max_tentativas ? null : somaDias(hoje(), t === 1 ? c.dias_follow1 : c.dias_follow2 - c.dias_follow1);
   await atualizar('prospects', p.id, { status: 'contatado', tentativas: t, ultimo_contato: agora, proximo_contato: prox });
   toast(`${ROT_ETAPA[t === 1 ? 'primeiro' : t === 2 ? 'follow1' : 'follow2']} registrado · ${prox ? 'retorno em ' + dataBR(prox) : 'última tentativa'}`);
@@ -1478,7 +1494,9 @@ function proximoDaFila(depoisDe) {
   if (contatadosHoje() >= cfgProsp().meta_dia) toast(`Meta do dia batida (${contatadosHoje()}). Pode continuar, mas com moderação.`);
   abrirAbordagem(fila[0].id);
 }
+let abordando = false;
 async function acaoAbordagem(a) {
+  if (abordando) return; abordando = true; setTimeout(() => { abordando = false; }, 1500); // clique duplo não conta duas tentativas
   const p = S.prospects.find(x => x.id === abordagemId); if (!p) return;
   const c = cfgProsp(), txt = ($('#abTexto')?.value || '').trim(), agora = new Date().toISOString();
   await seguro(async () => {
@@ -1714,7 +1732,8 @@ function baixarArquivo(nome, conteudo, tipo = 'text/csv;charset=utf-8') {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + conteudo], { type: tipo })); a.download = nome; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
-const csv = linhas => linhas.map(l => l.map(v => { const s = String(v ?? ''); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(',')).join('\n');
+// células que começam com = + - @ viram texto (evita fórmula maliciosa ao abrir no Excel/Planilhas)
+const csv = linhas => linhas.map(l => l.map(v => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+([.,]\d+)?$/.test(s)) s = "'" + s; return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(',')).join('\n');
 
 /* números da área de tráfego */
 const ehAds = l => ['Google Ads', 'Meta Ads'].includes(canalLead(l));
@@ -2665,6 +2684,7 @@ function tempoReal() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, p => {
       if (p.eventType === 'INSERT' && !S.leads.some(l => l.id === p.new.id)) { S.leads.unshift(p.new); avisar('Novo lead', `${p.new.nome || ''} · ${p.new.tipo || p.new.origem || ''}`); }
       else if (p.eventType === 'UPDATE') upsert(S.leads, p.new);
+      else if (p.eventType === 'DELETE' && p.old?.id) S.leads = S.leads.filter(l => l.id !== p.old.id); // excluído em outra aba/aparelho
       if (!document.querySelector('.modal-fundo:not(#ficha)')) render();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'wa_conversas' }, p => {

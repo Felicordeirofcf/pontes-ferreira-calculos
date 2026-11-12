@@ -377,3 +377,12 @@ create policy site_registra_evento on eventos for insert to anon, authenticated 
   and coalesce(length(utm_term), 0) <= 120 and coalesce(length(utm_content), 0) <= 120
 );
 
+
+-- 4) WhatsApp: conta +1 mensagem não lida direto no banco (duas mensagens no mesmo segundo contam as duas).
+--    Só a função do servidor (service_role) pode chamar.
+create or replace function wa_mais_uma_nao_lida(p_wa_id text) returns void
+language sql security definer set search_path = public as $$
+  update wa_conversas set nao_lidas = coalesce(nao_lidas, 0) + 1 where wa_id = p_wa_id;
+$$;
+revoke all on function wa_mais_uma_nao_lida(text) from public, anon, authenticated;
+grant execute on function wa_mais_uma_nao_lida(text) to service_role;

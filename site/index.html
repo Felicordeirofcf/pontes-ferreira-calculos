@@ -147,7 +147,9 @@
 <meta name="theme-color" content="#060f26">
 <meta property="og:image" content="https://pontesferreiracalculos.com/img/og.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'"><noscript><link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet"></noscript>
+<script type="application/ld+json">[{"@context": "https://schema.org", "@type": "ProfessionalService", "name": "Pontes Ferreira Cálculos Judiciais", "url": "https://pontesferreiracalculos.com/", "image": "https://pontesferreiracalculos.com/img/og.png", "logo": "https://pontesferreiracalculos.com/img/marca.svg", "telephone": "+55-21-98770-8652", "priceRange": "A partir de R$ 250", "areaServed": {"@type": "Country", "name": "Brasil"}, "address": {"@type": "PostalAddress", "addressRegion": "RJ", "addressCountry": "BR"}, "description": "Cálculos trabalhistas no PJe-Calc para advogados: liquidação de sentença, impugnação de cálculos, cálculo da petição inicial e atualização. Entrega em até 48h.", "taxID": "51.362.258/0001-79", "openingHoursSpecification": {"@type": "OpeningHoursSpecification", "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"], "opens": "08:00", "closes": "19:00"}}, {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Vocês atendem processos de qualquer TRT?", "acceptedAnswer": {"@type": "Answer", "text": "Sim. O PJe-Calc é o mesmo em todos os regionais; ajustamos índices e particularidades de cada tribunal."}}, {"@type": "Question", "name": "Atendem reclamante e reclamada?", "acceptedAnswer": {"@type": "Answer", "text": "Sim. Fazemos a conta da parte que você representa e a impugnação da conta contrária."}}, {"@type": "Question", "name": "Como envio o processo?", "acceptedAnswer": {"@type": "Answer", "text": "Basta informar o número do processo no formulário do topo: nós puxamos os autos no PJe. Fichas financeiras e cartões de ponto que estiverem nos autos já entram no cálculo."}}, {"@type": "Question", "name": "E se o processo estiver em segredo de justiça?", "acceptedAnswer": {"@type": "Answer", "text": "Nesse caso não conseguimos acessar pelo número. Chame a gente no WhatsApp que combinamos como receber os autos."}}, {"@type": "Question", "name": "Quanto custa?", "acceptedAnswer": {"@type": "Answer", "text": "A partir de R$ 250 por cálculo de um autor. Processos com mais de um autor (litisconsórcio, ação plúrima ou substituição processual) e casos complexos, como períodos longos, muitas verbas ou ponto e fichas extensos a transcrever, têm valor sob consulta: chame a gente no WhatsApp. Você sempre recebe o preço fechado antes de começarmos."}}, {"@type": "Question", "name": "E se o juiz mandar retificar?", "acceptedAnswer": {"@type": "Answer", "text": "A primeira retificação decorrente do próprio cálculo é sem custo."}}, {"@type": "Question", "name": "Como é o sigilo dos dados?", "acceptedAnswer": {"@type": "Answer", "text": "Os arquivos são usados só para o cálculo e tratados conforme a LGPD. Podemos assinar termo de confidencialidade."}}]}]</script>
+
 <link rel="stylesheet" href="/marca.css">
 </head>
 <body>
@@ -405,11 +407,13 @@
       n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
       t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
       document,'script','https://connect.facebook.net/en_US/fbevents.js');
+      fbq('consent', (window.PF_CONSENTIU && PF_CONSENTIU()) ? 'grant' : 'revoke'); // cookies do Meta só depois do "Aceitar"
       fbq('init', r.meta_pixel_id);
       fbq('track', 'PageView');
     }
     if(r.clarity_id){ // Microsoft Clarity: mapa de calor e gravação de sessões
-      (function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);})(window,document,"clarity","script",r.clarity_id);
+      const clarity = () => (function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);})(window,document,"clarity","script",r.clarity_id);
+      if(window.PF_CONSENTIU && PF_CONSENTIU()) clarity(); else addEventListener('pf-consentiu', clarity, { once:true }); // gravação de sessão só com consentimento
     }
   }
   const rastreioPronto = (async () => {

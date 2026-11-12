@@ -28,11 +28,13 @@ async function estado() {
   if (r.status === 404) return 'inexistente';
   return r.dados?.instance?.state || r.dados?.state || (r.ok ? 'desconhecido' : 'erro');
 }
+// MESSAGES_UPDATE traz os tiques de entregue/lido das mensagens enviadas
+const EVENTOS_WEBHOOK = ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE'];
 async function configurarWebhook() {
   const chave = Deno.env.get('EVOLUTION_WEBHOOK_KEY');
   if (!chave) throw new Error('Crie o secret EVOLUTION_WEBHOOK_KEY no Supabase.');
   const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/whatsapp-webhook?k=${encodeURIComponent(chave)}`;
-  const r = await evo('POST', `/webhook/set/${INST}`, { webhook: { enabled: true, url, byEvents: false, base64: true, events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'] } });
+  const r = await evo('POST', `/webhook/set/${INST}`, { webhook: { enabled: true, url, byEvents: false, base64: true, events: EVENTOS_WEBHOOK } });
   if (!r.ok) throw new Error('Falha ao configurar o webhook: ' + JSON.stringify(r.dados).slice(0, 200));
 }
 
@@ -55,6 +57,12 @@ Deno.serve(async req => {
         const i = Array.isArray(r.dados) ? r.dados[0] : r.dados;
         numero = String(i?.ownerJid || i?.owner || i?.instance?.owner || '').split('@')[0] || null;
         nome = i?.profileName || i?.instance?.profileName || null;
+        // webhook antigo (sem os tiques) ou desligado: corrige sozinho
+        try {
+          const w = await evo('GET', `/webhook/find/${INST}`);
+          const ev = (w.dados?.events || []).map((x: string) => String(x).toUpperCase());
+          if (!w.dados?.enabled || EVENTOS_WEBHOOK.some(e => !ev.includes(e))) await configurarWebhook();
+        } catch (e) { console.warn('webhook', e); }
       }
       return resp({ estado: st, numero, nome, instancia: INST });
     }

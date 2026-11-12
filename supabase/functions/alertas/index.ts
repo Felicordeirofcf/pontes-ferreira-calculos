@@ -83,15 +83,22 @@ async function semanal() {
 
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  let teste = false;
   try {
     const b = await req.json().catch(() => ({}));
     const tipo = b.tipo === 'semanal' ? 'semanal' : 'diario';
     // teste manual: só o dono logado no painel pode forçar o envio
-    let teste = false;
     if (b.teste && req.headers.get('Authorization')) {
       const u = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: req.headers.get('Authorization')! } } });
       const { data } = await u.rpc('is_dono'); teste = data === true;
       if (!teste) return resp({ erro: 'nao_autorizado' }, 401);
+    }
+    // chamada automática (sem login): só vale no horário do agendamento (8h de Brasília = 11h UTC) e, o semanal, só na segunda.
+    // Assim, quem descobrir o endereço não consegue disparar e-mails nem "gastar" o envio da semana.
+    if (!teste) {
+      const agora = new Date(), min = agora.getUTCHours() * 60 + agora.getUTCMinutes();
+      const segundaSP = new Date(agora.getTime() - 3 * 3600e3).getUTCDay() === 1;
+      if (min < 10 * 60 + 50 || min > 12 * 60 + 30 || (tipo === 'semanal' && !segundaSP)) return resp({ ok: true, pulado: 'fora_do_horario' });
     }
     const marca = tipo === 'diario' ? diaSP() : `${diaSP().slice(0, 4)}-s${Math.ceil((new Date(diaSP() + 'T12:00:00Z').getTime() - Date.UTC(new Date().getUTCFullYear(), 0, 1)) / 864e5 / 7)}`;
     const { data: logRow } = await db.from('ajustes').select('valor').eq('chave', 'alertas').maybeSingle();
@@ -110,6 +117,6 @@ Deno.serve(async req => {
     return resp({ ok: true, enviado: tipo });
   } catch (e) {
     console.error(e);
-    return resp({ erro: 'interno', mensagem: (e as Error).message }, 500);
+    return resp({ erro: 'interno', ...(teste ? { mensagem: (e as Error).message } : {}) }, 500); // detalhe só para o dono (teste do painel)
   }
 });
