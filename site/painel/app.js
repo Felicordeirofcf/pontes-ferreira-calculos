@@ -1399,18 +1399,7 @@ function telaProspeccao() {
     ${kpi('Viraram clientes', cont('cliente'), `${cont('interessado')} interessados`)}
   </div>
   <div class="grade">
-    <div class="card larga"><h2>Encontrar advogados e escritórios</h2><div class="desc">Pesquise, abra os resultados e adicione com <b>+ Contato</b>, ou junte vários numa planilha e use <b>📋 Colar lista</b>. Use só contatos profissionais públicos (site, Google Maps, perfil comercial).</div>
-      <div class="form-trafego linha" style="margin-top:10px">
-        <input class="f" data-busca-prosp="termo" value="${esc(termo)}" placeholder="advogado trabalhista" style="flex:1;min-width:180px">
-        <input class="f" data-busca-prosp="cidade" value="${esc(cidade)}" placeholder="cidade (ex.: Niterói)" style="flex:1;min-width:160px"></div>
-      <div class="linha" style="margin-top:10px">
-        ${busca(`https://www.google.com/maps/search/${qBusca}`, '📍 Google Maps')}
-        ${busca(`https://www.google.com/search?q=${qBusca}+whatsapp`, '🔎 Google')}
-        ${busca(`https://www.google.com/search?q=site%3Ainstagram.com+${qBusca}`, '📸 Instagram')}
-        ${busca(`https://www.google.com/search?q=site%3Alinkedin.com%2Fin+${qBusca}`, '💼 LinkedIn')}
-        ${busca(`https://www.google.com/search?q=site%3Ajusbrasil.com.br+${qBusca}`, '⚖ Jusbrasil')}
-        ${busca('https://cna.oab.org.br/', '🪪 Conferir OAB (CNA)')}
-        ${busca('https://pontesferreiracalculos.com/', '👁 Ver site')}</div></div>
+    ${cardBuscaAuto(termo, cidade, qBusca, busca)}
     <div class="card larga"><div class="linha" style="justify-content:space-between"><h2>Lista</h2>
       <div class="linha"><input class="f" id="buscaProsp" placeholder="Buscar…" value="${esc(f.q || '')}">
       <select class="f" id="fProsp"><option value="">Todos os status</option>${Object.entries(STATUS_PROSP).map(([k, v]) => `<option value="${k}" ${k === f.status ? 'selected' : ''}>${v} (${cont(k)})</option>`).join('')}</select></div></div>
@@ -1543,6 +1532,101 @@ function duplicado(p, ignorar) {
   const [w, e, n] = chaveDup(p);
   return S.prospects.find(x => x.id !== ignorar && ((w && digitos(x.whatsapp).slice(-9) === w) || (e && (x.email || '').toLowerCase() === e) || `${(x.nome || '').toLowerCase().trim()}|${(x.cidade || '').toLowerCase().trim()}` === n));
 }
+/* ---------------- Prospecção: busca automática (Google Maps / Places API) ---------------- */
+const TERMOS_PROSP = ['advogado trabalhista', 'escritório de advocacia trabalhista', 'advocacia trabalhista', 'advogada trabalhista', 'sociedade de advogados', 'advogado previdenciário', 'advocacia empresarial'];
+const CIDADES_PROSP = ['Rio de Janeiro', 'Niterói', 'São Gonçalo', 'Duque de Caxias', 'Nova Iguaçu', 'Campos dos Goytacazes', 'Petrópolis', 'Volta Redonda', 'Macaé', 'São Paulo', 'Campinas', 'Santos', 'Belo Horizonte', 'Vitória', 'Curitiba', 'Porto Alegre', 'Salvador', 'Recife', 'Fortaleza', 'Brasília', 'Goiânia', 'Florianópolis', 'Belém', 'Manaus'];
+// "21 99606-5441" → celular (WhatsApp); "21 2222-3333" → fixo
+const urlExt = u => /^https?:\/\//i.test(u) ? u : 'https://' + u;
+function tipoTel(t) { let d = digitos(t); if (d.startsWith('55') && d.length >= 12) d = d.slice(2); return !d ? 'sem' : d.length === 11 && d[2] === '9' ? 'celular' : 'fixo'; }
+function cardBuscaAuto(termo, cidade, qBusca, busca) {
+  const A = S.achados || {}, porCidade = {};
+  S.prospects.forEach(p => { const c = (p.cidade || '').split('/')[0].trim(); if (c) porCidade[c] = (porCidade[c] || 0) + 1; });
+  const naoBuscadas = CIDADES_PROSP.filter(c => !porCidade[c]).slice(0, 8);
+  const lugares = A.lugares || [], sel = A.sel || new Set();
+  const novos = lugares.filter(l => !l.ja), celNovos = novos.filter(l => tipoTel(l.telefone) === 'celular');
+  const linha = l => {
+    const t = tipoTel(l.telefone);
+    return `<tr style="${l.ja ? 'opacity:.5' : ''}"><td><input type="checkbox" data-achado="${esc(l.id)}" ${sel.has(l.id) ? 'checked' : ''} ${l.ja ? 'disabled' : ''}></td>
+      <td><b>${esc(l.nome)}</b>${l.tipo ? `<div class="desc">${esc(l.tipo)}</div>` : ''}</td><td>${esc(l.cidade)}</td>
+      <td style="white-space:nowrap">${l.telefone ? esc(l.telefone) : '—'} ${t === 'celular' ? '<span class="tag t-good" title="Celular: dá para chamar no WhatsApp">📱 WhatsApp</span>' : t === 'fixo' ? '<span class="tag t-neutro" title="Fixo: ligar ou procurar o WhatsApp no site">☎ fixo</span>' : ''}</td>
+      <td>${l.nota ? `★ ${String(l.nota).replace('.', ',')} <span class="desc">(${l.avaliacoes})</span>` : '<span class="desc">sem nota</span>'}</td>
+      <td style="white-space:nowrap">${l.site ? `<a class="btn mini sec" target="_blank" rel="noopener" href="${esc(urlExt(l.site))}">🌐</a>` : ''}${l.maps ? ` <a class="btn mini sec" target="_blank" rel="noopener" href="${esc(urlExt(l.maps))}">📍</a>` : ''}</td>
+      <td>${l.ja ? '<span class="tag t-neutro">já na lista</span>' : ''}</td></tr>`;
+  };
+  return `<div class="card larga"><h2>🔍 Encontrar advogados e escritórios</h2>
+    <div class="desc">Digite a cidade e clique em <b>Buscar</b>: o painel traz os escritórios do Google Maps com telefone, site e nota. Marque quem quer abordar e adicione com um clique. Só dados públicos de empresas.</div>
+    <div class="form-trafego linha" style="margin-top:10px;flex-wrap:wrap">
+      <input class="f" data-busca-prosp="termo" value="${esc(termo)}" placeholder="advogado trabalhista" list="termosProsp" style="flex:1;min-width:200px">
+      <input class="f" data-busca-prosp="cidade" value="${esc(cidade)}" placeholder="cidade (ex.: Niterói)" list="cidadesProsp" style="flex:1;min-width:180px">
+      <button class="btn" data-acao="buscarAuto" ${A.carregando ? 'disabled' : ''}>${A.carregando ? 'Buscando…' : '🔍 Buscar'}</button></div>
+    <datalist id="termosProsp">${TERMOS_PROSP.map(t => `<option value="${esc(t)}">`).join('')}</datalist>
+    <datalist id="cidadesProsp">${CIDADES_PROSP.map(t => `<option value="${esc(t)}">`).join('')}</datalist>
+    ${naoBuscadas.length ? `<div class="linha" style="margin-top:8px;flex-wrap:wrap;gap:6px"><span class="desc">Cidades sem nenhum contato na lista:</span>${naoBuscadas.map(c => `<button class="btn mini sec" data-cidade-prosp="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
+    ${A.erro === 'sem_chave' ? `<div class="demo" style="margin-top:12px;display:block"><b>Falta ligar a busca automática (uma vez só):</b><ol style="margin:6px 0 0 18px;line-height:1.6">
+        <li>Em <a href="https://console.cloud.google.com/apis/library/places.googleapis.com" target="_blank" rel="noopener">console.cloud.google.com</a>, crie um projeto e ative a <b>Places API (New)</b>.</li>
+        <li>Em <b>APIs e serviços › Credenciais › Criar credenciais › Chave de API</b>, copie a chave e restrinja-a à Places API.</li>
+        <li>No Supabase, em <b>Edge Functions › Secrets</b>, crie <code>GOOGLE_PLACES_KEY</code> com a chave.</li></ol>
+        <div class="desc" style="margin-top:6px">O Google dá uma cota gratuita por mês (cada busca traz até 20 escritórios). Enquanto isso, use os links abaixo.</div></div>`
+      : A.erro ? `<div class="demo" style="margin-top:12px"><span>⚠ ${esc(A.erro)}</span></div>` : ''}
+    ${lugares.length ? `<div class="linha" style="margin:14px 0 6px;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div><b>${lugares.length}</b> encontrado(s) para "${esc(A.termo)}" em ${esc(A.cidade)} · ${novos.length} novo(s) · ${celNovos.length} com celular</div>
+        <div class="linha"><button class="btn mini sec" data-acao="selCelulares">Marcar novos com celular</button><button class="btn mini sec" data-acao="selNenhum">Desmarcar</button>
+        <button class="btn" data-acao="addAchados" ${sel.size ? '' : 'disabled'}>+ Adicionar ${sel.size} à lista</button></div></div>
+      <div class="tabela"><table><tr><th></th><th>Escritório</th><th>Cidade</th><th>Telefone</th><th>Google</th><th>Links</th><th></th></tr>${lugares.map(linha).join('')}</table></div>
+      ${A.proxima ? `<div style="margin-top:8px"><button class="btn sec" data-acao="buscarMais" ${A.carregando ? 'disabled' : ''}>Carregar mais 20</button></div>` : ''}` : ''}
+    <details style="margin-top:12px"><summary class="desc" style="cursor:pointer">Pesquisar à mão (Google, Instagram, LinkedIn, Jusbrasil)</summary>
+      <div class="linha" style="margin-top:8px;flex-wrap:wrap">
+        ${busca(`https://www.google.com/maps/search/${qBusca}`, '📍 Google Maps')}
+        ${busca(`https://www.google.com/search?q=${qBusca}+whatsapp`, '🔎 Google')}
+        ${busca(`https://www.google.com/search?q=site%3Ainstagram.com+${qBusca}`, '📸 Instagram')}
+        ${busca(`https://www.google.com/search?q=site%3Alinkedin.com%2Fin+${qBusca}`, '💼 LinkedIn')}
+        ${busca(`https://www.google.com/search?q=site%3Ajusbrasil.com.br+${qBusca}`, '⚖ Jusbrasil')}
+        ${busca('https://cna.oab.org.br/', '🪪 Conferir OAB (CNA)')}
+        ${busca('https://pontesferreiracalculos.com/', '👁 Ver site')}</div></details></div>`;
+}
+const DEMO_ACHADOS = n => Array.from({ length: 6 }, (_, i) => ({ id: 'demo' + n + i, nome: ['Silva & Souza Advogados', 'Dra. Carla Mendes Advocacia', 'Oliveira Advocacia Trabalhista', 'Escritório Ramos', 'Lima e Costa Sociedade de Advogados', 'Dr. Paulo Nunes'][i], cidade: S.buscaProsp.cidade || 'Niterói', telefone: i % 3 === 2 ? '(21) 2722-10' + (10 + i) : '(21) 9' + (8100 + i * 37) + '-' + (4100 + i * 11), site: i % 2 ? '' : 'https://exemplo.com.br', maps: 'https://maps.google.com', nota: [4.8, 4.5, null, 5, 4.2, 3.9][i], avaliacoes: [52, 18, 0, 7, 31, 3][i], tipo: 'Advogado' }));
+async function buscarAuto(mais) {
+  const termo = (S.buscaProsp.termo || 'advogado trabalhista').trim(), cidade = (S.buscaProsp.cidade || '').trim();
+  if (!cidade) return toast('Digite a cidade');
+  const ant = S.achados || {};
+  const continuar = mais && ant.termo === termo && ant.cidade === cidade;
+  S.achados = { ...(continuar ? ant : { lugares: [], sel: new Set() }), termo, cidade, carregando: true, erro: null };
+  try {
+    render();
+    let lugares, proxima = null;
+    if (DEMO) { lugares = DEMO_ACHADOS((ant.lugares || []).length); }
+    else {
+      const { data, error } = await sb.functions.invoke('buscar-escritorios', { body: { termo, cidade, pagina: continuar ? ant.proxima : null } });
+      if (error) { let d = {}; try { d = await error.context.json(); } catch { } throw Object.assign(new Error(d.mensagem || error.message), { codigo: d.erro || (error.context?.status === 404 ? 'sem_funcao' : '') }); }
+      lugares = data.lugares || []; proxima = data.proxima;
+    }
+    lugares.forEach(l => { l.ja = !!duplicado({ nome: l.nome, cidade: l.cidade, whatsapp: l.telefone }) || S.prospects.some(p => p.maps && l.maps && p.maps === l.maps); });
+    const vistos = new Set(S.achados.lugares.map(l => l.id));
+    const todos = S.achados.lugares.concat(lugares.filter(l => !vistos.has(l.id)));
+    const sel = S.achados.sel; lugares.forEach(l => { if (!l.ja && tipoTel(l.telefone) === 'celular') sel.add(l.id); }); // já vêm marcados os novos com celular
+    S.achados = { ...S.achados, lugares: todos, proxima, carregando: false, sel };
+    if (!lugares.length) toast('Nenhum escritório encontrado. Tente outro termo ou uma cidade vizinha.');
+  } catch (e) {
+    S.achados = { ...S.achados, carregando: false, erro: e.codigo === 'sem_chave' ? 'sem_chave' : e.codigo === 'sem_funcao' ? 'A função buscar-escritorios ainda não foi publicada no Supabase.' : (e.message || String(e)) };
+  }
+  render();
+}
+async function addAchados() {
+  const A = S.achados; if (!A || !A.sel.size) return;
+  const escolhidos = A.lugares.filter(l => A.sel.has(l.id) && !l.ja);
+  let n = 0;
+  await seguro(async () => {
+    for (const l of escolhidos) {
+      if (duplicado({ nome: l.nome, cidade: l.cidade, whatsapp: l.telefone })) { l.ja = true; continue; }
+      const fixo = tipoTel(l.telefone) === 'fixo';
+      await criar('prospects', { nome: l.nome, escritorio: l.nome, cidade: l.cidade, whatsapp: l.telefone || null, site: l.site || null, maps: l.maps || null, area: 'Trabalhista', fonte: 'Google Maps', status: 'a_contatar',
+        obs: [fixo ? 'Telefone fixo: ligar ou procurar o WhatsApp no site.' : '', l.nota ? `Google: ★ ${l.nota} (${l.avaliacoes} avaliações).` : '', l.endereco || ''].filter(Boolean).join(' ').slice(0, 500) || null });
+      l.ja = true; n++;
+    }
+  });
+  A.sel = new Set(); toast(`${n} contato(s) adicionado(s) à fila de prospecção`); render();
+}
+
 async function editarProsp(p) {
   const v = await abrirForm(p ? 'Editar contato' : 'Novo contato para prospecção', camposProsp(), p || {}, { apagar: !!p });
   if (!v) return;
@@ -2812,6 +2896,7 @@ document.addEventListener('click', e => {
   if (d.ufMapa !== undefined) { S.ufMapa = d.ufMapa || null; if (rota() !== 'mapa') location.hash = 'mapa'; return render(); }
   if (d.metricaMapa) { S.metricaMapa = d.metricaMapa; localSet('pf_metrica_mapa', d.metricaMapa); return render(); }
   if (d.prospectarUf) return prospectarUF(d.prospectarUf);
+  if (d.cidadeProsp) { S.buscaProsp.cidade = d.cidadeProsp; return buscarAuto(false); }
   if (d.prosp) return editarProsp(S.prospects.find(x => x.id === d.prosp));
   if (d.abordar) return abrirAbordagem(d.abordar);
   if (d.roboAssumir) return roboAssumir(d.roboAssumir, true);
@@ -2836,7 +2921,9 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), importarPJC, limparDemo, novaConversa,
+    novaDespesa: () => editarDespesa(null), buscarAuto: () => buscarAuto(false), buscarMais: () => buscarAuto(true), addAchados,
+    selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
+    selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
     waEnviar: waEnviarTexto, waAnexar,
     waModelo: () => seguro(() => waEnviar({ template: CFG.WA_TEMPLATE || 'retomar_contato', idioma: CFG.WA_TEMPLATE_IDIOMA || 'pt_BR' })),
@@ -2853,6 +2940,7 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   const id = e.target.id;
   if (e.target.dataset.feito) { const k = e.target.dataset.feito; return seguro(async () => { await salvarTrafego({ feito: { ...(traf().feito || {}), [k]: e.target.checked } }); render(); }); }
+  if (e.target.dataset && e.target.dataset.achado && S.achados) { const sel = S.achados.sel; e.target.checked ? sel.add(e.target.dataset.achado) : sel.delete(e.target.dataset.achado); return render(); }
   if (e.target.dataset && e.target.dataset.monRegra) return alternarRegraMon(e.target.dataset.monRegra, e.target.checked);
   if (id === 'monEmail') return seguro(async () => { const novo = { ...cfgMonAds(), email: e.target.checked }; await ajustesDb.salvar('monitor_ads', novo); S.ajustes.monitor_ads = novo; toast(novo.email ? 'Avisos por e-mail ligados' : 'Avisos por e-mail desligados'); });
   if (id === 'rastAtivo') return seguro(async () => { const r = { ...rast(), ativo: e.target.checked }; await ajustesDb.salvar('rastreamento', r); S.ajustes.rastreamento = r; toast(r.ativo ? 'Rastreamento LIGADO no site' : 'Rastreamento desligado'); render(); });
@@ -2860,7 +2948,7 @@ document.addEventListener('change', e => {
   if (e.target.dataset.trafDireto) return seguro(() => salvarTrafego({ [e.target.dataset.trafDireto]: e.target.value.trim() || null }));
   if (e.target.dataset.emailTipo) return alternarEmail(e.target.dataset.emailTipo, e.target.checked);
   if (id === 'fProsp') { S.filtroProsp.status = e.target.value; return render(); }
-  if (e.target.dataset.buscaProsp) { S.buscaProsp[e.target.dataset.buscaProsp] = e.target.value; return render(); }
+  if (e.target.dataset.buscaProsp) { const k = e.target.dataset.buscaProsp; if (S.buscaProsp[k] === e.target.value) return; S.buscaProsp[k] = e.target.value; return render(); } // o input já guardou: não redesenha à toa
   if (id === 'periodo') { S.periodo = e.target.value; localSet('pf_periodo', S.periodo); render(); }
   if (id === 'filtroCalc') { S.filtroCalc = e.target.value; render(); }
   if (id === 'fStatus') { S.filtroLeads.status = e.target.value; render(); }
@@ -2885,6 +2973,7 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('keydown', e => {
   if (e.target.id === 'waTexto' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); waEnviarTexto(); }
+  if (e.target.dataset && e.target.dataset.buscaProsp && e.key === 'Enter') { e.preventDefault(); S.buscaProsp[e.target.dataset.buscaProsp] = e.target.value; setTimeout(() => buscarAuto(false)); }
   if (e.key === 'Escape' && fichaId) fecharFicha();
   if (e.key === 'Escape' && $('#abordagem') && !PAL.aberta) fecharAbordagem();
   else if (e.key === 'Escape' && !PAL.aberta && !fichaId) { const m = [...document.querySelectorAll('.modal-fundo')].pop(); if (m && m.id !== 'qrWa') { m.remove(); if (m.id === 'entregas') render(); } }

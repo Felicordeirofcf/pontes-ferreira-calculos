@@ -18,3 +18,6 @@ verify_jwt = true
 
 [functions.whatsapp-conexao]
 verify_jwt = true
+
+[functions.buscar-escritorios]
+verify_jwt = true
