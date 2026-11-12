@@ -30,17 +30,24 @@ const S = {
 };
 const TEMPERATURAS = { quente: '🔥 Quente', morno: '🌤 Morno', frio: '❄ Frio' };
 const TIPOS_ATIV = { nota: '📝 Nota', ligacao: '📞 Ligação', whatsapp: '💬 WhatsApp', email: '✉ E-mail', reuniao: '🤝 Reunião', status: '🔄 Status' };
-const RESPOSTAS_RAPIDAS = [
-  ['Apresentação', '__apresentacao__'], // usa a mensagem de apresentação da Prospecção (⚙ Mensagens), com o link do portfólio
-  ['Saudação', 'Olá, {nome}! Aqui é da Pontes Ferreira Cálculos Judiciais. Recebemos seu pedido e já vamos analisar. 😊'],
-  ['Pedir PDF', 'Para orçarmos, pode nos enviar o PDF integral do processo (baixado do PJe)? Se preferir, basta o número do processo que puxamos os autos.'],
-  ['Orçamento', 'Analisamos o processo: o cálculo fica em R$ {valor}, com entrega em até 48h. Você recebe o arquivo .PJC, o relatório em PDF e o resumo do que foi deferido. Podemos seguir?'],
-  ['Vários autores', 'Como o processo tem mais de um autor, o valor é calculado por reclamante. Te passo o orçamento fechado em instantes.'],
-  ['Confirmação', 'Perfeito! Já iniciamos o cálculo. Entregamos até {prazo}.'],
-  ['Entrega', 'Cálculo pronto! Segue o relatório em PDF e o arquivo .PJC. Qualquer ajuste, é só chamar.'],
-  ['Cobrança', 'Olá, {nome}! Passando para lembrar do pagamento do cálculo, no valor de R$ {valor}. Obrigado!'],
-  ['Follow-up', 'Olá, {nome}! Conseguiu ver o orçamento? Se o prazo estiver curto, conseguimos priorizar.']
+const RESPOSTAS_RAPIDAS = [ // [rótulo, chave em VARIACOES (mensagens.js)]
+  ['Apresentação', '__apresentacao__'], ['Saudação', 'saudacao'], ['Pedir o processo', 'pedir_processo'], ['Orçamento', 'orcamento'],
+  ['Vários autores', 'varios_autores'], ['Confirmação', 'confirmacao'], ['Entrega', 'entrega'], ['Cobrança', 'cobranca'], ['Follow-up', 'followup']
 ];
+/* variações: sorteia uma versão diferente da última usada */
+const SEP_VAR = /\n-{3,}\n/;
+function listaVariacoes(chave) {
+  const editadas = (S.ajustes.respostas || {})[chave];
+  const l = (editadas ? String(editadas).split(SEP_VAR) : (VARIACOES[chave] || [])).map(x => x.trim()).filter(Boolean);
+  return l.length ? l : [''];
+}
+function sortearVariacao(chave, n) {
+  if (n <= 1) return 0;
+  const ult = Number(localGet('pf_var_' + chave) ?? -1);
+  let i = Math.floor(Math.random() * n); if (i === ult) i = (i + 1) % n;
+  localSet('pf_var_' + chave, String(i)); return i;
+}
+
 
 /* ---------------- utilidades ---------------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -770,13 +777,14 @@ function telaWhatsapp() {
       <div class="wa-compor">
         <select class="f" id="waRapida"><option value="">⚡ Respostas rápidas</option>${RESPOSTAS_RAPIDAS.map(([r], i) => `<option value="${i}">${r}</option>`).join('')}</select>
         <textarea id="waTexto" rows="2" placeholder="${aberta ? 'Digite a mensagem… (Enter envia, Shift+Enter quebra linha)' : 'Fora da janela de 24h: envie o modelo acima'}" ${aberta ? '' : 'disabled'}>${esc(S.rascunhos[c.wa_id] || '')}</textarea>
+        <button class="btn sec" data-acao="outraVersao" title="Trocar por outra versão da última resposta rápida" ${S.ultRapida && S.ultRapida.wa === c.wa_id ? '' : 'disabled'}>🔀</button>
         <button class="btn sec" data-acao="waAnexar" title="Enviar arquivo (relatório PDF, .PJC…)" ${aberta ? '' : 'disabled'}>📎</button>
         <button class="btn" data-acao="waEnviar" ${aberta ? '' : 'disabled'}>Enviar</button>
       </div>`;
   }
   const rb = cfgRobo();
   return `<div class="topo"><h1>WhatsApp</h1><div class="acoes"><span class="tag ${rb.ativo ? 't-good' : 't-neutro'}">${rb.ativo ? '🤖 Robô ligado' : '🤖 Robô desligado'}</span>
-    <button class="btn sec" data-acao="configurarRobo">⚙ Atendimento automático</button><button class="btn sec" data-acao="testarRobo">🧪 Testar robô</button><button class="btn" data-acao="novaConversa">+ Nova conversa</button></div></div>
+    <button class="btn sec" data-acao="configRespostas">⚡ Respostas rápidas</button><button class="btn sec" data-acao="configurarRobo">⚙ Atendimento automático</button><button class="btn sec" data-acao="testarRobo">🧪 Testar robô</button><button class="btn" data-acao="novaConversa">+ Nova conversa</button></div></div>
   ${EVOLUTION() ? faixaConexao() : DEMO ? '' : (CFG.WA_ATIVO ? '' : '<div class="demo">O WhatsApp ainda não está conectado à API oficial. Veja o passo 5 do <b>COMO_ATIVAR.md</b>. Até lá, use o botão "Abrir no app ↗".</div>')}
   <div class="wa">
     <div class="wa-lista"><input class="f" id="buscaWa" placeholder="Buscar conversa…" value="${esc(S.buscaWa)}">
@@ -787,6 +795,18 @@ function telaWhatsapp() {
     </div>
     <div class="wa-chat">${corpo}</div>
   </div>`;
+}
+
+/* editar as variações das respostas rápidas (separe as versões com uma linha ---) */
+async function configRespostas() {
+  const chaves = RESPOSTAS_RAPIDAS.filter(([, k]) => k !== '__apresentacao__');
+  const v = await abrirForm('⚙ Respostas rápidas (variações)', [
+    ...chaves.map(([rot, k], n) => ({ k, rot: `${rot} (${listaVariacoes(k).length} versões)${n === 0 ? ' · separe as versões com uma linha ---; marcadores {nome}, {valor}, {prazo}. A Apresentação é editada em Prospecção > ⚙ Mensagens' : ''}`, tipo: 'textarea', full: true }))
+  ], Object.fromEntries(chaves.map(([, k]) => [k, listaVariacoes(k).join('\n---\n')])));
+  if (!v) return;
+  const novo = {};
+  chaves.forEach(([, k]) => { const t = (v[k] || '').trim(); if (t && t !== (VARIACOES[k] || []).join('\n---\n')) novo[k] = t; });
+  await seguro(async () => { await ajustesDb.salvar('respostas', novo); S.ajustes.respostas = novo; toast('Respostas rápidas salvas'); render(); });
 }
 
 /* conexão com a Evolution API (QR code) */
@@ -912,14 +932,17 @@ function preencherRapida(i) {
   const c = convAtiva(), l = leadDaConversa(c);
   const calc = l ? S.calculos.filter(x => x.lead_id === l.id || (l.cliente_id && x.cliente_id === l.cliente_id)).sort((a, b) => (b.data_entrada || '').localeCompare(a.data_entrada || ''))[0] : null;
   const nome = ((c && c.nome) || '').split(' ').slice(0, 2).join(' ');
-  if (RESPOSTAS_RAPIDAS[i][1] === '__apresentacao__') {
+  const chave = RESPOSTAS_RAPIDAS[i][1];
+  S.ultRapida = { wa: c.wa_id, i };
+  if (chave === '__apresentacao__') {
     const prosp = S.prospects.find(p => p.whatsapp && digitos(p.whatsapp).slice(-9) === digitos(c.wa_id).slice(-9));
     S.rascunhos[c.wa_id] = textoProsp(prosp || { nome: c.nome || '' }, 'primeiro'); render();
     const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
     return;
   }
-  const txt = RESPOSTAS_RAPIDAS[i][1].replace('{nome}', nome).replace('{valor}', ((calc && calc.valor_cobrado) || (l && l.valor_orcado) || 250).toLocaleString('pt-BR', { minimumFractionDigits: 2 }))
-    .replace('{prazo}', calc && calc.prazo_entrega ? dataBR(calc.prazo_entrega) : 'em até 48h');
+  const lista = listaVariacoes(chave), modelo = lista[sortearVariacao('rap_' + chave, lista.length)];
+  const txt = modelo.replace(/\{nome\}/g, nome).replace(/\{valor\}/g, ((calc && calc.valor_cobrado) || (l && l.valor_orcado) || 250).toLocaleString('pt-BR', { minimumFractionDigits: 2 }))
+    .replace(/\{prazo\}/g, calc && calc.prazo_entrega ? dataBR(calc.prazo_entrega) : 'em até 48h');
   S.rascunhos[c.wa_id] = txt; render();
   const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
 }
@@ -1250,21 +1273,23 @@ const TAG_PROSP = { a_contatar: 't-neutro', contatado: 't-azul', respondeu: 't-w
 const FONTES_PROSP = ['Google Maps', 'Instagram', 'LinkedIn', 'Site do escritório', 'Jusbrasil', 'Indicação', 'Evento / OAB', 'Outros'];
 const PROSP_PADRAO = {
   meta_dia: 20, dias_follow1: 3, dias_follow2: 7, max_tentativas: 3, remetente: '',
-  textos: {
-    primeiro: 'Olá{, nome}! Tudo bem? {eu}da *Pontes Ferreira Cálculos Judiciais*.\n\nFazemos cálculos trabalhistas no PJe-Calc para escritórios: liquidação, impugnação e cálculo da inicial, a partir de R$ 250, com entrega em até 48h (arquivo .PJC + relatório em PDF + resumo do que foi deferido).\n\nNossa apresentação: {link}\n\nPosso fazer o orçamento do seu próximo cálculo? Se preferir não receber mensagens, é só me avisar. 🙂',
-    follow1: 'Olá{, nome}! Passando para saber se conseguiu ver nossa apresentação. Se tiver algum cálculo com prazo correndo, é só enviar o PDF ou o número do processo que faço o orçamento hoje mesmo: {link}',
-    follow2: 'Olá{, nome}! Último contato por aqui, prometo 🙂 Deixo nosso link para quando precisar de cálculo trabalhista: {link}\nObrigado pela atenção!',
+  textos: { // padrão: as 15 variações de mensagens.js (separadas por ---)
+    primeiro: VARIACOES.primeiro.join('\n---\n'), follow1: VARIACOES.follow1.join('\n---\n'), follow2: VARIACOES.follow2.join('\n---\n'),
     email_assunto: 'Cálculos trabalhistas no PJe-Calc para o seu escritório'
-  }
+  },
+
 };
 const cfgProsp = () => { const a = S.ajustes.prospeccao || {}; return { ...PROSP_PADRAO, ...a, textos: { ...PROSP_PADRAO.textos, ...(a.textos || {}) } }; };
 const linkPortfolio = p => p?.id ? `https://pontesferreiracalculos.com/portfolio.html?r=${String(p.id).slice(0, 8)}${!p.whatsapp && p.email ? '&m=e' : ''}` : 'https://pontesferreiracalculos.com/portfolio.html'; // a página converte r/m em utm_* (origem Prospecção)
 const primeiroNome = n => { const partes = String(n || '').trim().split(/\s+/).filter(x => !/^(dra?\.?|adv\.?|escrit[oó]rio)$/i.test(x)); return partes[0] || ''; };
 const pessoaOuEscritorio = p => /advoga|associad|escrit|sociedade|&|ltda|s\/s/i.test(p.nome || '') ? '' : primeiroNome(p.nome);
 const etapaProsp = p => (p.tentativas || 0) === 0 ? 'primeiro' : p.tentativas === 1 ? 'follow1' : 'follow2';
-function textoProsp(p, etapa = etapaProsp(p)) {
+function textoProsp(p, etapa = etapaProsp(p), idx) {
   const c = cfgProsp(), nome = pessoaOuEscritorio(p);
-  return String(c.textos[etapa] || '').replace(/\{,\s*nome\}/g, nome ? `, ${nome}` : '').replace(/\{nome\}/g, nome)
+  const lista = String(c.textos[etapa] || '').split(SEP_VAR).map(x => x.trim()).filter(Boolean);
+  const i = idx === undefined ? sortearVariacao('prosp_' + etapa, lista.length) : ((idx % lista.length) + lista.length) % lista.length;
+  S.varAbordagem = { etapa, i, n: lista.length };
+  return String(lista[i] || '').replace(/\{,\s*nome\}/g, nome ? `, ${nome}` : '').replace(/\{nome\}/g, nome)
     .replace(/\{eu\}/g, c.remetente ? `Aqui é ${c.remetente}, ` : 'Aqui é ').replace(/\{escritorio\}/g, p.escritorio || 'seu escritório').replace(/\{link\}/g, linkPortfolio(p));
 }
 const contatavel = p => !['cliente', 'sem_interesse', 'nao_contatar', 'respondeu', 'interessado'].includes(p.status) && (p.whatsapp || p.email);
@@ -1376,6 +1401,7 @@ function abrirAbordagem(id) {
     ${p.obs ? `<div class="obs">${esc(p.obs)}</div>` : ''}
     <label class="rotulo" style="margin-top:8px">Mensagem (pode editar antes de enviar)</label>
     <textarea id="abTexto" rows="9" style="width:100%;border:1px solid var(--axis);border-radius:8px;padding:10px;font:inherit">${esc(textoProsp(p, etapa))}</textarea>
+    <div class="linha" style="margin-top:6px;justify-content:space-between"><span class="desc" id="abVar">versão ${S.varAbordagem.i + 1} de ${S.varAbordagem.n}</span><button class="btn mini sec" data-ab="variar">🔀 Outra versão</button></div>
     <div class="linha" style="margin-top:10px">
       ${p.whatsapp ? `<button class="btn ouro" data-ab="wa">📲 Enviar no WhatsApp</button>` : ''}
       ${p.email ? `<button class="btn sec" data-ab="email">✉ Enviar por e-mail</button>` : ''}
@@ -1400,6 +1426,7 @@ async function acaoAbordagem(a) {
   const c = cfgProsp(), txt = ($('#abTexto')?.value || '').trim(), agora = new Date().toISOString();
   await seguro(async () => {
     if (a === 'wa' || a === 'email') { await registrarAbordagem(p, a, txt); if (a === 'wa' && painelWaOk()) { $('#abordagem')?.remove(); abordagemId = null; return; } return proximoDaFila(p.id); }
+    if (a === 'variar') { const v = S.varAbordagem; $('#abTexto').value = textoProsp(p, v.etapa, v.i + 1); $('#abVar').textContent = `versão ${S.varAbordagem.i + 1} de ${S.varAbordagem.n}`; return; }
     if (a === 'pular') return proximoDaFila(p.id);
     if (a === 'fechar') return fecharAbordagem();
     if (a === 'editar') { const id = p.id; fecharAbordagem(); return editarProsp(S.prospects.find(x => x.id === id)); }
@@ -1491,9 +1518,9 @@ async function configProsp() {
     { k: 'meta_dia', rot: 'Meta de abordagens por dia', tipo: 'number' },
     { k: 'dias_follow1', rot: '2º contato depois de (dias)', tipo: 'number' }, { k: 'dias_follow2', rot: '3º contato depois de (dias, contando do 1º)', tipo: 'number' },
     { k: 'max_tentativas', rot: 'Máximo de contatos por pessoa', tipo: 'number' },
-    { k: 't_primeiro', rot: '1º contato. Use {nome}, {link}, {eu}', tipo: 'textarea', full: true },
-    { k: 't_follow1', rot: '2º contato (lembrete)', tipo: 'textarea', full: true },
-    { k: 't_follow2', rot: '3º contato (último)', tipo: 'textarea', full: true },
+    { k: 't_primeiro', rot: '1º contato (apresentação): várias versões separadas por uma linha ---. Marcadores: {nome}, {link}, {eu}', tipo: 'textarea', full: true },
+    { k: 't_follow1', rot: '2º contato (lembrete): versões separadas por ---', tipo: 'textarea', full: true },
+    { k: 't_follow2', rot: '3º contato (último): versões separadas por ---', tipo: 'textarea', full: true },
     { k: 't_email_assunto', rot: 'Assunto do e-mail', full: true }
   ], { ...c, ...Object.fromEntries(Object.entries(c.textos).map(([k, x]) => ['t_' + k, x])) });
   if (!v) return;
@@ -2051,7 +2078,7 @@ document.addEventListener('click', e => {
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
     novaDespesa: () => editarDespesa(null), importarPJC, limparDemo, novaConversa,
-    novoGasto: () => novoGasto(), novoProsp: () => editarProsp(null), waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
+    novoGasto: () => novoGasto(), novoProsp: () => editarProsp(null), outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
     waEnviar: waEnviarTexto, waAnexar,
     waModelo: () => seguro(() => waEnviar({ template: CFG.WA_TEMPLATE || 'retomar_contato', idioma: CFG.WA_TEMPLATE_IDIOMA || 'pt_BR' })),
     addAtividade: () => seguro(async () => {
