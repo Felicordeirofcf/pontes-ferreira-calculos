@@ -235,7 +235,7 @@ function origemAnuncio(ref: any) {
   };
 }
 
-async function conversaDe(waId: string, nomePerfil: string, referral?: any) {
+async function conversaDe(waId: string, nomePerfil: string, referral?: any, criarLead = true) {
   const { data: existente } = await db.from('wa_conversas').select('*').eq('wa_id', waId).maybeSingle();
   if (existente) return existente;
 
@@ -245,7 +245,7 @@ async function conversaDe(waId: string, nomePerfil: string, referral?: any) {
   const cliente = (clientes || []).find(c => ultimos9(c.whatsapp) === fim);
   const { data: leads } = await db.from('leads').select('id,whatsapp,status,created_at').order('created_at', { ascending: false }).limit(2000);
   let lead = (leads || []).find(l => ultimos9(l.whatsapp) === fim);
-  if (!lead && !cliente) {
+  if (!lead && !cliente && criarLead) {
     const { data } = await db.from('leads').insert({ nome: nomePerfil || waId, whatsapp: waId, modo: 'whatsapp', status: 'novo', ...origemAnuncio(referral) }).select().single();
     lead = data;
   }
@@ -310,8 +310,8 @@ async function registrarEcoDoApp(m: any) {
   if (!waId) return;
   await gravarSaidaDoCelular(waId, m.text?.body || (m.type ? `[${m.type} enviado pelo celular]` : ''), m.type === 'text' ? 'text' : 'outro', m.id, Number(m.timestamp || Date.now() / 1000) * 1000);
 }
-async function gravarSaidaDoCelular(waId: string, texto: string, tipo: string, wamid: string, ts: number) {
-  const conv = await conversaDe(waId, '');
+async function gravarSaidaDoCelular(waId: string, texto: string, tipo: string, wamid: string, ts: number, criarLead = true) {
+  const conv = await conversaDe(waId, '', null, criarLead);
   const { error } = await db.from('wa_mensagens').insert({
     wa_id: waId, direcao: 'out', tipo, texto, wamid, status: 'sent', created_at: new Date(ts || Date.now()).toISOString()
   });
@@ -325,6 +325,32 @@ async function gravarSaidaDoCelular(waId: string, texto: string, tipo: string, w
 }
 
 /* ---------- Evolution API ---------- */
+// Regra do CRM (o número também é usado para assuntos pessoais):
+//  • nunca importa histórico: mensagens com mais de 10 minutos são ignoradas;
+//  • só entra no painel quem já está no CRM: conversa aberta, lead, cliente ou contato da prospecção.
+//    Números desconhecidos ficam só no celular. Conversas novas você inicia pelo painel (ou cadastrando o lead).
+async function contatoConhecido(waId: string) {
+  const fim = ultimos9(waId);
+  const { data: conv } = await db.from('wa_conversas').select('id').eq('wa_id', waId).maybeSingle();
+  if (conv) return { tipo: 'conversa' };
+  for (const [tabela, tipo] of [['leads', 'lead'], ['clientes', 'cliente'], ['prospects', 'prospect']] as const) {
+    const { data } = await db.from(tabela).select('id,whatsapp' + (tabela === 'prospects' ? ',status' : '')).not('whatsapp', 'is', null).limit(5000);
+    const achou = (data || []).find((x: any) => ultimos9(x.whatsapp) === fim);
+    if (achou) return { tipo, registro: achou };
+  }
+  return null;
+}
+async function prospectDoNumero(waId: string) {
+  const fim = ultimos9(waId);
+  const { data } = await db.from('prospects').select('id,nome,cidade,whatsapp').not('whatsapp', 'is', null).limit(5000);
+  return (data || []).find((x: any) => ultimos9(x.whatsapp) === fim) || null;
+}
+async function prospectRespondeu(waId: string) {
+  const fim = ultimos9(waId);
+  const { data } = await db.from('prospects').select('id,whatsapp,status').in('status', ['a_contatar', 'contatado']).limit(5000);
+  for (const p of (data || []).filter((x: any) => ultimos9(x.whatsapp) === fim))
+    await db.from('prospects').update({ status: 'respondeu', proximo_contato: null }).eq('id', p.id);
+}
 // número do contato a partir do "jid" (ignora grupos, status e canais; resolve o formato @lid)
 function numeroDoJid(k: any): string | null {
   let j = String(k.remoteJid || '');
@@ -364,10 +390,13 @@ async function processarMsgEvolution(m: any) {
   else if (msg.buttonsResponseMessage || msg.listResponseMessage || msg.templateButtonReplyMessage) { tipo = 'text'; texto = msg.buttonsResponseMessage?.selectedDisplayText || msg.listResponseMessage?.title || msg.templateButtonReplyMessage?.selectedDisplayText || ''; }
   else texto = `[${m.messageType || Object.keys(msg)[0] || 'mensagem'}]`;
   const ts = Number(m.messageTimestamp || Date.now() / 1000) * 1000;
+  if (Date.now() - ts > 10 * 60e3) return;                 // histórico/antigas: não importa
+  const conhecido = await contatoConhecido(waId);
+  if (!conhecido) return;                                   // fora do CRM: fica só no celular
 
   if (k.fromMe) { // enviada por você (celular ou painel). Se veio do painel/robô, já está gravada pelo id.
     const { data: ja } = await db.from('wa_mensagens').select('id').eq('wamid', k.id).maybeSingle();
-    if (!ja) await gravarSaidaDoCelular(waId, texto || (arquivo_nome ? `📎 ${arquivo_nome}` : ''), tipo === 'text' ? 'text' : 'outro', k.id, ts);
+    if (!ja) await gravarSaidaDoCelular(waId, texto || (arquivo_nome ? `📎 ${arquivo_nome}` : ''), tipo === 'text' ? 'text' : 'outro', k.id, ts, conhecido.tipo !== 'prospect'); // abordagem de prospecção não vira lead
     return;
   }
 
@@ -380,8 +409,18 @@ async function processarMsgEvolution(m: any) {
     } catch (e) { texto = (texto ? texto + ' ' : '') + `[falha ao baixar arquivo: ${(e as Error).message}]`; }
   }
   const nome = m.pushName || '';
-  const conv = await conversaDe(waId, nome, null);
+  const conv = await conversaDe(waId, nome, null, false);
+  // quem responde e ainda não é lead nem cliente vira lead (origem Prospecção, se veio da lista)
+  if (!conv.lead_id && !conv.cliente_id) {
+    const prosp = await prospectDoNumero(waId);
+    const { data: lead } = await db.from('leads').insert({
+      nome: prosp?.nome || nome || waId, whatsapp: waId, modo: 'whatsapp', status: 'novo',
+      ...(prosp ? { origem: 'Prospecção', utm_source: 'prospeccao', utm_medium: 'whatsapp', utm_campaign: 'prospeccao_1a1', cidade: prosp.cidade || null } : { origem: 'WhatsApp direto' })
+    }).select().single();
+    if (lead) { await db.from('wa_conversas').update({ lead_id: lead.id }).eq('id', conv.id); conv.lead_id = lead.id; if (prosp) await db.from('prospects').update({ lead_id: lead.id }).eq('id', prosp.id); }
+  }
   await gravarEntrada(conv, waId, nome, { timestamp: ts / 1000 }, { tipo, texto, arquivo_path, arquivo_nome, wamid: k.id, ts });
+  if (conhecido.tipo === 'prospect' || conhecido.tipo === 'conversa') await prospectRespondeu(waId);
 }
 
 Deno.serve(async req => {

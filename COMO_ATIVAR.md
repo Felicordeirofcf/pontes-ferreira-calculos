@@ -61,6 +61,12 @@ O número conecta como "WhatsApp Web" no servidor da Locaweb Cloud. **O app do c
    - Secrets: `EVOLUTION_URL`, `EVOLUTION_KEY` e `EVOLUTION_WEBHOOK_KEY` (uma senha inventada por você).
 5. **Painel > WhatsApp > Conectar WhatsApp:** escaneie o QR code com o celular (WhatsApp Business > Aparelhos conectados > Conectar um aparelho).
 
+**Regra do CRM (número também usado para assuntos pessoais):**
+- o histórico antigo nunca é importado (mensagens com mais de 10 minutos são ignoradas);
+- só entra no painel quem já está no CRM: conversa iniciada pelo painel, lead, cliente ou contato da Prospecção;
+- mensagens de números desconhecidos ficam só no celular. Para trazer alguém, cadastre como lead ou inicie a conversa pelo painel;
+- contato da Prospecção que responde vira lead (origem Prospecção) e fica como "Respondeu".
+
 ## 5. WhatsApp dentro do painel (API oficial da Meta)
 
 > **Hoje o atendimento é manual**, pelo app WhatsApp Business do celular. No painel, o botão **💬 WhatsApp** de cada lead abre o seu WhatsApp com a saudação pronta e registra o contato no CRM. A tela de WhatsApp e o robô só aparecem quando `WA_ATIVO` for `true` no `config.js`. Tentativa de 11/11/2026: a Meta não aceitou o 98770-8652 (nem na coexistência, nem na migração: "already in use by another WhatsApp account"). Para ligar no futuro, use um chip novo ou abra um chamado na Meta.
