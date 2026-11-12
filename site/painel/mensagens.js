@@ -108,6 +108,23 @@ const VARIACOES = {
     "Olá, {nome}! Só um detalhe: salve nosso contato como *Pontes Ferreira Cálculos*. Assim nossas mensagens ficam fáceis de achar e os links abrem normalmente.",
     "Oi, {nome}! Deixe nosso contato salvo: *Pontes Ferreira Cálculos* – (21) 98770-8652. Estamos à disposição sempre que precisar de um cálculo. 🙂"
   ],
+  obrigado_contato: [
+    "Obrigado por salvar nosso contato, {nome}! 🙏 Quando precisar de um cálculo, é só chamar aqui.",
+    "Valeu, {nome}! Contato salvo por aqui também. Qualquer cálculo trabalhista, estamos à disposição. 🙂",
+    "Muito obrigado, {nome}! Agora fica fácil: é só mandar o número do processo quando precisar.",
+    "Obrigado, {nome}! Já te salvei aqui também. Conte com a gente para liquidação, impugnação e inicial.",
+    "Que bom, {nome}! Obrigado por salvar. Quando o prazo apertar, é só chamar que a gente resolve. 😉",
+    "Obrigado pela confiança, {nome}! Estamos por aqui sempre que precisar de um cálculo.",
+    "Perfeito, {nome}, muito obrigado! Qualquer dúvida ou orçamento, é só mandar mensagem.",
+    "Obrigado, {nome}! Fico à disposição. Para orçar, basta o número do processo. 🙂",
+    "Valeu por salvar, {nome}! Já deixei seu contato salvo aqui também. Bom trabalho!",
+    "Muito obrigado, {nome}! Agora nossas mensagens e arquivos chegam certinho. Conte com a gente.",
+    "Obrigado, {nome}! Quando surgir o próximo cálculo, é só chamar que orçamos rapidinho.",
+    "Agradeço, {nome}! Estamos sempre por aqui para os cálculos do escritório. 🙏",
+    "Obrigado por salvar, {nome}! Qualquer cálculo com prazo correndo, pode chamar a qualquer momento no horário comercial.",
+    "Show, {nome}, obrigado! Seu contato também está salvo aqui. Até o próximo cálculo! 🙂",
+    "Muito obrigado, {nome}! É um prazer ter você como contato. Estamos à disposição."
+  ],
   pedir_cadastro: [
     'Para agilizar seu atendimento, pode me passar seus dados para o cadastro?\n\n• Nome completo\n• OAB (número/UF)\n• CPF ou CNPJ (para o recibo)\n• E-mail\n• Cidade/UF\n• Nome do escritório (se houver)',
     'Vamos deixar seu cadastro pronto? Me envia, por favor:\n\n1. Nome completo\n2. Nº da OAB e estado\n3. CPF ou CNPJ\n4. E-mail para envio dos arquivos\n5. Cidade/UF',
