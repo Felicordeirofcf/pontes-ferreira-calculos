@@ -2469,6 +2469,13 @@ const ROTAS = { painel: ['Painel', telaPainel], mapa: ['Mapa do Brasil', telaMap
 const rota = () => { const r = location.hash.slice(1); return ROTAS[r] && (r !== 'whatsapp' || WA_PAINEL()) ? r : 'painel'; };
 const CAMPOS_FOCO = ['busca', 'buscaLeads', 'buscaWa', 'waTexto', 'buscaProsp'];
 
+// caixa de mensagem do WhatsApp cresce até mostrar o texto inteiro (máx. metade da tela)
+function ajustarCaixaWa() {
+  const t = $('#waTexto'); if (!t) return;
+  t.style.height = 'auto';
+  t.style.height = Math.min(t.scrollHeight + 2, Math.round(innerHeight * 0.42)) + 'px';
+  const box = $('#waMsgs'); if (box) box.scrollTop = box.scrollHeight;
+}
 function render() {
   const r = rota();
   const pendentes = S.leads.filter(l => semResposta(l) || retornoPendente(l)).length;
@@ -2490,6 +2497,7 @@ function render() {
     ${ROTAS[r][1]()}</main></div>`;
   document.title = `${(naoLidas + pendentes) ? `(${naoLidas + pendentes}) ` : ''}${ROTAS[r][0]} · Pontes Ferreira`;
   if (foco) { const el = document.getElementById(foco.id); if (el && !el.disabled) { el.focus(); try { el.setSelectionRange(foco.ini, foco.fim); } catch { } } }
+  ajustarCaixaWa();
   const box = $('#waMsgs'); if (box && noFim) box.scrollTop = box.scrollHeight;
 }
 
@@ -2581,7 +2589,7 @@ document.addEventListener('input', e => {
   if (id === 'busca') { S.busca = e.target.value; render(); }
   if (id === 'buscaLeads') { S.filtroLeads.q = e.target.value; render(); }
   if (id === 'buscaWa') { S.buscaWa = e.target.value; render(); }
-  if (id === 'waTexto' && S.conversa) S.rascunhos[S.conversa] = e.target.value;
+  if (id === 'waTexto' && S.conversa) { S.rascunhos[S.conversa] = e.target.value; ajustarCaixaWa(); }
 });
 document.addEventListener('keydown', e => {
   if (e.target.id === 'waTexto' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); waEnviarTexto(); }

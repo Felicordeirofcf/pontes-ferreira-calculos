@@ -157,8 +157,8 @@
   .wa-hora{display:block;text-align:right;font-size:11px;color:#667781;margin-top:2px}
   .wa-arq{display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:rgba(0,0,0,.04);border-radius:7px;padding:6px 8px;margin-bottom:4px;font-size:13px}
   .wa-dia{align-self:center;background:#fff;color:#54656f;font-size:11px;padding:3px 10px;border-radius:7px;margin:6px 0;box-shadow:0 1px 1px rgba(0,0,0,.06)}
-  .wa-compor{display:grid;grid-template-columns:170px 1fr auto auto;gap:8px;padding:10px;border-top:1px solid var(--grid);align-items:end}
-  .wa-compor textarea{border:1px solid var(--axis);border-radius:10px;padding:9px 11px;resize:none;background:#fff;max-height:140px}
+  .wa-compor{display:grid;grid-template-columns:170px 1fr auto auto auto;gap:8px;padding:10px;border-top:1px solid var(--grid);align-items:end}
+  .wa-compor textarea{border:1px solid var(--axis);border-radius:10px;padding:9px 11px;resize:vertical;background:#fff;min-height:44px;max-height:50vh;overflow-y:auto;line-height:1.45}
   .wa-compor textarea:disabled,.wa-compor .btn:disabled{opacity:.5;cursor:not-allowed}
 
   @media (max-width:900px){
@@ -166,7 +166,7 @@
     .wa{grid-template-columns:1fr;height:auto}
     .wa-lista{max-height:240px;border-right:0;border-bottom:1px solid var(--grid)}
     .wa-msgs{min-height:340px}
-    .wa-compor{grid-template-columns:1fr auto auto}
+    .wa-compor{grid-template-columns:1fr auto auto auto}
     .wa-compor select{grid-column:1/-1}
   }
   @media (max-width:900px){
@@ -407,6 +407,12 @@
   .arrastando-lead .col.alvo{outline-color:var(--selo);background:#f6efdc}
   @media (hover:none){.lead-excluir{opacity:.6}}
   .wa-cadastro{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;padding:8px 14px;background:#f6efdc;border-bottom:1px solid rgba(226,177,60,.4)}
+  @media (min-width:901px){
+    main.main-wa{height:100vh;display:flex;flex-direction:column;overflow:hidden;padding-bottom:18px}
+    main.main-wa .wa{flex:1;height:auto;min-height:0}
+  }
+  .wa-msgs{min-height:110px}
+  .wa-compor textarea{max-height:42vh}
   @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 </head>
