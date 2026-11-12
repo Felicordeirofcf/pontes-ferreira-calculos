@@ -836,7 +836,7 @@ function telaWhatsapp() {
 
 /* editar as variações das respostas rápidas (separe as versões com uma linha ---) */
 // dados de pagamento padrão (podem ser trocados em ⚡ Respostas › Dados para pagamento)
-const PAGAMENTO_PADRAO = 'Pix (CNPJ): 51.362.258/0001-79\nFavorecido: Pontes Pereira Assessoria Administrativa · Banco Inter';
+const PAGAMENTO_PADRAO = 'Pix (CNPJ): 51.362.258/0001-79\nFavorecido: Pontes Pereira Assessoria Administrativa\nBanco Inter';
 const dadosPagamento = () => (S.ajustes.respostas || {}).__pagamento || PAGAMENTO_PADRAO;
 async function configRespostas() {
   const chaves = RESPOSTAS_RAPIDAS.filter(([, k]) => k !== '__apresentacao__');
