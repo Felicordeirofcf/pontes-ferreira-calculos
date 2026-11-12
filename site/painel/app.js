@@ -1616,7 +1616,7 @@ async function configProsp() {
 
 /* ---------------- Tráfego pago ---------------- */
 const SITE_URL = 'https://pontesferreiracalculos.com/';
-const ABAS_TRAFEGO = { ativacao: '1. Ativação', resultados: '2. Resultados', campanhas: '3. Campanhas prontas', links: '4. Links UTM', offline: '5. Conversões offline' };
+const ABAS_TRAFEGO = { ativacao: '1. Ativação', resultados: '2. Resultados', google: '📊 Google Ads', campanhas: '3. Campanhas prontas', links: '4. Links UTM', offline: '5. Conversões offline' };
 const VALIDA_RAST = {
   ga4_id: [v => /^G-[A-Z0-9]{6,14}$/.test(v), 'Formato: G-XXXXXXXXXX'],
   gads_id: [v => /^AW-\d{8,12}$/.test(v), 'Formato: AW-1234567890'],
@@ -1792,13 +1792,180 @@ function alertasTrafego(t) {
 }
 
 /* telas */
+/* ---------------- Tráfego pago > Google Ads: relatório do Google + dados do painel ---------------- */
+// O Google Ads não manda os números para cá sozinho: você baixa o relatório (CSV) lá e importa aqui.
+// O painel junta com o que ele já sabe pelo utm_term (palavra-chave): visitas, pedidos, clientes fechados e faturamento.
+const GADS_TIPOS = { palavras: 'Palavras-chave', termos: 'Termos de pesquisa', dias: 'Por dia', campanhas: 'Campanhas' };
+const GADS_RUINS = /gr[aá]tis|gratuit|calculadora|curso|apostila|download|baixar|como fazer|como calcular|tutorial|vaga|emprego|concurso|sal[aá]rio d|quanto ganha|meus direitos|fgts|seguro desemprego|rescis[aã]o|planilha|modelo|pdf|manual|treinamento|online gr|aplicativo|app\b|excel/i;
+const normTermo = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/["\[\]+]/g, '').replace(/\s+/g, ' ').trim();
+// CSV com aspas, vírgula/ponto e vírgula/tab (o Google exporta com 1–2 linhas de título antes do cabeçalho)
+function lerCsv(texto) {
+  const linhas = String(texto).replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
+  const amostra = linhas.slice(0, 5).join('\n');
+  const sep = amostra.includes('\t') ? '\t' : (amostra.split(';').length > amostra.split(',').length ? ';' : ',');
+  return linhas.map(l => { const out = []; let cur = '', q = false;
+    for (let i = 0; i < l.length; i++) { const ch = l[i];
+      if (q) { if (ch === '"' && l[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; }
+      else if (ch === '"') q = true; else if (ch === sep) { out.push(cur); cur = ''; } else cur += ch; }
+    out.push(cur); return out.map(x => x.trim()); });
+}
+const numGads = v => { const t = String(v ?? '').replace(/[R$\s%]/g, ''); if (!t || t === '--' || t === '—') return 0; return numBR(t) || 0; };
+const COLS_GADS = {
+  termo: /^(termo de pesquisa|search term)$/, palavra: /^(palavra-chave|palavra chave|keyword|palavra-chave de pesquisa)$/, correspondencia: /^(tipo de correspond|match type|correspond)/,
+  dia: /^(dia|day|data|date)$/, campanha: /^(campanha|campaign)$/, grupo: /^(grupo de an|ad group)/,
+  impr: /^(impr|impressions)/, cliques: /^(cliques|clicks|intera[cç][oõ]es|interactions)$/, custo: /^(custo|cost)$/,
+  conv: /^(convers[oõ]es|conversions|todas as conv)/, status: /^(status|estado)/
+};
+function interpretarRelatorio(texto) {
+  const rows = lerCsv(texto);
+  const iCab = rows.findIndex(r => r.filter(c => Object.values(COLS_GADS).some(rx => rx.test(roboNorm(c)) || rx.test(c.toLowerCase()))).length >= 3);
+  if (iCab < 0) throw new Error('Não reconheci o relatório. Baixe em CSV pelo Google Ads (botão ⬇ Download) e importe o arquivo inteiro.');
+  const cab = rows[iCab].map(c => c.toLowerCase());
+  const col = {}; cab.forEach((c, i) => { const k = Object.keys(COLS_GADS).find(k => COLS_GADS[k].test(c) || COLS_GADS[k].test(roboNorm(c))); if (k && col[k] == null) col[k] = i; });
+  if (col.cliques == null && col.impr == null) throw new Error('O relatório precisa das colunas de impressões e cliques.');
+  const tipo = col.termo != null ? 'termos' : col.palavra != null ? 'palavras' : col.dia != null ? 'dias' : 'campanhas';
+  const periodo = rows.slice(0, iCab).map(r => r.join(' ')).find(l => /\d{4}/.test(l)) || '';
+  const linhas = rows.slice(iCab + 1).filter(r => r.length >= cab.length - 1 && !/^(total|totais)/i.test(r[0] || '') && !/^total/i.test(r[col.termo ?? col.palavra ?? col.dia ?? col.campanha ?? 0] || ''))
+    .map(r => ({
+      termo: col.termo != null ? r[col.termo] : '', palavra: col.palavra != null ? r[col.palavra] : '', correspondencia: col.correspondencia != null ? r[col.correspondencia] : '',
+      dia: col.dia != null ? r[col.dia] : '', campanha: col.campanha != null ? r[col.campanha] : '', grupo: col.grupo != null ? r[col.grupo] : '', status: col.status != null ? r[col.status] : '',
+      impr: numGads(r[col.impr]), cliques: numGads(r[col.cliques]), custo: numGads(r[col.custo]), conv: numGads(r[col.conv])
+    })).filter(x => x.termo || x.palavra || x.dia || x.campanha).slice(0, 2000);
+  if (!linhas.length) throw new Error('O relatório não tem linhas com dados.');
+  return { tipo, periodo: periodo.replace(/\s+/g, ' ').trim().slice(0, 80), importado_em: new Date().toISOString(), linhas };
+}
+const gadsRel = () => S.ajustes.gads || {};
+function importarGads() {
+  const fundo = document.createElement('div'); fundo.className = 'modal-fundo';
+  fundo.innerHTML = `<div class="modal"><h2>⬆ Importar relatório do Google Ads</h2>
+    <ol class="desc" style="padding-left:18px;line-height:1.6">
+      <li>No Google Ads, abra <b>Campanhas › Insights e relatórios › Termos de pesquisa</b> (ou <b>Palavras-chave</b>, ou <b>Campanhas</b> com o período desejado).</li>
+      <li>Clique em <b>⬇ Fazer download › CSV</b>.</li>
+      <li>Escolha o arquivo abaixo. Pode importar os três: cada tipo fica guardado separado e o mais novo substitui o anterior.</li></ol>
+    <input type="file" id="gadsArq" accept=".csv,.txt,.tsv" style="margin:8px 0">
+    <div class="desc" style="margin-top:6px">Ou cole aqui a tabela copiada da tela do Google Ads (com o cabeçalho):</div>
+    <textarea id="gadsTxt" rows="6" style="width:100%;border:1px solid var(--axis);border-radius:8px;padding:10px;font:12px monospace"></textarea>
+    <div class="desc" id="gadsPrev"></div>
+    <div class="rodape"><button type="button" class="btn sec" id="gadsCanc">Cancelar</button><button class="btn" id="gadsOk">Importar</button></div></div>`;
+  document.body.appendChild(fundo);
+  let texto = '';
+  const prever = () => { try { const r = interpretarRelatorio(texto); $('#gadsPrev').textContent = `✓ ${GADS_TIPOS[r.tipo]} · ${r.linhas.length} linha(s)${r.periodo ? ' · ' + r.periodo : ''}`; } catch (e) { $('#gadsPrev').textContent = texto ? '⚠ ' + e.message : ''; } };
+  $('#gadsArq').onchange = async e => { const f = e.target.files[0]; if (!f) return; const buf = await f.arrayBuffer(); texto = new TextDecoder(/\x00/.test(new TextDecoder('latin1').decode(buf.slice(0, 200))) ? 'utf-16le' : 'utf-8').decode(buf); prever(); };
+  $('#gadsTxt').oninput = e => { texto = e.target.value; prever(); };
+  $('#gadsCanc').onclick = () => fundo.remove();
+  $('#gadsOk').onclick = () => seguro(async () => {
+    const r = interpretarRelatorio(texto);
+    const novo = { ...gadsRel(), [r.tipo]: r };
+    await ajustesDb.salvar('gads', novo); S.ajustes.gads = novo;
+    fundo.remove(); toast(`${GADS_TIPOS[r.tipo]} importado: ${r.linhas.length} linha(s)`); render();
+  });
+}
+async function carregarEventosGoogle(forcar) {
+  const ini = inicioPeriodo();
+  if (DEMO || (S.gadsEv && S.gadsEv.ini === ini && !forcar && Date.now() - S.gadsEv.em < 300000)) return;
+  S.gadsEv = { ini, em: Date.now(), lista: S.gadsEv?.ini === ini ? S.gadsEv.lista : [] };
+  try {
+    let lista = [];
+    for (let de = 0; de < 20000; de += 1000) {
+      const { data, error } = await sb.from('eventos').select('tipo,sessao,utm_term,utm_campaign,created_at').eq('utm_source', 'google').gte('created_at', inicioPeriodo() + 'T00:00:00-03:00').range(de, de + 999);
+      if (error) throw error; lista = lista.concat(data); if (data.length < 1000) break;
+    }
+    S.gadsEv = { ini, em: Date.now(), lista }; render();
+  } catch (e) { console.warn('eventos google', e); }
+}
+function trafegoGoogle() {
+  carregarEventosGoogle();
+  const rel = gadsRel(), ini = inicioPeriodo();
+  const base = rel.campanhas || rel.palavras || rel.termos || rel.dias;
+  const tot = (base?.linhas || []).reduce((a, x) => ({ impr: a.impr + x.impr, cliques: a.cliques + x.cliques, custo: a.custo + x.custo, conv: a.conv + x.conv }), { impr: 0, cliques: 0, custo: 0, conv: 0 });
+  // painel: leads e eventos que vieram do Google (gclid ou utm_source=google)
+  const leads = S.leads.filter(l => noPeriodo(l.created_at, ini) && canalLead(l) === 'Google Ads');
+  const fech = leads.filter(l => l.status === 'fechado'), fat = soma(fech, valorDoLead);
+  const ev = S.gadsEv?.lista || [];
+  const sess = t => new Set(ev.filter(e => !t || e.tipo === t).map(e => e.sessao)).size;
+  const visitas = sess('visita'), contatos = new Set(ev.filter(e => e.tipo === 'whatsapp' || e.tipo === 'pedido').map(e => e.sessao)).size;
+  // por palavra-chave: Google (relatório) + painel (utm_term)
+  const porPalavra = {};
+  const lin = k => porPalavra[k] || (porPalavra[k] = { k, rot: '', corr: '', impr: 0, cliques: 0, custo: 0, conv: 0, visitas: new Set(), leads: 0, fech: 0, fat: 0 });
+  (rel.palavras?.linhas || []).forEach(x => { const r = lin(normTermo(x.palavra)); r.rot = r.rot || x.palavra.replace(/^"|"$/g, ''); r.corr = x.correspondencia || r.corr; r.impr += x.impr; r.cliques += x.cliques; r.custo += x.custo; r.conv += x.conv; });
+  ev.filter(e => e.tipo === 'visita' && e.utm_term).forEach(e => { const r = lin(normTermo(e.utm_term)); r.rot = r.rot || e.utm_term; r.visitas.add(e.sessao); });
+  leads.filter(l => l.utm_term).forEach(l => { const r = lin(normTermo(l.utm_term)); r.rot = r.rot || l.utm_term; r.leads++; if (l.status === 'fechado') { r.fech++; r.fat += valorDoLead(l); } });
+  const palavras = Object.values(porPalavra).sort((a, b) => b.custo - a.custo || b.cliques - a.cliques || b.leads - a.leads);
+  const cpcMedio = tot.cliques ? tot.custo / tot.cliques : 0;
+  const situacao = r => {
+    if (r.fech) return ['t-good', 'Trouxe cliente'];
+    if (r.leads) return ['t-good', 'Gera pedidos'];
+    if (r.impr && !r.cliques) return ['t-neutro', 'Sem cliques'];
+    if (r.impr >= 100 && r.cliques / r.impr < .03) return ['t-warn', 'CTR baixo'];
+    if (r.custo >= Math.max(40, cpcMedio * 10) && !r.conv) return ['t-crit', 'Gasta sem pedido'];
+    return ['t-neutro', 'Observando'];
+  };
+  // termos de pesquisa: sugere negativas
+  const termos = [...(rel.termos?.linhas || [])].sort((a, b) => b.custo - a.custo || b.cliques - a.cliques);
+  const minhas = new Set([...(rel.palavras?.linhas || []), ...(rel.termos?.linhas || [])].map(x => normTermo(x.palavra)).filter(Boolean));
+  // nunca sugere negativar uma palavra-chave sua; termo sem conversão só é marcado depois de gastar de verdade
+  const sugerirNegativa = x => !x.conv && !minhas.has(normTermo(x.termo)) && (GADS_RUINS.test(x.termo) || (x.cliques >= 5 && x.custo >= Math.max(30, cpcMedio * 8)));
+  const negativas = [...new Set(termos.filter(sugerirNegativa).map(x => x.termo.toLowerCase()))];
+  const dias = [...(rel.dias?.linhas || [])].sort((a, b) => String(a.dia).localeCompare(String(b.dia))).slice(-30);
+  const funil = [['Impressões', tot.impr], ['Cliques no anúncio', tot.cliques], ['Visitas ao site (Google)', visitas], ['Contatos (WhatsApp ou formulário)', contatos], ['Pedidos no painel', leads.length], ['Clientes fechados', fech.length]];
+  const roas = tot.custo ? fat / tot.custo : NaN;
+  const info = Object.entries(GADS_TIPOS).map(([k, v]) => rel[k] ? `<span class="tag t-good">✓ ${v}${rel[k].periodo ? ' · ' + esc(rel[k].periodo) : ''} · importado ${dataBR(rel[k].importado_em)}</span>` : `<span class="tag t-neutro">○ ${v}</span>`).join(' ');
+  const semRel = !base;
+  return `
+  <div class="card larga" style="margin-bottom:14px"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <div><h2 style="margin:0">Relatórios do Google Ads</h2><div class="desc">Impressões, cliques e custo vêm do relatório que você importa; visitas, pedidos e clientes vêm do painel (${PERIODOS[S.periodo]}).</div><div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${info}</div></div>
+    <div class="linha"><button class="btn" data-acao="importarGads">⬆ Importar relatório</button>${tot.custo ? '<button class="btn sec" data-acao="gadsLancarGasto" title="Cria um gasto em Google Ads com o custo do relatório">+ Lançar custo como gasto</button>' : ''}</div></div>
+    ${semRel ? '<div class="demo" style="margin-top:10px"><span>Ainda não há relatório importado. Comece pelo de <b>Termos de pesquisa</b> e o de <b>Palavras-chave</b>: no Google Ads, abra a página, escolha o período e clique em ⬇ Fazer download › CSV.</span></div>' : ''}</div>
+  <div class="kpis">
+    ${kpi('Impressões', tot.impr.toLocaleString('pt-BR'), base ? 'relatório do Google' : 'importe o relatório')}
+    ${kpi('Cliques', tot.cliques.toLocaleString('pt-BR'), tot.impr ? `CTR ${(tot.cliques / tot.impr * 100).toFixed(1).replace('.', ',')}% (bom: acima de 5%)` : '—', tot.impr >= 200 && tot.cliques / tot.impr < .03)}
+    ${kpi('Custo', brl0(tot.custo), cpcMedio ? `CPC médio ${cpcMedio.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : '—')}
+    ${kpi('Conversões no Google', tot.conv.toLocaleString('pt-BR', { maximumFractionDigits: 1 }), tot.conv && tot.custo ? `custo/conversão ${brl0(tot.custo / tot.conv)}` : 'cliques no WhatsApp e formulários')}
+    ${kpi('Pedidos no painel', leads.length, leads.length && tot.custo ? `custo por pedido ${brl0(tot.custo / leads.length)}` : 'leads com origem Google Ads')}
+    ${kpi('Clientes fechados', fech.length, fech.length && tot.custo ? `custo por cliente ${brl0(tot.custo / fech.length)}` : leads.length ? `conversão ${pct(fech.length / leads.length)}` : '—')}
+    ${kpi('Faturado', brl0(fat), isFinite(roas) ? `retorno ${roas.toFixed(1).replace('.', ',')}x o investido` : 'clientes vindos do Google', isFinite(roas) && tot.custo > 100 && roas < 1)}
+  </div>
+  <div class="grade">
+    <div class="card"><h2>Funil do Google Ads</h2><div class="desc">Onde as pessoas param. Visitas e contatos contam visitantes únicos.</div>
+      ${barrasH(funil.map(([rot, valor], i) => ({ rot, valor, tip: `${rot}: ${valor.toLocaleString('pt-BR')}${i && funil[i - 1][1] ? ` (${pct(valor / funil[i - 1][1])} da etapa anterior)` : ''}` })), v => v.toLocaleString('pt-BR'))}
+      <div class="desc" style="margin-top:8px">${funilDica(tot, visitas, contatos, leads.length, fech.length)}</div></div>
+    <div class="card"><h2>Por dia</h2><div class="desc">${rel.dias ? 'Cliques e conversões do relatório por dia' : 'Importe um relatório com a coluna <b>Dia</b> (Campanhas › Segmentar › Tempo › Dia) para ver a evolução'}</div>
+      ${dias.length ? `<div class="legenda"><span><i style="background:var(--s1)"></i>Cliques</span><span><i style="background:var(--s2)"></i>Conversões</span></div>${graficoColunas(dias.map(d => ({ rot: String(d.dia).slice(-5), valores: [d.cliques, d.conv] })), [{ nome: 'Cliques', cor: 'var(--s1)' }, { nome: 'Conversões', cor: 'var(--s2)' }])}` : '<div class="vazio">Sem dados por dia</div>'}</div>
+    <div class="card larga"><h2>Palavras-chave</h2><div class="desc">Google (impressões, cliques, custo) lado a lado com o painel (visitas, pedidos e clientes pela palavra-chave do anúncio)</div>
+      ${palavras.length ? `<div class="tabela"><table><tr><th>Palavra-chave</th><th class="n">Impr.</th><th class="n">Cliques</th><th class="n">CTR</th><th class="n">CPC</th><th class="n">Custo</th><th class="n">Conv.</th><th class="n">Visitas</th><th class="n">Pedidos</th><th class="n">Clientes</th><th class="n">Faturado</th><th>Situação</th></tr>
+        ${palavras.slice(0, 60).map(r => { const [c, t] = situacao(r); return `<tr><td>${esc(r.rot)}${r.corr ? ` <span class="desc">${esc(r.corr)}</span>` : ''}</td><td class="n">${r.impr.toLocaleString('pt-BR')}</td><td class="n">${r.cliques}</td><td class="n">${r.impr ? (r.cliques / r.impr * 100).toFixed(1).replace('.', ',') + '%' : '—'}</td><td class="n">${r.cliques ? (r.custo / r.cliques).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}</td><td class="n">${r.custo ? brl0(r.custo) : '—'}</td><td class="n">${r.conv || '—'}</td><td class="n">${r.visitas.size || '—'}</td><td class="n">${r.leads || '—'}</td><td class="n">${r.fech || '—'}</td><td class="n">${r.fat ? brl0(r.fat) : '—'}</td><td><span class="tag ${c}">${t}</span></td></tr>`; }).join('')}</table></div>` : '<div class="vazio">Importe o relatório de Palavras-chave. Pedidos com palavra-chave aparecem aqui sozinhos.</div>'}</div>
+    <div class="card larga"><h2>Termos de pesquisa</h2><div class="desc">O que as pessoas digitaram no Google antes de clicar. Termos marcados ⚠ parecem não ser cliente (estudante, trabalhador, "grátis") ou gastam sem converter: candidatos a palavra negativa.</div>
+      ${termos.length ? `${negativas.length ? `<div class="linha" style="margin:8px 0">${btnCopiar(negativas.join('\n'), `Copiar ${negativas.length} negativa(s) sugerida(s)`)}<span class="desc">Cole em Google Ads › Palavras-chave › Palavras-chave negativas (nível da campanha). Confira antes: só negative o que não é cliente.</span></div>` : ''}
+        <div class="tabela"><table><tr><th>Termo pesquisado</th><th>Palavra-chave</th><th class="n">Impr.</th><th class="n">Cliques</th><th class="n">Custo</th><th class="n">Conv.</th><th></th></tr>
+        ${termos.slice(0, 80).map(x => `<tr><td>${esc(x.termo)}</td><td class="desc">${esc(x.palavra || x.grupo || '')}</td><td class="n">${x.impr}</td><td class="n">${x.cliques}</td><td class="n">${x.custo ? brl0(x.custo) : '—'}</td><td class="n">${x.conv || '—'}</td><td>${sugerirNegativa(x) ? '<span class="tag t-crit">⚠ negativar?</span>' : x.conv ? '<span class="tag t-good">converteu</span>' : ''}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Importe o relatório de Termos de pesquisa (Insights e relatórios › Termos de pesquisa › ⬇ CSV).</div>'}</div>
+    ${rel.campanhas ? `<div class="card larga"><h2>Campanhas</h2><div class="tabela"><table><tr><th>Campanha</th><th>Status</th><th class="n">Impr.</th><th class="n">Cliques</th><th class="n">CTR</th><th class="n">Custo</th><th class="n">Conv.</th><th class="n">Custo/conv.</th></tr>
+      ${rel.campanhas.linhas.map(x => `<tr><td>${esc(x.campanha)}</td><td>${esc(x.status || '')}</td><td class="n">${x.impr.toLocaleString('pt-BR')}</td><td class="n">${x.cliques}</td><td class="n">${x.impr ? (x.cliques / x.impr * 100).toFixed(1).replace('.', ',') + '%' : '—'}</td><td class="n">${brl0(x.custo)}</td><td class="n">${x.conv || '—'}</td><td class="n">${x.conv ? brl0(x.custo / x.conv) : '—'}</td></tr>`).join('')}</table></div></div>` : ''}
+  </div>`;
+}
+function funilDica(tot, visitas, contatos, pedidos, fech) {
+  if (!tot.impr) return 'Importe um relatório para ver o funil completo.';
+  if (tot.impr >= 300 && tot.cliques / tot.impr < .03) return '💡 Muita gente vê e pouca clica: teste títulos com o preço e o prazo, e confira se as palavras-chave batem com o anúncio.';
+  if (tot.cliques >= 20 && visitas < tot.cliques * .5) return '💡 Menos da metade dos cliques virou visita registrada: normal se muitos recusam cookies ou fecham antes de a página carregar.';
+  if (visitas >= 30 && contatos / visitas < .05) return '💡 Visitam e não chamam: revise a primeira tela do site (preço, prazo e botão do WhatsApp à vista).';
+  if (pedidos >= 5 && !fech) return '💡 Chegam pedidos e nenhum fecha: responda em minutos e mande o orçamento no mesmo dia.';
+  return 'Funil equilibrado até aqui. Continue acompanhando os termos de pesquisa toda semana.';
+}
+async function gadsLancarGasto() {
+  const rel = gadsRel(), base = rel.campanhas || rel.palavras || rel.termos || rel.dias; if (!base) return;
+  const custo = Math.round(soma(base.linhas, x => x.custo) * 100) / 100;
+  const descricao = `Relatório Google Ads ${base.periodo || dataBR(base.importado_em)}`.slice(0, 120);
+  if (S.despesas.some(d => d.descricao === descricao)) return toast('Esse relatório já foi lançado como gasto.');
+  if (!confirm(`Lançar ${brl0(custo)} como gasto em Google Ads (campanha google_pesquisa_calculo)?\n\nSe você já lança as recargas do Pix como gasto, não lance de novo: o custo seria contado duas vezes.`)) return;
+  await seguro(async () => { await criar('despesas', { data: hoje(), canal: 'Google Ads', campanha: 'google_pesquisa_calculo', valor: custo, descricao }); toast('Gasto lançado'); render(); });
+}
+
 function telaTrafego() {
   COPIAS = [];
   const aba = ABAS_TRAFEGO[S.abaTrafego] ? S.abaTrafego : 'ativacao';
   const r = rast();
   const status = r.ativo && (r.ga4_id || r.gads_id || r.meta_pixel_id) ? '<span class="tag t-good">● Rastreamento ligado</span>' : '<span class="tag t-neutro">○ Rastreamento desligado</span>';
-  const corpo = { ativacao: trafegoAtivacao, resultados: trafegoResultados, campanhas: trafegoCampanhas, links: trafegoLinks, offline: trafegoOffline }[aba]();
-  return `<div class="topo"><h1>Tráfego pago</h1><div class="acoes">${status}${aba === 'resultados' ? seletorPeriodo() : ''}<button class="btn" data-acao="novoGasto">+ Lançar gasto</button></div></div>
+  const corpo = { ativacao: trafegoAtivacao, resultados: trafegoResultados, google: trafegoGoogle, campanhas: trafegoCampanhas, links: trafegoLinks, offline: trafegoOffline }[aba]();
+  return `<div class="topo"><h1>Tráfego pago</h1><div class="acoes">${status}${aba === 'resultados' || aba === 'google' ? seletorPeriodo() : ''}<button class="btn" data-acao="novoGasto">+ Lançar gasto</button></div></div>
   <div class="seg" style="margin-bottom:16px;flex-wrap:wrap">${Object.entries(ABAS_TRAFEGO).map(([k, v]) => `<button class="${k === aba ? 'on' : ''}" data-aba-trafego="${k}">${v}</button>`).join('')}</div>${corpo}`;
 }
 
@@ -2615,7 +2782,7 @@ document.addEventListener('click', e => {
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
     novaDespesa: () => editarDespesa(null), importarPJC, limparDemo, novaConversa,
-    novoGasto: () => novoGasto(), novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
+    novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
     waEnviar: waEnviarTexto, waAnexar,
     waModelo: () => seguro(() => waEnviar({ template: CFG.WA_TEMPLATE || 'retomar_contato', idioma: CFG.WA_TEMPLATE_IDIOMA || 'pt_BR' })),
     addAtividade: () => seguro(async () => {
