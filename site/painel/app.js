@@ -297,7 +297,7 @@ function abrirForm(titulo, campos, valores = {}, extras = {}) {
       f.tipo === 'checkbox' ? `<div class="chk ${f.full ? 'full' : ''}">${input(f)}<label for="f_${f.k}" style="margin:0">${esc(f.rot)}</label></div>`
         : `<div class="${f.full ? 'full' : ''}"><label for="f_${f.k}">${esc(f.rot)}</label>${input(f)}</div>`).join('')}</div>
       <div class="rodape">${extras.apagar ? '<button type="button" class="btn perigo" data-a="apagar" style="margin-right:auto">Excluir</button>' : ''}
-      <button type="button" class="btn sec" data-a="cancelar">Cancelar</button><button class="btn">Salvar</button></div></form>`;
+      <button type="button" class="btn sec" data-a="cancelar">Cancelar</button><button class="btn">${esc(extras.ok || 'Salvar')}</button></div></form>`;
     document.body.appendChild(fundo);
     const fechar = r => { fundo.remove(); resolve(r); };
     fundo.addEventListener('click', e => { if (e.target === fundo) fechar(null); });
@@ -798,7 +798,7 @@ function telaWhatsapp() {
     const fimJanela = aberta && c.ultima_entrada_em ? new Date(new Date(c.ultima_entrada_em).getTime() + 24 * 36e5) : new Date();
     const cliC = c.cliente_id && cliente(c.cliente_id);
     corpo = `<div class="wa-cab"><div class="wa-quem">${avatar(c.nome || c.wa_id, c.wa_id, 'g')}<div><b>${esc(c.nome || fmtTel(c.wa_id))}</b><div class="wa-sub">${fmtTel(c.wa_id)}${cliC ? ' · <span class="tag t-good">Cliente</span>' : l ? ` · <span class="tag t-azul">${esc(STATUS_LEAD[l.status])}</span>` : ''}${l?.temperatura ? ' ' + tagTemp(l) : ''}</div></div></div>
-        <div class="wa-acoes"><button class="btn mini sec" data-cadastro="${c.wa_id}" title="Preencher o cadastro com os dados da conversa">📋 Cadastro</button>${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini ouro" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(c.wa_id)}" title="Abrir no WhatsApp Web">WhatsApp Web ↗</a></div></div>
+        <div class="wa-acoes"><button class="btn mini ouro" data-acao="orcamentoRapido" title="Montar a mensagem de orçamento com o valor que você definir">💰 Orçamento</button><button class="btn mini sec" data-cadastro="${c.wa_id}" title="Preencher o cadastro com os dados da conversa">📋 Cadastro</button>${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini ouro" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(c.wa_id)}" title="Abrir no WhatsApp Web">WhatsApp Web ↗</a></div></div>
       ${EVOLUTION() ? '' : `<div class="wa-janela ${aberta ? 'ok' : 'fechada'}">${aberta ? `✔ Conversa aberta: pode responder livremente até ${fimJanela.toLocaleDateString('pt-BR') === new Date().toLocaleDateString('pt-BR') ? 'hoje' : 'amanhã'} às ${hora(fimJanela)}.`
         : `⏸ O cliente não escreve há mais de 24h. Pela regra do WhatsApp, só dá para enviar um <b>modelo aprovado</b> para retomar a conversa. <button class="btn mini" data-acao="waModelo">Enviar modelo "${esc(CFG.WA_TEMPLATE || 'retomar_contato')}"</button>`}</div>`}
       ${cfgRobo().ativo ? `<div class="wa-janela ${roboEmSilencio(c) ? 'fechada' : 'ok'}">${roboEmSilencio(c)
@@ -838,6 +838,32 @@ function telaWhatsapp() {
 // dados de pagamento padrão (podem ser trocados em ⚡ Respostas › Dados para pagamento)
 const PAGAMENTO_PADRAO = 'Pix (CNPJ): 51.362.258/0001-79\nFavorecido: Pontes Pereira Assessoria Administrativa\nBanco Inter';
 const dadosPagamento = () => (S.ajustes.respostas || {}).__pagamento || PAGAMENTO_PADRAO;
+// 💰 Orçamento: você define valor e prazo na hora; a mensagem vai para a caixa de texto e,
+// quando for enviada, o lead passa para "Orçamento enviado" com esse valor
+async function orcamentoRapido() {
+  const c = convAtiva(); if (!c) return;
+  const l = leadDaConversa(c), primeiro = primeiroCalculo(l);
+  const v = await abrirForm('💰 Enviar orçamento', [
+    { k: 'processo', rot: 'Nº do processo (vem do cadastro do cliente)', ph: '0000000-00.0000.5.00.0000', full: true },
+    { k: 'valor', rot: primeiro ? 'Valor do cálculo (R$) · 1º cálculo deste cliente' : 'Valor do cálculo (R$)', tipo: 'number', req: true },
+    { k: 'prazo', rot: 'Entrega', tipo: 'select', vazio: false, opcoes: [['em até 48h', 'Em até 48h'], ['em até 24h (urgente)', 'Em até 24h (urgente)'], ['em até 3 dias úteis', 'Em até 3 dias úteis'], ['em até 5 dias úteis', 'Em até 5 dias úteis'], ['data', 'Numa data específica…']] },
+    { k: 'data', rot: 'Data de entrega (se escolheu data específica)', tipo: 'date' },
+    { k: 'detalhe', rot: 'Detalhe do caso (opcional, ex.: 2 autores, período de 5 anos)', ph: 'deixe vazio se não precisar', full: true }
+  ], { processo: (l && l.numero_processo) || '', valor: (l && l.valor_orcado) || (primeiro ? PRECO_PRIMEIRO : PRECO_BASE), prazo: 'em até 48h' }, { ok: 'Montar mensagem' });
+  if (!v) return;
+  const valor = numBR(v.valor); if (!valor) return toast('Informe o valor');
+  const entrega = v.prazo === 'data' ? (v.data ? 'até ' + dataBR(v.data) : 'em até 48h') : v.prazo;
+  const nome = nomeParaMensagem(c.nome), lista = listaVariacoes('orcamento_valor'), modelo = lista[sortearVariacao('rap_orcamento_valor', lista.length)];
+  const txt = (nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome)
+    .replace(/\{valor\}/g, valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })).replace(/\{entrega\}/g, () => entrega)
+    .replace(/\{processo\}/g, () => (v.processo || '').trim() ? ` nº ${v.processo.trim()}` : '')
+    .replace(/\{detalhe\}/g, () => (v.detalhe || '').trim() ? ` (${v.detalhe.trim()})` : '')
+    .replace(/\{primeiro\}/g, () => primeiro && valor < PRECO_BASE ? ` Esse é o valor especial do primeiro cálculo.` : '');
+  S.rascunhos[c.wa_id] = txt;
+  S.orcPendente = { wa: c.wa_id, lead: l ? l.id : null, valor, processo: (v.processo || '').trim() || null };
+  render(); const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
+  toast('Revise e envie: ao enviar, o lead vai para "Orçamento enviado" com R$ ' + valor.toLocaleString('pt-BR'));
+}
 async function configRespostas() {
   const chaves = RESPOSTAS_RAPIDAS.filter(([, k]) => k !== '__apresentacao__');
   const v = await abrirForm('⚙ Respostas rápidas (variações)', [
@@ -1028,6 +1054,11 @@ async function waEnviar(opts) {
   }
   const lista = (S.wa_mensagens[c.wa_id] = S.wa_mensagens[c.wa_id] || []);
   if (!lista.some(x => x.id === msg.id)) lista.push(msg); // o tempo real pode já ter mostrado
+  if (S.orcPendente && S.orcPendente.wa === c.wa_id && /R\$/.test(opts.texto || '')) { // orçamento enviado: lead vai para "Orçamento enviado"
+    const o = S.orcPendente; S.orcPendente = null;
+    const lo = o.lead && S.leads.find(x => x.id === o.lead);
+    if (lo) await atualizar('leads', lo.id, { valor_orcado: o.valor, ...(o.processo && !lo.numero_processo ? { numero_processo: o.processo } : {}), ...(['novo', 'perdido'].includes(lo.status) ? { status: 'orcamento' } : {}) }).then(() => toast('Lead em "Orçamento enviado" com ' + brl0(o.valor))).catch(e => console.warn('orçamento', e));
+  }
   if (S.prospPendente && digitos(c.wa_id).slice(-8) === S.prospPendente.chave) { // abordagem de prospecção enviada: agora conta
     const pr = S.prospects.find(x => x.id === S.prospPendente.id); S.prospPendente = null;
     if (pr) await marcarContatado(pr).catch(e => console.warn('prospecção', e));
@@ -2982,7 +3013,7 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
+    novaDespesa: () => editarDespesa(null), orcamentoRapido, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
     selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),

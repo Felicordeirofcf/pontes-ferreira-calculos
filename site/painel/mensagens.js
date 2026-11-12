@@ -193,6 +193,23 @@ const VARIACOES = {
     "Pagamento ok! Obrigado, {nome}. Estou te enviando o cálculo em PDF e o arquivo .PJC agora.",
     "Obrigado, {nome}! Pagamento confirmado. Seguem os arquivos do cálculo (PDF e .PJC). Foi um prazer atender você. 🙂"
   ],
+  orcamento_valor: [
+    "Olá, {nome}! Analisamos o processo{processo}{detalhe}: o cálculo fica em *R$ {valor}*, com entrega {entrega}.{primeiro}\n\nVocê recebe o arquivo .PJC, o relatório em PDF e o resumo do que foi deferido. Podemos seguir?",
+    "Olá, {nome}! Já analisei o processo{processo}{detalhe}. O valor do cálculo é *R$ {valor}* e a entrega fica {entrega}.{primeiro}\n\nPosso dar andamento?",
+    "Oi, {nome}! Processo{processo} analisado{detalhe}. Orçamento: *R$ {valor}*, entrega {entrega}.{primeiro}\n\nInclui .PJC, relatório em PDF e resumo do deferido. Fechamos?",
+    "Olá, {nome}! Terminamos a análise do processo{processo}{detalhe}: o cálculo sai por *R$ {valor}*, com entrega {entrega}.{primeiro}\n\nSe estiver de acordo, já começo hoje.",
+    "Olá, {nome}! Segue o orçamento do cálculo do processo{processo}{detalhe}: *R$ {valor}*, entrega {entrega}.{primeiro}\n\nVocê recebe .PJC + PDF + resumo do que foi deferido, e a 1ª retificação (se o juízo pedir) é sem custo. Podemos seguir?",
+    "Oi, {nome}! Analisamos o processo{processo}{detalhe}. Fica em *R$ {valor}*, com entrega {entrega}.{primeiro}\n\nMe confirma que eu já coloco na fila?",
+    "Olá, {nome}! Orçamento pronto para o processo{processo}{detalhe}: *R$ {valor}*, com o cálculo entregue {entrega}.{primeiro}\n\nPreço fechado, sem surpresa. Vamos seguir?",
+    "Olá, {nome}! Depois da análise do processo{processo}{detalhe}, o cálculo fica em *R$ {valor}*, entrega {entrega}.{primeiro}\n\nQual a data do seu prazo? Se for curto, consigo priorizar.",
+    "Oi, {nome}! Já vi o processo{processo}{detalhe}: *R$ {valor}*, entrega {entrega}.{primeiro}\n\nSegue com o .PJC, relatório em PDF e resumo das verbas deferidas. Posso iniciar?",
+    "Olá, {nome}! O orçamento do cálculo do processo{processo}{detalhe} ficou em *R$ {valor}*, com entrega {entrega}.{primeiro}\n\nAguardo seu ok para começar.",
+    "Olá, {nome}! Analisamos as decisões do processo{processo}{detalhe}. Valor: *R$ {valor}*. Entrega: {entrega}.{primeiro}\n\nPodemos dar andamento?",
+    "Oi, {nome}! Processo{processo} avaliado{detalhe}. O cálculo fica em *R$ {valor}* e entregamos {entrega}.{primeiro}\n\nSe fechar, já inicio agora.",
+    "Olá, {nome}! Orçamento do cálculo do processo{processo}{detalhe}: *R$ {valor}*, com entrega {entrega}.{primeiro}\n\nVocê recebe tudo pronto para juntar (.PJC + PDF). Seguimos?",
+    "Olá, {nome}! Conferi o processo{processo}{detalhe}: o valor é *R$ {valor}*, com entrega {entrega}.{primeiro}\n\nMe avisa se posso começar. 🙂",
+    "Oi, {nome}! Fechamos a análise do processo{processo}{detalhe}. Cálculo por *R$ {valor}*, entrega {entrega}.{primeiro}\n\nPosso seguir com o cálculo?"
+  ],
   pedir_cadastro: [
     'Para agilizar seu atendimento, pode me passar seus dados para o cadastro?\n\n• Nome completo\n• OAB (número/UF)\n• CPF ou CNPJ (para o recibo)\n• E-mail\n• Cidade/UF\n• Nome do escritório (se houver)',
     'Vamos deixar seu cadastro pronto? Me envia, por favor:\n\n1. Nome completo\n2. Nº da OAB e estado\n3. CPF ou CNPJ\n4. E-mail para envio dos arquivos\n5. Cidade/UF',
