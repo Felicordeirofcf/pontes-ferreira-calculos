@@ -331,3 +331,7 @@ select cron.schedule('pf-relatorio-semanal', '0 11 * * 1', $cron$
   select net.http_post(url := 'https://ywlnsaypcghizwyhaual.supabase.co/functions/v1/alertas',
     body := '{"tipo":"semanal"}'::jsonb, headers := '{"Content-Type":"application/json"}'::jsonb);
 $cron$);
+
+-- ---------------- Cadastro do cliente: documento e escritório ----------------
+alter table clientes add column if not exists cpf_cnpj text;
+alter table clientes add column if not exists escritorio text;

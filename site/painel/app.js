@@ -306,6 +306,7 @@ function abrirForm(titulo, campos, valores = {}, extras = {}) {
 
 const camposCliente = () => [
   { k: 'nome', rot: 'Nome (advogado/escritório)', req: true, full: true },
+  { k: 'escritorio', rot: 'Escritório' }, { k: 'cpf_cnpj', rot: 'CPF ou CNPJ' },
   { k: 'whatsapp', rot: 'WhatsApp' }, { k: 'email', rot: 'E-mail', tipo: 'email' },
   { k: 'oab', rot: 'OAB' }, { k: 'cidade', rot: 'Cidade/UF' },
   { k: 'origem', rot: 'Como chegou', tipo: 'select', opcoes: CANAIS },
@@ -769,12 +770,13 @@ function telaWhatsapp() {
     const aberta = janelaAberta(c);
     const fimJanela = aberta && c.ultima_entrada_em ? new Date(new Date(c.ultima_entrada_em).getTime() + 24 * 36e5) : new Date();
     corpo = `<div class="wa-cab"><div><b>${esc(c.nome || fmtTel(c.wa_id))}</b><div class="desc" style="margin:0">${fmtTel(c.wa_id)}${l ? ` · ${esc(STATUS_LEAD[l.status])}` : ''}</div></div>
-        <div class="linha">${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha do lead</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(c.wa_id)}">Abrir no WhatsApp Web ↗</a></div></div>
+        <div class="linha"><button class="btn mini sec" data-cadastro="${c.wa_id}" title="Preencher o cadastro com os dados da conversa">📋 Cadastro</button>${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha do lead</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(c.wa_id)}">Abrir no WhatsApp Web ↗</a></div></div>
       ${EVOLUTION() ? '' : `<div class="wa-janela ${aberta ? 'ok' : 'fechada'}">${aberta ? `✔ Conversa aberta: pode responder livremente até ${fimJanela.toLocaleDateString('pt-BR') === new Date().toLocaleDateString('pt-BR') ? 'hoje' : 'amanhã'} às ${hora(fimJanela)}.`
         : `⏸ O cliente não escreve há mais de 24h. Pela regra do WhatsApp, só dá para enviar um <b>modelo aprovado</b> para retomar a conversa. <button class="btn mini" data-acao="waModelo">Enviar modelo "${esc(CFG.WA_TEMPLATE || 'retomar_contato')}"</button>`}</div>`}
       ${cfgRobo().ativo ? `<div class="wa-janela ${roboEmSilencio(c) ? 'fechada' : 'ok'}">${roboEmSilencio(c)
         ? `👤 Equipe atendendo: o robô está quieto até ${new Date(c.humano_ate).toLocaleDateString('pt-BR') === new Date().toLocaleDateString('pt-BR') ? '' : dataBR(c.humano_ate) + ' '}${hora(c.humano_ate)}. <button class="btn mini sec" data-robo-devolver="${c.wa_id}">Devolver ao robô</button>`
         : `🤖 O robô responde esta conversa. Ao enviar uma mensagem, você assume. <button class="btn mini sec" data-robo-assumir="${c.wa_id}">Assumir agora</button>`}</div>` : ''}
+      ${faixaCadastro(c)}
       <div class="wa-msgs" id="waMsgs">${bolhas}</div>
       <div class="wa-compor">
         <select class="f" id="waRapida"><option value="">⚡ Respostas rápidas</option>${RESPOSTAS_RAPIDAS.map(([r], i) => `<option value="${i}">${r}</option>`).join('')}</select>
@@ -1966,6 +1968,116 @@ function exportMeta() {
   baixarArquivo(`meta-clientes-${hoje()}.csv`, csv(linhas));
 }
 
+/* ---------------- Ler o cadastro nas mensagens do cliente ---------------- */
+const cpfValido = d => { if (!/^\d{11}$/.test(d) || /^(\d)\1+$/.test(d)) return false; const dv = n => { let s = 0; for (let i = 0; i < n; i++) s += +d[i] * (n + 1 - i); const r = (s * 10) % 11; return r === 10 ? 0 : r; }; return dv(9) === +d[9] && dv(10) === +d[10]; };
+const cnpjValido = d => { if (!/^\d{14}$/.test(d) || /^(\d)\1+$/.test(d)) return false; const dv = n => { const p = n === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]; const s = p.reduce((t, w, i) => t + +d[i] * w, 0) % 11; return s < 2 ? 0 : 11 - s; }; return dv(12) === +d[12] && dv(13) === +d[13]; };
+const fmtCpf = d => `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+const fmtCnpj = d => `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+const tituloNome = s => s.toLowerCase().replace(/(^|\s|-)(\p{L})/gu, (m, a, b) => a + b.toUpperCase()).replace(/\b(Da|De|Do|Das|Dos|E)\b/g, x => x.toLowerCase());
+const ROTULOS_CAD = [
+  ['nome', /^(nome( completo)?|raz[aã]o social|advogad[oa])$/], ['oab', /^(n[ºo°.]*\s*)?oab(\s*\/?\s*uf)?$/], ['doc', /^(cpf|cnpj|cpf\s*\/\s*cnpj|cpf ou cnpj|documento)$/],
+  ['email', /^e-?mail$/], ['cidade', /^(cidade(\s*\/\s*uf)?|cidade e estado|local(idade)?)$/], ['escritorio', /^(escrit[oó]rio|sociedade|empresa)$/]
+];
+function lerCadastro(texto, tel = '') {
+  const r = {}, telD = digitos(tel).slice(-11);
+  const SAUDA = /^(ol[aá]|oi|bom dia|boa tarde|boa noite|segue[m]?( (os )?meus)?( dados)?|meus dados( s[aã]o)?|tudo bem|obrigad[oa])[!,.:\s]*/i;
+  // pedaços: linhas, vírgulas e ponto e vírgula; tira marcadores de lista ("1.", "-", "•") e saudações
+  const partes = String(texto || '').split(/\r?\n|;|,(?!\d)/).map(x => x.replace(/^\s*(?:[-•✔*>]|\d{1,2}[.)])\s+/, '').trim()).map(x => { let y = x, a; do { a = y; y = y.replace(SAUDA, '').trim(); } while (y !== a); return y; }).filter(Boolean);
+  const usadas = new Set(), marca = x => usadas.add(x);
+  // 1) "Campo: valor"
+  partes.forEach(l => {
+    const m = l.match(/^([^:–]{2,24}?)\s*[:–]\s*(.+)$/) || l.match(/^(nome completo|nome|oab|cpf|cnpj|e-?mail|cidade|escrit[oó]rio)\s+-\s+(.+)$/i); if (!m) return;
+    const rot = roboNorm(m[1]).replace(/[^a-z /º°.]/g, '').trim(), val = m[2].trim();
+    const campo = (ROTULOS_CAD.find(([, re]) => re.test(rot)) || [])[0];
+    if (campo && val && !r[campo]) { r[campo] = val; marca(l); }
+  });
+  // 2) e-mail
+  const em = (r.email || partes.join(' ')).match(/[\w.+-]+@[\w-]+(\.[\w-]+)+/); if (em) { r.email = em[0].toLowerCase(); partes.filter(l => l.includes(em[0])).forEach(marca); }
+  // 3) CPF/CNPJ: confere os dígitos; número solto de 11 dígitos só vale se estiver sozinho e não for o WhatsApp do cliente
+  const docs = [];
+  if (r.doc) docs.push([r.doc, true]);
+  partes.forEach(l => (l.match(/\d[\d.\-\/ ]{9,20}\d/g) || []).forEach(c => docs.push([c, /cpf|cnpj/i.test(l) || /^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(c.trim()) || /\//.test(c) || l.replace(/\D/g, '') === c.replace(/\D/g, ''), l])));
+  for (const [c, confiavel, l] of docs) {
+    const d = c.replace(/\D/g, '');
+    if (cnpjValido(d)) { r.cpf_cnpj = fmtCnpj(d); if (l) marca(l); break; }
+    if (cpfValido(d) && confiavel && d !== telD && !(d.length === 11 && d[2] === '9' && !/[.\-]/.test(c) && !/cpf/i.test(l || 'cpf'))) { r.cpf_cnpj = fmtCpf(d); if (l) marca(l); break; }
+  }
+  delete r.doc;
+  // 4) OAB: "OAB RJ 123.456", "OAB/RJ 123456", "OAB 45678/MG", "RJ 123.456", "112233/RS"
+  const lerOab = t => {
+    const s2 = t.replace(/\boab\b/ig, ' ');
+    for (const re of [/\b([a-z]{2})[\s:nº°/.\-]+(\d[\d.]{2,8})\b/ig, /\b(\d[\d.]{2,8})[\s/\-]+([a-z]{2})\b/ig]) for (const m of s2.matchAll(re)) {
+      const [uf, num] = /\d/.test(m[1]) ? [m[2], m[1]] : [m[1], m[2]];
+      if (UF_NOME[uf.toUpperCase()]) return `${uf.toUpperCase()} ${num.replace(/\D/g, '')}`;
+    }
+    return null;
+  };
+  if (r.oab) r.oab = lerOab(r.oab) || r.oab.replace(/[^\d]/g, '') || r.oab;
+  else { const l = partes.find(x => /oab/i.test(x) && lerOab(x)) || partes.find(x => /^\d{3,7}\s*\/\s*[a-z]{2}$/i.test(x) && !usadas.has(x)); if (l) { r.oab = lerOab(l); marca(l); } }
+  // 5) cidade/UF (pedaço "Cidade/UF" ou "Cidade - UF")
+  const lerCid = t => { const m = t.match(/^([A-Za-zÀ-ú][A-Za-zÀ-ú .']{1,40}?)[ \t]*[\/\-–][ \t]*([A-Za-z]{2})$/); return m && UF_NOME[m[2].toUpperCase()] ? `${tituloNome(m[1].trim())}/${m[2].toUpperCase()}` : null; };
+  if (r.cidade) r.cidade = lerCid(r.cidade) || tituloNome(r.cidade);
+  else { const l = partes.find(x => !usadas.has(x) && lerCid(x)); if (l) { r.cidade = lerCid(l); marca(l); } }
+  // 6) escritório
+  if (!r.escritorio) { const l = partes.find(x => !usadas.has(x) && /advogad[oa]s|advocacia|sociedade de advogados|escrit[oó]rio/i.test(x) && x.length < 80); if (l) { r.escritorio = l.replace(/^escrit[oó]rio\s*/i, '').trim(); marca(l); } }
+  // 7) nome: primeiro pedaço "Nome Sobrenome" (2 a 7 palavras, sem números)
+  const nomeRotulado = !!r.nome;
+  if (!r.nome) { const l = partes.find(x => !usadas.has(x) && /^(dra?\.?\s+)?[A-Za-zÀ-ú'´]+(\s+[A-Za-zÀ-ú'´.]+){1,6}$/i.test(x) && !/advogad|advocacia|escrit|processo|c[aá]lculo/i.test(x)); if (l) r.nome = l; }
+  if (r.nome) r.nome = /^[^a-zà-ú]+$|^[^A-ZÀ-Ú]+$/.test(r.nome.replace(/[^A-Za-zÀ-ú]/g, '')) ? tituloNome(r.nome) : r.nome;
+  Object.keys(r).forEach(k => { if (!r[k]) delete r[k]; });
+  // nome solto só vale junto de outro dado de cadastro (evita ler "Pode seguir" como nome)
+  if (r.nome && !nomeRotulado && !['oab', 'cpf_cnpj', 'email', 'cidade', 'escritorio'].some(k => r[k])) delete r.nome;
+  return r;
+}
+const camposAchados = r => ['nome', 'oab', 'cpf_cnpj', 'email', 'cidade', 'escritorio'].filter(k => r[k]).length;
+// junta os dados das últimas mensagens recebidas (o cliente pode mandar em partes)
+function cadastroDaConversa(c) {
+  const msgs = (S.wa_mensagens[c.wa_id] || []).filter(m => m.direcao === 'in' && m.texto).slice(-12);
+  const r = {}; msgs.forEach(m => Object.assign(r, lerCadastro(m.texto, c.wa_id)));
+  return r;
+}
+async function preencherCadastro(waId) {
+  const c = S.wa_conversas.find(x => x.wa_id === waId); if (!c) return;
+  const l = leadDaConversa(c), achado = cadastroDaConversa(c);
+  let cli = (c.cliente_id && cliente(c.cliente_id)) || (l?.cliente_id && cliente(l.cliente_id)) || S.clientes.find(x => x.whatsapp && digitos(x.whatsapp).slice(-9) === digitos(waId).slice(-9));
+  const base = { ...(cli || {}), whatsapp: cli?.whatsapp || fmtTel(waId), origem: cli?.origem || (l ? canalLead(l) : 'WhatsApp direto') };
+  Object.entries(achado).forEach(([k, v]) => { if (v) base[k] = v; });
+  if (!base.nome) base.nome = l?.nome && !/^\d+$/.test(digitos(l.nome)) ? l.nome : (c.nome || '');
+  const v = await abrirForm(cli ? 'Atualizar cadastro do cliente' : 'Cadastrar cliente', [
+    { k: 'nome', rot: 'Nome completo (ou razão social)', req: true, full: true },
+    { k: 'escritorio', rot: 'Escritório' }, { k: 'oab', rot: 'OAB (UF e número)' },
+    { k: 'cpf_cnpj', rot: 'CPF ou CNPJ' }, { k: 'email', rot: 'E-mail', tipo: 'email' },
+    { k: 'cidade', rot: 'Cidade/UF' }, { k: 'whatsapp', rot: 'WhatsApp' },
+    { k: 'origem', rot: 'Como chegou', tipo: 'select', opcoes: CANAIS },
+    { k: 'obs', rot: 'Observações', tipo: 'textarea', full: true }
+  ], base);
+  if (!v) return;
+  await seguro(async () => {
+    const salvar = async dados => cli ? atualizar('clientes', cli.id, dados) : criar('clientes', dados);
+    try { cli = await salvar(v); }
+    catch (e) { // banco ainda sem as colunas cpf_cnpj/escritorio: guarda nas observações
+      if (!/cpf_cnpj|escritorio|column|schema cache/i.test(e.message || '')) throw e;
+      const { cpf_cnpj, escritorio, ...resto } = v;
+      cli = await salvar({ ...resto, obs: [resto.obs, cpf_cnpj && 'CPF/CNPJ: ' + cpf_cnpj, escritorio && 'Escritório: ' + escritorio].filter(Boolean).join(' · ') || null });
+    }
+    if (c.cliente_id !== cli.id || c.nome !== cli.nome) await atualizar('wa_conversas', c.id, { cliente_id: cli.id, nome: cli.nome });
+    if (l) { await atualizar('leads', l.id, { cliente_id: cli.id, ...(l.nome && !/^\+?\d[\d\s()-]+$/.test(l.nome) ? {} : { nome: cli.nome }) }); await registrar(l.id, 'nota', `Cadastro preenchido: ${[cli.oab && 'OAB ' + cli.oab, cli.email, cli.cidade].filter(Boolean).join(' · ')}`, cli.id); }
+    S.cadastroDispensado = { ...(S.cadastroDispensado || {}), [waId]: true };
+    toast('Cadastro salvo'); render();
+  });
+}
+// a faixa só aparece se houver dados novos (pelo menos 2) que o cadastro ainda não tem
+function faixaCadastro(c) {
+  if (!c || (S.cadastroDispensado || {})[c.wa_id]) return '';
+  const r = cadastroDaConversa(c); if (camposAchados(r) < 2) return '';
+  const cli = (c.cliente_id && cliente(c.cliente_id)) || null;
+  const novos = Object.entries(r).filter(([k, v]) => !cli || !cli[k] || String(cli[k]).trim() !== String(v).trim());
+  if (novos.length < 2 && cli) return '';
+  const rot = { nome: 'nome', oab: 'OAB', cpf_cnpj: 'CPF/CNPJ', email: 'e-mail', cidade: 'cidade', escritorio: 'escritório' };
+  return `<div class="wa-cadastro"><span>📋 <b>Encontramos dados de cadastro</b> nesta conversa: ${Object.keys(r).map(k => rot[k]).filter(Boolean).join(', ')}.</span>
+    <span class="linha"><button class="btn mini ouro" data-cadastro="${c.wa_id}">${cli ? 'Atualizar cadastro' : 'Preencher cadastro'}</button><button class="btn mini sec" data-cadastro-ok="${c.wa_id}" title="Esconder">Agora não</button></span></div>`;
+}
+
 /* ---------------- Painel do cliente (link pessoal) ---------------- */
 const novoToken = () => [...crypto.getRandomValues(new Uint8Array(24))].map(b => b.toString(16).padStart(2, '0')).join('');
 const linkPortal = c => `https://pontesferreiracalculos.com/cliente/?t=${c.portal_token}`;
@@ -2382,9 +2494,11 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
+  if (d.cadastro) return preencherCadastro(d.cadastro);
+  if (d.cadastroOk) { S.cadastroDispensado = { ...(S.cadastroDispensado || {}), [d.cadastroOk]: true }; return render(); }
   if (d.excluirLead) { e.stopPropagation(); return excluirLead(d.excluirLead); }
   if (d.portal) { e.stopPropagation(); return abrirPortal(d.portal); }
   if (d.entregas) { e.stopPropagation(); return abrirEntregas(d.entregas); }
