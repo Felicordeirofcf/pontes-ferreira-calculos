@@ -118,8 +118,14 @@ const L = {
 const db = {
   async list(t) {
     if (DEMO) return L.get(t);
-    const { data, error } = await sb.from(t).select('*').order('created_at', { ascending: false }).limit(10000);
-    if (error) throw error; return data;
+    // o Supabase devolve no máximo 1000 linhas por consulta: lê em páginas
+    let todas = [];
+    for (let de = 0; de < 50000; de += 1000) {
+      const { data, error } = await sb.from(t).select('*').order('created_at', { ascending: false }).range(de, de + 999);
+      if (error) throw error;
+      todas = todas.concat(data); if (data.length < 1000) break;
+    }
+    return todas;
   },
   async insert(t, row) {
     if (DEMO) { const r = { id: uid(), created_at: new Date().toISOString(), ...row }; L.set(t, [r, ...L.get(t)]); return r; }
@@ -138,8 +144,9 @@ const db = {
   },
   async listBy(t, col, val) {
     if (DEMO) return L.get(t).filter(r => r[col] === val).sort((a, b) => a.created_at.localeCompare(b.created_at));
-    const { data, error } = await sb.from(t).select('*').eq(col, val).order('created_at', { ascending: true }).limit(2000);
-    if (error) throw error; return data;
+    // as 1000 mais recentes (limite do Supabase), em ordem cronológica
+    const { data, error } = await sb.from(t).select('*').eq(col, val).order('created_at', { ascending: false }).limit(1000);
+    if (error) throw error; return data.reverse();
   },
   async upload(path, file) {
     if (DEMO) return path;
@@ -153,9 +160,16 @@ const db = {
   }
 };
 
-async function criar(t, row) { const r = await db.insert(t, row); S[t].unshift(r); return r; }
+async function criar(t, row) { const r = await db.insert(t, row); S[t] = [r, ...S[t].filter(x => x.id !== r.id)]; return r; } // o tempo real pode ter trazido a linha antes
 async function atualizar(t, id, patch) { const r = await db.update(t, id, patch); S[t] = S[t].map(x => x.id === id ? r : x); return r; }
 async function apagar(t, id) { await db.remove(t, id); S[t] = S[t].filter(x => x.id !== id); }
+// número digitado no formato brasileiro: "1.500,00", "R$ 300", "250.5" → 1500, 300, 250.5
+function numBR(v) {
+  let t = String(v ?? '').replace(/[^\d,.-]/g, '');
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+  const n = Number(t); return Number.isFinite(n) ? n : NaN;
+}
 async function seguro(fn) { try { return await fn(); } catch (e) { console.error(e); toast('Erro: ' + (e.message || e)); } }
 
 async function carregar() {
@@ -398,7 +412,7 @@ async function moverLead(l, status) {
   }
   if (status === 'orcamento' && !l.valor_orcado) {
     const v = prompt('Valor orçado (R$):', '250');
-    if (v) patch.valor_orcado = Number(v.replace(',', '.')) || null;
+    if (v) patch.valor_orcado = numBR(v) || null;
   }
   await seguro(async () => {
     await atualizar('leads', l.id, patch);
@@ -976,7 +990,7 @@ function preencherRapida(i) {
     return;
   }
   const lista = listaVariacoes(chave), modelo = lista[sortearVariacao('rap_' + chave, lista.length)];
-  const txt = modelo.replace(/\{nome\}/g, nome).replace(/\{valor\}/g, ((calc && calc.valor_cobrado) || (l && l.valor_orcado) || 250).toLocaleString('pt-BR', { minimumFractionDigits: 2 }))
+  const txt = modelo.replace(/\{nome\}/g, () => nome).replace(/\{valor\}/g, ((calc && calc.valor_cobrado) || (l && l.valor_orcado) || 250).toLocaleString('pt-BR', { minimumFractionDigits: 2 }))
     .replace(/\{prazo\}/g, calc && calc.prazo_entrega ? dataBR(calc.prazo_entrega) : 'em até 48h');
   S.rascunhos[c.wa_id] = txt; render();
   const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
@@ -993,7 +1007,8 @@ async function waEnviar(opts) {
     if (error) { let det = {}; try { det = await error.context.json(); } catch { } throw new Error(det.mensagem || error.message); }
     msg = data.mensagem;
   }
-  (S.wa_mensagens[c.wa_id] = S.wa_mensagens[c.wa_id] || []).push(msg);
+  const lista = (S.wa_mensagens[c.wa_id] = S.wa_mensagens[c.wa_id] || []);
+  if (!lista.some(x => x.id === msg.id)) lista.push(msg); // o tempo real pode já ter mostrado
   const resumo = msg.tipo === 'document' ? `📎 ${msg.arquivo_nome}` : msg.texto;
   await atualizar('wa_conversas', c.id, { ultima_msg: (resumo || '').slice(0, 200), ultima_msg_em: msg.created_at, nao_lidas: 0, humano_ate: new Date(Date.now() + (Number(cfgRobo().pausa_horas) || 12) * 36e5).toISOString(), bot_etapa: 'humano' });
   if (l) {
@@ -1003,12 +1018,15 @@ async function waEnviar(opts) {
   }
   render();
 }
+let waEnviando = false;
 async function waEnviarTexto() {
+  if (waEnviando) return; // Enter apertado duas vezes não envia em dobro
   const c = convAtiva(), t = $('#waTexto'); if (!c || !t) return;
   const texto = t.value.trim(); if (!texto) return;
   const btn = $('[data-acao=waEnviar]'); if (btn) btn.disabled = true;
-  await seguro(async () => { await waEnviar({ texto }); S.rascunhos[c.wa_id] = ''; render(); $('#waTexto')?.focus(); });
-  if (btn) btn.disabled = false;
+  waEnviando = true;
+  try { await seguro(async () => { await waEnviar({ texto }); S.rascunhos[c.wa_id] = ''; render(); $('#waTexto')?.focus(); }); }
+  finally { waEnviando = false; const b = $('[data-acao=waEnviar]'); if (b) b.disabled = false; }
 }
 function waAnexar() {
   const c = convAtiva(); if (!c) return;
@@ -1327,8 +1345,9 @@ function textoProsp(p, etapa = etapaProsp(p), idx) {
   const lista = String(c.textos[etapa] || '').split(SEP_VAR).map(x => x.trim()).filter(Boolean);
   const i = idx === undefined ? sortearVariacao('prosp_' + etapa, lista.length) : ((idx % lista.length) + lista.length) % lista.length;
   S.varAbordagem = { etapa, i, n: lista.length };
-  return String(lista[i] || '').replace(/\{,\s*nome\}/g, nome ? `, ${nome}` : '').replace(/\{nome\}/g, nome)
-    .replace(/\{eu\}/g, c.remetente ? `Aqui é ${c.remetente}, ` : 'Aqui é ').replace(/\{escritorio\}/g, p.escritorio || 'seu escritório').replace(/\{link\}/g, linkPortfolio(p));
+  // funções no replace: um "$&" no nome do contato não é expandido
+  return String(lista[i] || '').replace(/\{,\s*nome\}/g, () => nome ? `, ${nome}` : '').replace(/\{nome\}/g, () => nome)
+    .replace(/\{eu\}/g, () => c.remetente ? `Aqui é ${c.remetente}, ` : 'Aqui é ').replace(/\{escritorio\}/g, () => p.escritorio || 'seu escritório').replace(/\{link\}/g, () => linkPortfolio(p));
 }
 const contatavel = p => !['cliente', 'sem_interesse', 'nao_contatar', 'respondeu', 'interessado'].includes(p.status) && (p.whatsapp || p.email);
 function filaProsp() {
@@ -1739,7 +1758,7 @@ function alertasTrafego(t) {
   const semUtm = t.leads.filter(l => !l.utm_campaign && !l.gclid && !l.fbclid).length;
   if (semUtm >= 3) a.push(['warn', `${semUtm} leads de anúncio sem identificação de campanha. Confira o sufixo do URL (Google) e os parâmetros de URL (Meta) na aba Campanhas prontas.`]);
   const ga = S.leads.filter(l => canalLead(l) === 'Google Ads' && l.status === 'fechado' && l.gclid && l.gclid !== 'demo');
-  if (ga.length && !feito('offline_' + new Date().toISOString().slice(0, 7))) a.push(['azul', `${ga.length} cliente(s) do Google com gclid. Envie as conversões offline (aba 5) para o Google aprender quem fecha.`]);
+  if (ga.length && !feito('offline_' + hoje().slice(0, 7))) a.push(['azul', `${ga.length} cliente(s) do Google com gclid. Envie as conversões offline (aba 5) para o Google aprender quem fecha.`]);
   return a;
 }
 
@@ -1924,7 +1943,7 @@ function trafegoOffline() {
   const g = leadsOfflineGoogle();
   const nomeConv = traf().conv_offline || 'Cliente fechado';
   const clis = S.clientes.filter(c => c.whatsapp || c.email);
-  const mes = new Date().toISOString().slice(0, 7);
+  const mes = hoje().slice(0, 7);
   return `<div class="grade">
   <div class="card larga"><h2>Google Ads · clientes que fecharam</h2>
     <div class="desc">Ensina o Google a buscar quem paga, não só quem clica. Envie 1 vez por mês (o Google aceita cliques dos últimos 90 dias e ignora repetidos).</div>
@@ -1962,7 +1981,7 @@ async function salvarRast() {
   const m = (r.gads_id || '').match(/(AW-\d+)\s*\/\s*([A-Za-z0-9_-]+)/); // colou o send_to inteiro
   if (m) { r.gads_id = m[1]; r.gads_label = m[2]; }
   r.ga4_id = (r.ga4_id || '').toUpperCase(); r.gads_id = (r.gads_id || '').toUpperCase(); r.meta_pixel_id = digitos(r.meta_pixel_id); r.clarity_id = (r.clarity_id || '').trim().toLowerCase();
-  r.valor_lead = Number(String(r.valor_lead || '').replace(',', '.')) || 250;
+  r.valor_lead = numBR(r.valor_lead) || 250;
   const erros = Object.entries(VALIDA_RAST).filter(([k, [ok]]) => r[k] && !ok(r[k])).map(([k, [, msg]]) => msg);
   if (erros.length) { S.rascRast = { ...r }; render(); return toast('Confira: ' + erros.join(' · ')); }
   if (!(r.ga4_id || r.gads_id || r.meta_pixel_id || r.clarity_id)) r.ativo = false;

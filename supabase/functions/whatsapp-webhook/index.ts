@@ -141,10 +141,11 @@ function roboDecidir(e) {
 // </robo>
 
 /* ---------- robô: envio e decisão ---------- */
-let CFG_ROBO: any = null;
-async function cfgRobo() {
-  if (CFG_ROBO) return CFG_ROBO;
+let CFG_ROBO: any = null, CFG_ROBO_EM = 0;
+async function cfgRobo() { // relê a cada 60s: ligar/desligar o robô no painel vale em até 1 minuto
+  if (CFG_ROBO && Date.now() - CFG_ROBO_EM < 60e3) return CFG_ROBO;
   const { data } = await db.from('ajustes').select('valor').eq('chave', 'atendimento').maybeSingle();
+  CFG_ROBO_EM = Date.now();
   return (CFG_ROBO = { ...ROBO_PADRAO, ...(data?.valor || {}) });
 }
 async function enviarTextoRobo(waId: string, texto: string) {
@@ -168,6 +169,8 @@ async function atendimentoAutomatico(conv: any, m: any, tipo: string, texto: str
   if (Date.now() - Number(m.timestamp) * 1000 > 10 * 60e3) return;           // mensagem antiga reenviada pela Meta
   if (conv.humano_ate && new Date(conv.humano_ate).getTime() > Date.now()) return; // equipe atendendo
   if (conv.cliente_id && !cfg.responder_clientes) return;
+  // você já conversou com esse contato nos últimos 7 dias: o robô não volta a dar boas-vindas no meio da negociação
+  if (conv.bot_etapa === 'humano' && conv.humano_ate && Date.now() - new Date(conv.humano_ate).getTime() < 7 * 86400e3) return;
   // a conversa recomeça do menu depois de 12h parada
   const parada = !conv.bot_atualizado_em || Date.now() - new Date(conv.bot_atualizado_em).getTime() > 12 * 3600e3;
   const etapa = parada || conv.bot_etapa === 'humano' ? null : conv.bot_etapa;
@@ -199,16 +202,35 @@ async function atendimentoAutomatico(conv: any, m: any, tipo: string, texto: str
     if (r.numero) await db.from('leads').update({ modo: 'numero' }).eq('id', conv.lead_id).is('arquivo_path', null);
   }
 }
-const ultimos9 = (s: string) => digitos(s).slice(-9);
+// Chave do telefone: DDD + 8 últimos dígitos, sem o 55 e sem o 9º dígito.
+// Contas antigas do WhatsApp no Brasil respondem SEM o 9 (5521 6826-9019) mesmo quando
+// o painel enviou para 5521 9 6826-9019; comparar só o final fazia a resposta ser descartada.
+function chaveTel(s: string) {
+  let d = digitos(s);
+  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) d = d.slice(2);
+  if (d.length === 11 && d[2] === '9') d = d.slice(0, 2) + d.slice(3);
+  return d.length >= 10 ? d.slice(0, 2) + d.slice(-8) : d.slice(-8);
+}
+const ultimos9 = chaveTel; // nome antigo, mesma regra
+const fim4 = (s: string) => '%' + digitos(s).slice(-4) + '%'; // pré-filtro no banco (evita o limite de 1000 linhas)
+// número que chegou sem/com o 9º dígito: usa o wa_id da conversa que já existe
+async function waIdDaConversa(waId: string) {
+  const { data: exata } = await db.from('wa_conversas').select('wa_id').eq('wa_id', waId).maybeSingle();
+  if (exata) return waId;
+  const { data } = await db.from('wa_conversas').select('wa_id').like('wa_id', '%' + waId.slice(-8)).limit(20);
+  return (data || []).find((x: any) => chaveTel(x.wa_id) === chaveTel(waId))?.wa_id || waId;
+}
 
 async function assinaturaValida(req: Request, corpo: string) {
   const segredo = Deno.env.get('WA_APP_SECRET');
-  if (!segredo) return true; // sem segredo configurado, aceita (não recomendado)
+  if (!segredo) return false; // sem segredo da Meta: recusa (impede mensagens forjadas; com Evolution este caminho não é usado)
   const recebida = (req.headers.get('x-hub-signature-256') || '').replace('sha256=', '');
   const chave = await crypto.subtle.importKey('raw', new TextEncoder().encode(segredo), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const assin = await crypto.subtle.sign('HMAC', chave, new TextEncoder().encode(corpo));
   const hex = [...new Uint8Array(assin)].map(b => b.toString(16).padStart(2, '0')).join('');
-  return hex.length === recebida.length && hex === recebida;
+  if (hex.length !== recebida.length) return false;
+  let dif = 0; for (let i = 0; i < hex.length; i++) dif |= hex.charCodeAt(i) ^ recebida.charCodeAt(i); // comparação em tempo constante
+  return dif === 0;
 }
 
 // Baixa mídia do WhatsApp e guarda no Storage (bucket "processos")
@@ -241,9 +263,9 @@ async function conversaDe(waId: string, nomePerfil: string, referral?: any, cria
 
   // liga ao cliente ou lead que já tem esse telefone; se não houver, cria um lead novo (CRM)
   const fim = ultimos9(waId);
-  const { data: clientes } = await db.from('clientes').select('id,nome,whatsapp');
+  const { data: clientes } = await db.from('clientes').select('id,nome,whatsapp').like('whatsapp', fim4(waId));
   const cliente = (clientes || []).find(c => ultimos9(c.whatsapp) === fim);
-  const { data: leads } = await db.from('leads').select('id,whatsapp,status,created_at').order('created_at', { ascending: false }).limit(2000);
+  const { data: leads } = await db.from('leads').select('id,whatsapp,status,created_at').like('whatsapp', fim4(waId)).order('created_at', { ascending: false }).limit(500);
   let lead = (leads || []).find(l => ultimos9(l.whatsapp) === fim);
   if (!lead && !cliente && criarLead) {
     const { data } = await db.from('leads').insert({ nome: nomePerfil || waId, whatsapp: waId, modo: 'whatsapp', status: 'novo', ...origemAnuncio(referral) }).select().single();
@@ -252,7 +274,11 @@ async function conversaDe(waId: string, nomePerfil: string, referral?: any, cria
   const { data: nova, error } = await db.from('wa_conversas').insert({
     wa_id: waId, nome: cliente?.nome || nomePerfil || waId, lead_id: lead?.id || null, cliente_id: cliente?.id || null
   }).select().single();
-  if (error) throw error;
+  if (error) { // duas mensagens do mesmo contato novo ao mesmo tempo: a outra já criou a conversa
+    const { data: ja } = await db.from('wa_conversas').select('*').eq('wa_id', waId).maybeSingle();
+    if (ja) return ja;
+    throw error;
+  }
   return nova;
 }
 
@@ -334,7 +360,7 @@ async function contatoConhecido(waId: string) {
   const { data: conv } = await db.from('wa_conversas').select('id').eq('wa_id', waId).maybeSingle();
   if (conv) return { tipo: 'conversa' };
   for (const [tabela, tipo] of [['leads', 'lead'], ['clientes', 'cliente'], ['prospects', 'prospect']] as const) {
-    const { data } = await db.from(tabela).select('id,whatsapp' + (tabela === 'prospects' ? ',status' : '')).not('whatsapp', 'is', null).limit(5000);
+    const { data } = await db.from(tabela).select('id,whatsapp' + (tabela === 'prospects' ? ',status' : '')).like('whatsapp', fim4(waId)).limit(500);
     const achou = (data || []).find((x: any) => ultimos9(x.whatsapp) === fim);
     if (achou) return { tipo, registro: achou };
   }
@@ -350,12 +376,12 @@ function temIntencao(texto: string, tipo: string, arquivo_nome: string | null, m
 }
 async function prospectDoNumero(waId: string) {
   const fim = ultimos9(waId);
-  const { data } = await db.from('prospects').select('id,nome,cidade,whatsapp').not('whatsapp', 'is', null).limit(5000);
+  const { data } = await db.from('prospects').select('id,nome,cidade,whatsapp').like('whatsapp', fim4(waId)).limit(500);
   return (data || []).find((x: any) => ultimos9(x.whatsapp) === fim) || null;
 }
 async function prospectRespondeu(waId: string) {
   const fim = ultimos9(waId);
-  const { data } = await db.from('prospects').select('id,whatsapp,status').in('status', ['a_contatar', 'contatado']).limit(5000);
+  const { data } = await db.from('prospects').select('id,whatsapp,status').in('status', ['a_contatar', 'contatado']).like('whatsapp', fim4(waId)).limit(500);
   for (const p of (data || []).filter((x: any) => ultimos9(x.whatsapp) === fim))
     await db.from('prospects').update({ status: 'respondeu', proximo_contato: null }).eq('id', p.id);
 }
@@ -363,7 +389,10 @@ async function prospectRespondeu(waId: string) {
 function numeroDoJid(k: any): string | null {
   let j = String(k.remoteJid || '');
   if (j.endsWith('@lid')) j = String(k.remoteJidAlt || k.senderPn || k.participantAlt || '');
-  if (!j.endsWith('@s.whatsapp.net')) return null;
+  if (!j.endsWith('@s.whatsapp.net')) {
+    if (String(k.remoteJid || '').endsWith('@lid')) console.warn('evolution: mensagem de número oculto (@lid) sem número alternativo, descartada', k.id);
+    return null;
+  }
   return digitos(j.split('@')[0]) || null;
 }
 async function guardarBase64(b64: string, waId: string, nome: string, mime: string) {
@@ -374,7 +403,7 @@ async function guardarBase64(b64: string, waId: string, nome: string, mime: stri
   return path;
 }
 async function processarEvolution(b: any) {
-  const ev = String(b.event || '').toLowerCase().replace('_', '.');
+  const ev = String(b.event || '').toLowerCase().replace(/[_-]/g, '.');
   if (ev === 'connection.update') {
     await db.from('ajustes').upsert({ chave: 'whatsapp_status', publico: false, valor: { state: b.data?.state || null, numero: b.sender ? digitos(b.sender) : null, atualizado: new Date().toISOString() } });
     return;
@@ -385,8 +414,9 @@ async function processarEvolution(b: any) {
   for (const m of lista) { try { await processarMsgEvolution(m); } catch (e) { console.error('evolution msg', e); } }
 }
 async function processarMsgEvolution(m: any) {
-  const k = m.key || {}, waId = numeroDoJid(k);
-  if (!waId) return;
+  const k = m.key || {}, numero = numeroDoJid(k);
+  if (!numero) return;
+  const waId = await waIdDaConversa(numero);
   const msg = m.message || {};
   if (msg.reactionMessage || msg.protocolMessage || msg.senderKeyDistributionMessage && Object.keys(msg).length === 1) return;
   let tipo = 'outro', texto = '', arquivo_nome: string | null = null, mime = '';
@@ -398,7 +428,7 @@ async function processarMsgEvolution(m: any) {
   else if (msg.buttonsResponseMessage || msg.listResponseMessage || msg.templateButtonReplyMessage) { tipo = 'text'; texto = msg.buttonsResponseMessage?.selectedDisplayText || msg.listResponseMessage?.title || msg.templateButtonReplyMessage?.selectedDisplayText || ''; }
   else texto = `[${m.messageType || Object.keys(msg)[0] || 'mensagem'}]`;
   const ts = Number(m.messageTimestamp || Date.now() / 1000) * 1000;
-  if (Date.now() - ts > 10 * 60e3) return;                 // histórico/antigas: não importa
+  if (Date.now() - ts > 6 * 3600e3) return;                // histórico/antigas (mais de 6h): não importa. Folga para mensagens que chegam atrasadas depois de uma queda do servidor
   let conhecido = await contatoConhecido(waId);
   if (!conhecido) {
     // fora do CRM: só entra se for mensagem recebida com cara de cliente (amigos e família ficam só no celular)
@@ -407,7 +437,8 @@ async function processarMsgEvolution(m: any) {
   }
 
   if (k.fromMe) { // enviada por você (celular ou painel). Se veio do painel/robô, já está gravada pelo id.
-    const { data: ja } = await db.from('wa_mensagens').select('id').eq('wamid', k.id).maybeSingle();
+    let { data: ja } = await db.from('wa_mensagens').select('id').eq('wamid', k.id).maybeSingle();
+    if (!ja) { await new Promise(r => setTimeout(r, 2500)); ja = (await db.from('wa_mensagens').select('id').eq('wamid', k.id).maybeSingle()).data; } // o eco pode chegar antes de o painel/robô gravar o envio
     if (!ja) await gravarSaidaDoCelular(waId, texto || (arquivo_nome ? `📎 ${arquivo_nome}` : ''), tipo === 'text' ? 'text' : 'outro', k.id, ts, conhecido.tipo !== 'prospect'); // abordagem de prospecção não vira lead
     return;
   }
@@ -416,7 +447,7 @@ async function processarMsgEvolution(m: any) {
   if (arquivo_nome) {
     try {
       let b64 = msg.base64 || m.base64 || '';
-      if (!b64) { const r = await evo(`/chat/getBase64FromMediaMessage/${EVO_INST}`, { message: { key: k }, convertToMp4: false }); b64 = (await r.json().catch(() => ({}))).base64 || ''; }
+      if (!b64) { const r = await evo(`/chat/getBase64FromMediaMessage/${EVO_INST}`, { message: { key: k, message: msg }, convertToMp4: false }); b64 = (await r.json().catch(() => ({}))).base64 || ''; }
       if (b64) arquivo_path = await guardarBase64(b64, waId, arquivo_nome, mime);
     } catch (e) { texto = (texto ? texto + ' ' : '') + `[falha ao baixar arquivo: ${(e as Error).message}]`; }
   }

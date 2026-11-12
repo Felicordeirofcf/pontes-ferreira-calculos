@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cálculos Trabalhistas no PJe-Calc a partir de R$ 250 | Pontes Ferreira Cálculos Judiciais</title>
+<title>Cálculo Trabalhista no PJe-Calc em 48h | Pontes Ferreira</title>
 <meta name="description" content="Cálculos trabalhistas no PJe-Calc a partir de R$ 250. Informe o número do processo e receba o orçamento. Entrega do .PJC + relatório em até 48h.">
 <link rel="canonical" href="https://pontesferreiracalculos.com/">
 <meta property="og:type" content="website">
@@ -145,7 +145,7 @@
 <link rel="icon" href="/img/marca.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/img/marca.svg">
 <meta name="theme-color" content="#060f26">
-<meta property="og:image" content="https://pontesferreiracalculos.com/img/logo-oficial.png">
+<meta property="og:image" content="https://pontesferreiracalculos.com/img/og.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/marca.css">
@@ -231,7 +231,7 @@
             <option>Até 48h (urgente)</option>
           </select></div>
         <button class="btn" type="submit" id="btnEnviar">Enviar e receber orçamento</button>
-        <p class="lgpd">Seus dados e o processo são usados só para este cálculo (LGPD).</p>
+        <p class="lgpd">Seus dados e o processo são usados só para este cálculo. Ao enviar, você concorda com a <a href="/privacidade.html" target="_blank" rel="noopener">Política de Privacidade</a> (LGPD).</p>
       </form>
       <div id="ok" class="ok" hidden>
         <b>✔ Recebido!</b>
@@ -375,6 +375,7 @@
 </a>
 
 <script src="config.js"></script>
+<script>window.PF_CONV_PROPRIO = 1; // esta página dispara as conversões ela mesma (rastro.js cuida das outras páginas)</script>
 <script src="rastro.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
@@ -438,17 +439,22 @@
   const mem = {};
   const guardar = (k,v)=>{ mem[k]=v; try{ sessionStorage.setItem(k,v) }catch(e){} };
   const ler = k=>{ try{ return sessionStorage.getItem(k) || mem[k] }catch(e){ return mem[k] } };
+  // link interno das páginas de SEO (utm_source=organico) não apaga a origem paga já guardada (Google Ads, Meta, Prospecção)
+  const interno = qs.get('utm_source')==='organico' && ler('utm_source') && ler('utm_source')!=='organico';
   ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','gclid','fbclid'].forEach(k=>{
-    if(qs.get(k)) guardar(k, qs.get(k));
+    if(qs.get(k) && !(interno && k.startsWith('utm_'))) guardar(k, qs.get(k));
   });
   const origemCampanha = () => ler('utm_campaign') || ler('utm_source') || 'organico';
 
   // valor = valor estimado do lead em R$ (ajustável no painel)
+  // WhatsApp conta 1 conversão por visita (são vários botões); formulário conta só depois de salvo
   function conversao(origem, peso){
+    const ehWa = !/^form/.test(origem||'');
+    if(ehWa){ if(ler('pf_conv_wa')) return; guardar('pf_conv_wa','1'); }
     rastreioPronto.then(() => {
       if(!RAST.ativo) return;
       const valor = (Number(RAST.valor_lead) || 250) * (peso || 1);
-      if(RAST.gads_id && RAST.gads_label) gtag('event','conversion',{send_to:RAST.gads_id+'/'+RAST.gads_label, value:valor, currency:'BRL'});
+      if(RAST.gads_id && RAST.gads_label) gtag('event','conversion',{send_to:RAST.gads_id+'/'+RAST.gads_label, value:valor, currency:'BRL', transport_type:'beacon'});
       if(RAST.ga4_id) gtag('event','generate_lead',{origem, value:valor, currency:'BRL'});
       if(RAST.meta_pixel_id && window.fbq) fbq('track','Lead',{content_name:origem, value:valor, currency:'BRL'});
     });
@@ -537,7 +543,6 @@
 
     $('origemCampo').value = origemCampanha();
     const urgente = $('prazo').value.includes('48h');
-    conversao(modo==='pdf'?'form_pdf':'form_numero', urgente ? 2 : 1);
     if(window.PF_EVENTO) PF_EVENTO('pedido', { alvo: modo==='pdf' ? 'formulario_pdf' : 'formulario_numero', secao: 'form' });
 
     const resumo =
@@ -570,17 +575,23 @@
         let ins = await SB.from('leads').insert({ ...dadosLead, ...geo });
         if(ins.error && /column|coluna|schema cache/i.test(ins.error.message||'')) ins = await SB.from('leads').insert(dadosLead); // banco ainda sem as colunas uf/cidade
         if(ins.error) throw ins.error;
-      } else {
-        const r = await fetch('/', {method:'POST', body:new FormData(form)});
+      } else if(CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY && modo!=='pdf'){
+        // biblioteca do Supabase não carregou (CDN fora do ar/bloqueada): grava o pedido direto pela API
+        const r = await fetch(CFG.SUPABASE_URL+'/rest/v1/leads', { method:'POST', headers:{ apikey:CFG.SUPABASE_ANON_KEY, Authorization:'Bearer '+CFG.SUPABASE_ANON_KEY, 'Content-Type':'application/json', Prefer:'return=minimal' },
+          body: JSON.stringify({ nome: $('nome').value.trim(), whatsapp: $('tel').value.trim(), tipo: $('tipo').value, prazo: $('prazo').value, modo, numero_processo: numero.value,
+            origem: origemCampanha(), utm_source: ler('utm_source')||null, utm_campaign: ler('utm_campaign')||null, utm_medium: ler('utm_medium')||null,
+            utm_content: ler('utm_content')||null, utm_term: ler('utm_term')||null, gclid: ler('gclid')||null, fbclid: ler('fbclid')||null }) });
         if(!r.ok) throw new Error(r.status);
-      }
+      } else throw new Error('sem backend');
+      conversao(modo==='pdf'?'form_pdf':'form_numero', urgente ? 2 : 1); // só conta o pedido que foi salvo
       concluir(modo==='numero'
         ? 'Vamos puxar o processo '+numero.value+' no PJe. Em até 1 hora útil você recebe o orçamento no WhatsApp.'
         : null);
     }catch(err){
       // sem backend (ex.: abrindo o arquivo localmente): cai para o WhatsApp
-      abrirWhats(resumo + (modo==='pdf' ? '\nVou anexar o PDF do processo aqui na conversa.' : ''));
-      concluir('Abrimos o WhatsApp para concluir o envio.');
+      // depois de um await o navegador bloqueia window.open (popup): abre o WhatsApp na própria aba
+      conversao('form_whatsapp');
+      location.href = 'https://wa.me/'+WHATSAPP+'?text='+encodeURIComponent(resumo + (modo==='pdf' ? '\nVou anexar o PDF do processo aqui na conversa.' : ''));
     }
   });
 </script>

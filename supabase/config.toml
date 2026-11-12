@@ -1,0 +1,20 @@
+# Configuração das Edge Functions para deploy pela CLI (supabase functions deploy).
+# As funções abaixo são chamadas sem login (site, webhook do WhatsApp, pg_cron) e precisam de verify_jwt = false.
+# Sem este arquivo, a CLI publica com verificação de JWT ligada e o recebimento de mensagens, os avisos e o portal param.
+[functions.aviso-lead]
+verify_jwt = false
+
+[functions.alertas]
+verify_jwt = false
+
+[functions.portal-cliente]
+verify_jwt = false
+
+[functions.whatsapp-webhook]
+verify_jwt = false
+
+[functions.whatsapp-enviar]
+verify_jwt = true
+
+[functions.whatsapp-conexao]
+verify_jwt = true

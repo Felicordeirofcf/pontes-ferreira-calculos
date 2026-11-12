@@ -11,7 +11,10 @@
   // origem: utm da URL (ou link curto ?r= do portfólio), guardada para a sessão
   const q = new URLSearchParams(location.search);
   if (q.get('r') && !q.get('utm_source')) { q.set('utm_source', 'prospeccao'); q.set('utm_medium', q.get('m') === 'e' ? 'email' : 'whatsapp'); q.set('utm_campaign', 'prospeccao_1a1'); q.set('utm_content', q.get('r')); }
-  ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'].forEach(k => { if (q.get(k)) ss.set(k, q.get(k)); });
+  // link interno das páginas de SEO (utm_source=organico) não apaga a origem paga já guardada
+  const interno = q.get('utm_source') === 'organico' && ss.get('utm_source') && ss.get('utm_source') !== 'organico';
+  if (!interno) ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'].forEach(k => { if (q.get(k)) ss.set(k, q.get(k)); });
+  ['gclid', 'fbclid'].forEach(k => { if (q.get(k)) ss.set(k, q.get(k)); });
   if (q.get('gclid') && !ss.get('utm_source')) ss.set('utm_source', 'google');
   if (q.get('fbclid') && !ss.get('utm_source')) ss.set('utm_source', 'meta');
   let ref = null;
@@ -40,6 +43,39 @@
   window.PF_GEO = geo;
 
   evento('visita');
+
+  // Páginas de SEO e portfólio: carrega a tag do Google Ads/GA4/Meta (códigos do painel) e conta o clique no WhatsApp.
+  // A página inicial faz isso ela mesma (window.PF_CONV_PROPRIO).
+  if (!window.PF_CONV_PROPRIO) {
+    const rast = fetch(C.SUPABASE_URL + '/rest/v1/ajustes?chave=eq.rastreamento&select=valor', { headers: { apikey: C.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + C.SUPABASE_ANON_KEY } })
+      .then(r => r.json()).then(d => (d && d[0] && d[0].valor) || {}).catch(() => (C.RASTREAMENTO || {}))
+      .then(r => {
+        if (!r.ativo) return r;
+        window.dataLayer = window.dataLayer || []; window.gtag = window.gtag || function () { dataLayer.push(arguments); };
+        if (r.ga4_id || r.gads_id) {
+          const sc = document.createElement('script'); sc.async = true; sc.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(r.ga4_id || r.gads_id); document.head.appendChild(sc);
+          gtag('js', new Date()); if (r.ga4_id) gtag('config', r.ga4_id); if (r.gads_id) gtag('config', r.gads_id);
+        }
+        if (r.meta_pixel_id && !window.fbq) {
+          const n = window.fbq = function () { n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments); }; window._fbq = n; n.push = n; n.loaded = true; n.version = '2.0'; n.queue = [];
+          const sc = document.createElement('script'); sc.async = true; sc.src = 'https://connect.facebook.net/en_US/fbevents.js'; document.head.appendChild(sc);
+          fbq('init', r.meta_pixel_id); fbq('track', 'PageView');
+        }
+        return r;
+      });
+    document.addEventListener('click', e => {
+      const a = e.target.closest && e.target.closest('a[href*="wa.me"],a[href*="api.whatsapp.com"]');
+      if (!a || ss.get('pf_conv_wa')) return; // 1 conversão por visita
+      ss.set('pf_conv_wa', '1');
+      rast.then(r => {
+        if (!r.ativo) return;
+        const valor = Number(r.valor_lead) || 250;
+        if (r.gads_id && r.gads_label) gtag('event', 'conversion', { send_to: r.gads_id + '/' + r.gads_label, value: valor, currency: 'BRL', transport_type: 'beacon' });
+        if (r.ga4_id) gtag('event', 'generate_lead', { origem: 'whatsapp_' + location.pathname, value: valor, currency: 'BRL' });
+        if (r.meta_pixel_id && window.fbq) fbq('track', 'Lead', { value: valor, currency: 'BRL' });
+      });
+    }, true);
+  }
 
   // cliques: botões, links, abas
   document.addEventListener('click', e => {

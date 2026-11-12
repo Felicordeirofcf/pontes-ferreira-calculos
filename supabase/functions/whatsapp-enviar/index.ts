@@ -98,10 +98,14 @@ Deno.serve(async req => {
 });
 
 async function registrarEnvio(db: any, conv: any, waId: string, tipo: string, texto: string, b: any, wamid: string | undefined) {
-    const { data: msg, error: e2 } = await db.from('wa_mensagens').insert({
+    const linha = {
       wa_id: waId, direcao: 'out', tipo, texto, arquivo_path: b.arquivo_path || null, arquivo_nome: b.arquivo_nome || null,
       wamid: wamid || null, status: 'sent'
-    }).select().single();
+    };
+    // upsert: se o eco do WhatsApp já gravou esta mensagem, completa a linha em vez de dar erro (a mensagem já foi enviada)
+    const { data: msg, error: e2 } = wamid
+      ? await db.from('wa_mensagens').upsert(linha, { onConflict: 'wamid' }).select().single()
+      : await db.from('wa_mensagens').insert(linha).select().single();
     if (e2) throw e2;
 
     // a equipe assumiu a conversa: o robô fica em silêncio por algumas horas (Painel > WhatsApp > Atendimento automático)
