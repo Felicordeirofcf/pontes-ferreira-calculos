@@ -1,5 +1,6 @@
 // Supabase Edge Function: whatsapp-enviar
-// Chamada pelo painel para enviar mensagem/arquivo/modelo pelo WhatsApp (API oficial da Meta).
+// Chamada pelo painel para enviar mensagem/arquivo/modelo pelo WhatsApp.
+// Provedor: Evolution API (se EVOLUTION_URL e EVOLUTION_KEY existirem) ou API oficial da Meta.
 // Deixe "Enforce JWT verification" LIGADO: só você (logado no painel) consegue enviar.
 //
 // Secrets: WA_TOKEN, WA_PHONE_NUMBER_ID, WA_GRAPH_VERSION (opcional)
@@ -27,7 +28,9 @@ Deno.serve(async req => {
     if (dono !== true) return resp({ erro: 'nao_autorizado' }, 401);
 
     const TOKEN = Deno.env.get('WA_TOKEN'), PHONE_ID = Deno.env.get('WA_PHONE_NUMBER_ID');
-    if (!TOKEN || !PHONE_ID) return resp({ erro: 'whatsapp_nao_configurado', mensagem: 'Configure WA_TOKEN e WA_PHONE_NUMBER_ID nos Secrets do Supabase.' }, 400);
+    const EVO_URL = (Deno.env.get('EVOLUTION_URL') || '').replace(/\/+$/, ''), EVO_KEY = Deno.env.get('EVOLUTION_KEY') || '', EVO_INST = Deno.env.get('EVOLUTION_INSTANCIA') || 'pontes';
+    const usaEvo = !!(EVO_URL && EVO_KEY);
+    if (!usaEvo && (!TOKEN || !PHONE_ID)) return resp({ erro: 'whatsapp_nao_configurado', mensagem: 'Configure a Evolution API (EVOLUTION_URL e EVOLUTION_KEY) ou a API da Meta nos Secrets do Supabase.' }, 400);
 
     const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
     const b = await req.json();
@@ -44,9 +47,28 @@ Deno.serve(async req => {
 
     // Regra da Meta: fora de 24h da última mensagem do cliente, só modelo (template) aprovado
     const janelaAberta = conv.ultima_entrada_em && (Date.now() - new Date(conv.ultima_entrada_em).getTime()) < 24 * 3600e3;
-    if (!b.template && !janelaAberta) return resp({ erro: 'janela_24h', mensagem: 'O cliente não escreve há mais de 24h. Envie um modelo aprovado para reabrir a conversa.' }, 409);
+    if (!usaEvo && !b.template && !janelaAberta) return resp({ erro: 'janela_24h', mensagem: 'O cliente não escreve há mais de 24h. Envie um modelo aprovado para reabrir a conversa.' }, 409);
 
     let payload: Record<string, unknown>, tipo = 'text', texto = b.texto || '';
+    if (usaEvo) {
+      // Evolution API (WhatsApp Web): sem janela de 24h e sem modelos
+      let r: Response;
+      if (b.template) return resp({ erro: 'nao_suportado', mensagem: 'Com a Evolution API não é preciso modelo: envie uma mensagem normal.' }, 400);
+      if (b.arquivo_path) {
+        const { data: assinado, error } = await db.storage.from('processos').createSignedUrl(b.arquivo_path, 3600);
+        if (error) throw error;
+        const nome = b.arquivo_nome || 'documento.pdf', img = /\.(jpe?g|png|webp)$/i.test(nome);
+        tipo = img ? 'image' : 'document';
+        r = await fetch(`${EVO_URL}/message/sendMedia/${EVO_INST}`, { method: 'POST', headers: { apikey: EVO_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ number: waId, mediatype: img ? 'image' : 'document', mimetype: img ? 'image/jpeg' : (/\.pdf$/i.test(nome) ? 'application/pdf' : 'application/octet-stream'), media: assinado.signedUrl, fileName: nome, caption: b.texto || undefined }) });
+      } else {
+        if (!texto.trim()) return resp({ erro: 'mensagem_vazia' }, 400);
+        r = await fetch(`${EVO_URL}/message/sendText/${EVO_INST}`, { method: 'POST', headers: { apikey: EVO_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ number: waId, text: texto }) });
+      }
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) return resp({ erro: 'evolution', mensagem: out?.response?.message?.[0]?.exists === false ? 'Este número não tem WhatsApp.' : (out?.message || out?.error || 'Falha ao enviar pela Evolution API'), detalhe: out }, 502);
+      return await registrarEnvio(db, conv, waId, tipo, tipo === 'text' ? texto : (b.texto || ''), b, out?.key?.id);
+    }
     if (b.template) {
       tipo = 'template'; texto = `[modelo: ${b.template}]`;
       payload = { type: 'template', template: { name: b.template, language: { code: b.idioma || 'pt_BR' } } };
@@ -68,9 +90,17 @@ Deno.serve(async req => {
     const out = await r.json();
     if (!r.ok) return resp({ erro: 'meta', mensagem: out?.error?.message || 'Falha ao enviar', detalhe: out?.error }, 502);
 
+    return await registrarEnvio(db, conv, waId, tipo, texto, b, out.messages?.[0]?.id);
+  } catch (e) {
+    console.error(e);
+    return resp({ erro: 'interno', mensagem: (e as Error).message }, 500);
+  }
+});
+
+async function registrarEnvio(db: any, conv: any, waId: string, tipo: string, texto: string, b: any, wamid: string | undefined) {
     const { data: msg, error: e2 } = await db.from('wa_mensagens').insert({
       wa_id: waId, direcao: 'out', tipo, texto, arquivo_path: b.arquivo_path || null, arquivo_nome: b.arquivo_nome || null,
-      wamid: out.messages?.[0]?.id, status: 'sent'
+      wamid: wamid || null, status: 'sent'
     }).select().single();
     if (e2) throw e2;
 
@@ -85,8 +115,4 @@ Deno.serve(async req => {
     if (conv.lead_id) await db.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', conv.lead_id);
 
     return resp({ ok: true, mensagem: msg });
-  } catch (e) {
-    console.error(e);
-    return resp({ erro: 'interno', mensagem: (e as Error).message }, 500);
-  }
-});
+}

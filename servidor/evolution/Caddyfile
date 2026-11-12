@@ -1,0 +1,5 @@
+# https automático (Let's Encrypt) para a Evolution API
+{$DOMINIO} {
+	encode gzip
+	reverse_proxy evolution:8080
+}

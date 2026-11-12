@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Pontes Ferreira Cálculos">
+  <defs>
+    <radialGradient id="fundo" cx="38%" cy="30%" r="75%"><stop offset="0" stop-color="#16336e"/><stop offset=".6" stop-color="#0b1a3d"/><stop offset="1" stop-color="#060f26"/></radialGradient>
+    <linearGradient id="ouro" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fbe7a1"/><stop offset=".45" stop-color="#e2b13c"/><stop offset="1" stop-color="#a8740f"/></linearGradient>
+    <linearGradient id="azul" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1b4fbf" stop-opacity="0"/><stop offset=".5" stop-color="#3b7cf0"/><stop offset="1" stop-color="#1b4fbf" stop-opacity=".2"/></linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="32" fill="url(#fundo)"/>
+  <!-- arco dourado e traço azul -->
+  <path d="M9.5 41C5 28 13 12 30 8.5c8-1.7 15 0 20 3.2" fill="none" stroke="url(#ouro)" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M12 50c9 7 26 7 37-2 4-3.3 6.6-7.4 7.6-11.5" fill="none" stroke="url(#azul)" stroke-width="2" stroke-linecap="round"/>
+  <!-- barras -->
+  <rect x="49.4" y="23" width="2.4" height="5" rx=".5" fill="url(#ouro)" opacity=".9"/>
+  <rect x="52.9" y="19.5" width="2.4" height="8.5" rx=".5" fill="url(#ouro)" opacity=".9"/>
+  <rect x="56.4" y="15.5" width="2.4" height="12.5" rx=".5" fill="url(#ouro)" opacity=".9"/>
+  <!-- balança -->
+  <g fill="url(#ouro)" stroke="url(#ouro)" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="31" cy="14.2" r="1.7" stroke="none"/>
+    <rect x="30" y="15.5" width="2" height="25" rx=".8" stroke="none"/>
+    <path d="M18 20.5c4.5-1.8 8.5-2 13-1.4 4.5-.6 8.5-.4 13 1.4" fill="none" stroke-width="1.8"/>
+    <circle cx="18" cy="20.6" r="1.1" stroke="none"/><circle cx="44" cy="20.6" r="1.1" stroke="none"/>
+    <path d="M18 21.5 13.2 31M18 21.5 22.8 31M44 21.5 39.2 31M44 21.5 48.8 31" fill="none" stroke-width=".9"/>
+    <path d="M12.2 31h11.6c-.6 3-2.9 4.6-5.8 4.6s-5.2-1.6-5.8-4.6z" stroke="none"/>
+    <path d="M38.2 31h11.6c-.6 3-2.9 4.6-5.8 4.6s-5.2-1.6-5.8-4.6z" stroke="none"/>
+    <path d="M25 44.5c1.2-2.4 3.5-3.6 6-3.6s4.8 1.2 6 3.6z" stroke="none"/>
+  </g>
+</svg>

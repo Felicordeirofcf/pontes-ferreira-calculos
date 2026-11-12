@@ -208,10 +208,17 @@ def pagina(slug, titulo, desc, migalhas, corpo, faq, wa_txt, extra_ld=None):
 <meta property="og:type" content="website"><meta property="og:url" content="{url}">
 <meta property="og:title" content="{e(titulo)}"><meta property="og:description" content="{e(desc)}"><meta property="og:locale" content="pt_BR">
 <link rel="stylesheet" href="/paginas.css">
+<link rel="icon" href="/img/marca.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/img/marca.svg">
+<meta name="theme-color" content="#060f26">
+<meta property="og:image" content="https://pontesferreiracalculos.com/img/logo-oficial.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/marca.css">
 <script type="application/ld+json">{json.dumps(ld, ensure_ascii=False)}</script>
 </head>
 <body>
-<header><div class="wrap"><a class="logo" href="/">Pontes Ferreira <span>Cálculos Judiciais</span></a>
+<header><div class="wrap"><a class="logo" href="/" aria-label="Pontes Ferreira Cálculos · início"><img src="/img/marca.svg" alt="" width="42" height="42"><span class="lw"><b>Pontes Ferreira</b><i>Cálculos</i></span></a>
 <nav><a href="/#servicos">Serviços</a><a href="/atendimento-todo-brasil/">Atendemos todo o Brasil</a><a href="/#precos">Preços</a></nav>
 <a class="btn" style="padding:9px 16px;font-size:.9rem" href="{form_link(slug.replace('/', '_'))}">Pedir orçamento</a></div></header>
 <div class="hero"><div class="wrap"><div class="migalha">{mig}</div>

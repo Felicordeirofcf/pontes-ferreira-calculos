@@ -8,8 +8,9 @@ window.PF_CONFIG = {
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3bG5zYXlwY2doaXp3eWhhdWFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0MjIwNzgsImV4cCI6MjEwOTk5ODA3OH0.rD8ZAHchKudQjxTAOohOv1g84rCE83l0MRoutzEFBJE',
   WHATSAPP: '5521987708652',
 
-  // WhatsApp dentro do painel (API oficial da Meta). Mude para true depois de seguir o passo 5 do COMO_ATIVAR.md
-  WA_ATIVO: false,
+  // WhatsApp dentro do painel. WA_PROVEDOR: 'evolution' (WhatsApp Web no servidor, conecta por QR code) ou 'meta' (API oficial)
+  WA_ATIVO: true,
+  WA_PROVEDOR: 'evolution',
   // Modelo aprovado na Meta para retomar conversa depois de 24h sem resposta do cliente
   WA_TEMPLATE: 'retomar_contato',
   WA_TEMPLATE_IDIOMA: 'pt_BR',

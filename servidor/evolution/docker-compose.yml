@@ -1,0 +1,50 @@
+# Evolution API (WhatsApp Web) + Postgres + Redis + Caddy (https automático)
+# Instalado por servidor/instalar-evolution.sh em /opt/evolution
+services:
+  evolution:
+    image: evoapicloud/evolution-api:v2.3.7
+    restart: always
+    env_file: .env
+    depends_on: [postgres, redis]
+    volumes:
+      - instancias:/evolution/instances
+    expose: ["8080"]
+    deploy:
+      resources:
+        limits: { memory: 900m }
+
+  postgres:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${PG_SENHA}
+      POSTGRES_DB: evolution
+    volumes:
+      - banco:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - cache:/data
+
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMINIO: ${DOMINIO}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_dados:/data
+      - caddy_config:/config
+    depends_on: [evolution]
+
+volumes:
+  instancias:
+  banco:
+  cache:
+  caddy_dados:
+  caddy_config:

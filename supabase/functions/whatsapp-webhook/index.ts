@@ -1,6 +1,10 @@
 // @ts-nocheck
 // Supabase Edge Function: whatsapp-webhook
-// Recebe as mensagens do WhatsApp (API oficial da Meta), grava no painel e responde com o robô de atendimento
+// Recebe as mensagens do WhatsApp, grava no painel e responde com o robô de atendimento.
+// Funciona com DOIS provedores (o que estiver configurado nos Secrets):
+//   • Evolution API (WhatsApp Web no seu servidor): EVOLUTION_URL, EVOLUTION_KEY, EVOLUTION_INSTANCIA (padrão "pontes"),
+//     EVOLUTION_WEBHOOK_KEY (senha que vai na URL do webhook: ...whatsapp-webhook?k=SENHA)
+//   • API oficial da Meta: os secrets abaixo
 // (ligado/desligado e textos em Painel > WhatsApp > Atendimento automático).
 // IMPORTANTE: ao criar a função, DESLIGUE "Enforce JWT verification" (a Meta não envia login).
 //
@@ -17,6 +21,14 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 const GRAPH = `https://graph.facebook.com/${Deno.env.get('WA_GRAPH_VERSION') || 'v23.0'}`;
 const TOKEN = Deno.env.get('WA_TOKEN') || '';
 const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+const EVO_URL = (Deno.env.get('EVOLUTION_URL') || '').replace(/\/+$/, '');
+const EVO_KEY = Deno.env.get('EVOLUTION_KEY') || '';
+const EVO_INST = Deno.env.get('EVOLUTION_INSTANCIA') || 'pontes';
+const usaEvolution = () => !!(EVO_URL && EVO_KEY);
+const evo = (caminho: string, corpo?: unknown) => fetch(`${EVO_URL}${caminho}`, {
+  method: corpo === undefined ? 'GET' : 'POST', headers: { apikey: EVO_KEY, 'Content-Type': 'application/json' },
+  body: corpo === undefined ? undefined : JSON.stringify(corpo)
+});
 
 const digitos = (s: string) => String(s || '').replace(/\D/g, '');
 
@@ -136,20 +148,22 @@ async function cfgRobo() {
   return (CFG_ROBO = { ...ROBO_PADRAO, ...(data?.valor || {}) });
 }
 async function enviarTextoRobo(waId: string, texto: string) {
-  const r = await fetch(`${GRAPH}/${Deno.env.get('WA_PHONE_NUMBER_ID')}/messages`, {
-    method: 'POST', headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: waId, type: 'text', text: { body: texto, preview_url: false } })
-  });
-  const out = await r.json();
+  const r = usaEvolution()
+    ? await evo(`/message/sendText/${EVO_INST}`, { number: waId, text: texto })
+    : await fetch(`${GRAPH}/${Deno.env.get('WA_PHONE_NUMBER_ID')}/messages`, {
+      method: 'POST', headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: waId, type: 'text', text: { body: texto, preview_url: false } })
+    });
+  const out = await r.json().catch(() => ({}));
   await db.from('wa_mensagens').insert({
-    wa_id: waId, direcao: 'out', tipo: 'text', texto, bot: true, wamid: out.messages?.[0]?.id || null,
+    wa_id: waId, direcao: 'out', tipo: 'text', texto, bot: true, wamid: out.messages?.[0]?.id || out.key?.id || null,
     status: r.ok ? 'sent' : 'failed', erro: r.ok ? null : (out?.error?.message || 'falha')
   });
   if (!r.ok) throw new Error(out?.error?.message || 'falha ao enviar');
 }
 async function atendimentoAutomatico(conv: any, m: any, tipo: string, texto: string, arquivo_nome: string | null) {
   const cfg = await cfgRobo();
-  if (!cfg.ativo || !Deno.env.get('WA_PHONE_NUMBER_ID')) return;
+  if (!cfg.ativo || !(Deno.env.get('WA_PHONE_NUMBER_ID') || usaEvolution())) return;
   if (!['text', 'document', 'image', 'audio'].includes(tipo)) return;
   if (Date.now() - Number(m.timestamp) * 1000 > 10 * 60e3) return;           // mensagem antiga reenviada pela Meta
   if (conv.humano_ate && new Date(conv.humano_ate).getTime() > Date.now()) return; // equipe atendendo
@@ -264,11 +278,16 @@ async function processarMensagem(m: any, contatos: any[]) {
     else { texto = `[${m.type}]`; }
   } catch (e) { texto = (texto ? texto + ' ' : '') + `[falha ao baixar arquivo: ${(e as Error).message}]`; }
 
+  await gravarEntrada(conv, waId, nome, m, { tipo, texto, arquivo_path, arquivo_nome, wamid: m.id, ts: Number(m.timestamp) * 1000 });
+}
+// grava a mensagem recebida, atualiza conversa e lead, e chama o robô (Meta e Evolution)
+async function gravarEntrada(conv: any, waId: string, nome: string, m: any, x: any) {
+  const { tipo, texto, arquivo_path, arquivo_nome } = x;
   const { error } = await db.from('wa_mensagens').insert({
-    wa_id: waId, direcao: 'in', tipo, texto, arquivo_path, arquivo_nome, wamid: m.id, status: 'received',
-    created_at: new Date(Number(m.timestamp) * 1000).toISOString()
+    wa_id: waId, direcao: 'in', tipo, texto, arquivo_path, arquivo_nome, wamid: x.wamid, status: 'received',
+    created_at: new Date(x.ts || Date.now()).toISOString()
   });
-  if (error && !String(error.message).includes('duplicate')) throw error;
+  if (error) { if (String(error.message).includes('duplicate')) return; throw error; } // repetida: não processa de novo
 
   const resumo = tipo === 'text' ? texto : `📎 ${arquivo_nome || tipo}${texto ? ' · ' + texto : ''}`;
   await db.from('wa_conversas').update({
@@ -289,19 +308,80 @@ async function processarMensagem(m: any, contatos: any[]) {
 async function registrarEcoDoApp(m: any) {
   const waId = digitos(m.to);
   if (!waId) return;
-  const texto = m.text?.body || (m.type ? `[${m.type} enviado pelo celular]` : '');
+  await gravarSaidaDoCelular(waId, m.text?.body || (m.type ? `[${m.type} enviado pelo celular]` : ''), m.type === 'text' ? 'text' : 'outro', m.id, Number(m.timestamp || Date.now() / 1000) * 1000);
+}
+async function gravarSaidaDoCelular(waId: string, texto: string, tipo: string, wamid: string, ts: number) {
   const conv = await conversaDe(waId, '');
   const { error } = await db.from('wa_mensagens').insert({
-    wa_id: waId, direcao: 'out', tipo: m.type === 'text' ? 'text' : 'outro', texto, wamid: m.id, status: 'sent',
-    created_at: new Date(Number(m.timestamp || Date.now() / 1000) * 1000).toISOString()
+    wa_id: waId, direcao: 'out', tipo, texto, wamid, status: 'sent', created_at: new Date(ts || Date.now()).toISOString()
   });
-  if (error && !String(error.message).includes('duplicate')) throw error;
+  if (error) { if (String(error.message).includes('duplicate')) return; throw error; }
   const cfg = await cfgRobo();
   await db.from('wa_conversas').update({
     ultima_msg: String(texto).slice(0, 200), ultima_msg_em: new Date().toISOString(), nao_lidas: 0,
     humano_ate: new Date(Date.now() + (Number(cfg.pausa_horas) || 12) * 3600e3).toISOString(), bot_etapa: 'humano'
   }).eq('wa_id', waId);
   if (conv.lead_id) await db.from('leads').update({ ultimo_contato: new Date().toISOString() }).eq('id', conv.lead_id);
+}
+
+/* ---------- Evolution API ---------- */
+// número do contato a partir do "jid" (ignora grupos, status e canais; resolve o formato @lid)
+function numeroDoJid(k: any): string | null {
+  let j = String(k.remoteJid || '');
+  if (j.endsWith('@lid')) j = String(k.remoteJidAlt || k.senderPn || k.participantAlt || '');
+  if (!j.endsWith('@s.whatsapp.net')) return null;
+  return digitos(j.split('@')[0]) || null;
+}
+async function guardarBase64(b64: string, waId: string, nome: string, mime: string) {
+  const bytes = Uint8Array.from(atob(b64.replace(/^data:[^,]+,/, '')), c => c.charCodeAt(0));
+  const path = `whatsapp/${waId}/${Date.now()}-${nome.replace(/[^\w.\-]+/g, '_').slice(-80)}`;
+  const { error } = await db.storage.from('processos').upload(path, bytes, { contentType: mime || 'application/octet-stream' });
+  if (error) throw error;
+  return path;
+}
+async function processarEvolution(b: any) {
+  const ev = String(b.event || '').toLowerCase().replace('_', '.');
+  if (ev === 'connection.update') {
+    await db.from('ajustes').upsert({ chave: 'whatsapp_status', publico: false, valor: { state: b.data?.state || null, numero: b.sender ? digitos(b.sender) : null, atualizado: new Date().toISOString() } });
+    return;
+  }
+  if (ev !== 'messages.upsert') return;
+  const d = b.data || {};
+  const lista = Array.isArray(d) ? d : Array.isArray(d.messages) ? d.messages : [d];
+  for (const m of lista) { try { await processarMsgEvolution(m); } catch (e) { console.error('evolution msg', e); } }
+}
+async function processarMsgEvolution(m: any) {
+  const k = m.key || {}, waId = numeroDoJid(k);
+  if (!waId) return;
+  const msg = m.message || {};
+  if (msg.reactionMessage || msg.protocolMessage || msg.senderKeyDistributionMessage && Object.keys(msg).length === 1) return;
+  let tipo = 'outro', texto = '', arquivo_nome: string | null = null, mime = '';
+  const doc = msg.documentMessage || msg.documentWithCaptionMessage?.message?.documentMessage;
+  if (msg.conversation || msg.extendedTextMessage) { tipo = 'text'; texto = msg.conversation || msg.extendedTextMessage?.text || ''; }
+  else if (doc) { tipo = 'document'; arquivo_nome = doc.fileName || 'documento.pdf'; texto = doc.caption || ''; mime = doc.mimetype || ''; }
+  else if (msg.imageMessage) { tipo = 'image'; arquivo_nome = 'imagem.jpg'; texto = msg.imageMessage.caption || ''; mime = msg.imageMessage.mimetype || 'image/jpeg'; }
+  else if (msg.audioMessage) { tipo = 'audio'; arquivo_nome = 'audio.ogg'; mime = msg.audioMessage.mimetype || 'audio/ogg'; }
+  else if (msg.buttonsResponseMessage || msg.listResponseMessage || msg.templateButtonReplyMessage) { tipo = 'text'; texto = msg.buttonsResponseMessage?.selectedDisplayText || msg.listResponseMessage?.title || msg.templateButtonReplyMessage?.selectedDisplayText || ''; }
+  else texto = `[${m.messageType || Object.keys(msg)[0] || 'mensagem'}]`;
+  const ts = Number(m.messageTimestamp || Date.now() / 1000) * 1000;
+
+  if (k.fromMe) { // enviada por você (celular ou painel). Se veio do painel/robô, já está gravada pelo id.
+    const { data: ja } = await db.from('wa_mensagens').select('id').eq('wamid', k.id).maybeSingle();
+    if (!ja) await gravarSaidaDoCelular(waId, texto || (arquivo_nome ? `📎 ${arquivo_nome}` : ''), tipo === 'text' ? 'text' : 'outro', k.id, ts);
+    return;
+  }
+
+  let arquivo_path: string | null = null;
+  if (arquivo_nome) {
+    try {
+      let b64 = msg.base64 || m.base64 || '';
+      if (!b64) { const r = await evo(`/chat/getBase64FromMediaMessage/${EVO_INST}`, { message: { key: k }, convertToMp4: false }); b64 = (await r.json().catch(() => ({}))).base64 || ''; }
+      if (b64) arquivo_path = await guardarBase64(b64, waId, arquivo_nome, mime);
+    } catch (e) { texto = (texto ? texto + ' ' : '') + `[falha ao baixar arquivo: ${(e as Error).message}]`; }
+  }
+  const nome = m.pushName || '';
+  const conv = await conversaDe(waId, nome, null);
+  await gravarEntrada(conv, waId, nome, { timestamp: ts / 1000 }, { tipo, texto, arquivo_path, arquivo_nome, wamid: k.id, ts });
 }
 
 Deno.serve(async req => {
@@ -314,6 +394,12 @@ Deno.serve(async req => {
   if (req.method !== 'POST') return new Response('ok');
 
   const corpo = await req.text();
+  // Evolution API: identificada pela senha na URL (?k=...)
+  if (url.searchParams.has('k')) {
+    if (!Deno.env.get('EVOLUTION_WEBHOOK_KEY') || url.searchParams.get('k') !== Deno.env.get('EVOLUTION_WEBHOOK_KEY')) return new Response('forbidden', { status: 403 });
+    try { await processarEvolution(JSON.parse(corpo)); } catch (e) { console.error('evolution', e); }
+    return new Response('ok', { status: 200 });
+  }
   if (!(await assinaturaValida(req, corpo))) return new Response('assinatura inválida', { status: 401 });
 
   try {

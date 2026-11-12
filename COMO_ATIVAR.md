@@ -43,6 +43,24 @@ Painel > **Tráfego pago** > **1. Ativação**: siga os 8 passos (contas, códig
 
 ---
 
+## 5-A. WhatsApp pela Evolution API (escolhido em 12/11/2026)
+O número conecta como "WhatsApp Web" no servidor da Locaweb Cloud. **O app do celular continua funcionando.**
+> Risco: a Evolution não é oficial. Use para atender quem te procura e para abordagens 1 a 1; evite disparo em massa.
+
+1. **Locaweb (DNS):** registro A `wa` → IP público do servidor (191.252.230.161).
+2. **Locaweb Cloud (rede):** encaminhar e liberar as portas **80** e **443** do IP público para a máquina `pontes-ferreira-srv`.
+3. **Servidor (console "Acessar VM", como root):**
+   ```
+   curl -fsSL https://raw.githubusercontent.com/Felicordeirofcf/pontes-ferreira-calculos/main/servidor/instalar-evolution.sh -o instalar-evolution.sh
+   bash instalar-evolution.sh
+   ```
+   No fim ele mostra `EVOLUTION_URL` e `EVOLUTION_KEY`.
+4. **Supabase > Edge Functions:**
+   - atualize `whatsapp-webhook` (JWT **desligado**) e `whatsapp-enviar` (JWT ligado) com o código do GitHub;
+   - crie `whatsapp-conexao` (JWT **ligado**) com `supabase/functions/whatsapp-conexao/index.ts`;
+   - Secrets: `EVOLUTION_URL`, `EVOLUTION_KEY` e `EVOLUTION_WEBHOOK_KEY` (uma senha inventada por você).
+5. **Painel > WhatsApp > Conectar WhatsApp:** escaneie o QR code com o celular (WhatsApp Business > Aparelhos conectados > Conectar um aparelho).
+
 ## 5. WhatsApp dentro do painel (API oficial da Meta)
 
 > **Hoje o atendimento é manual**, pelo app WhatsApp Business do celular. No painel, o botão **💬 WhatsApp** de cada lead abre o seu WhatsApp com a saudação pronta e registra o contato no CRM. A tela de WhatsApp e o robô só aparecem quando `WA_ATIVO` for `true` no `config.js`. Tentativa de 11/11/2026: a Meta não aceitou o 98770-8652 (nem na coexistência, nem na migração: "already in use by another WhatsApp account"). Para ligar no futuro, use um chip novo ou abra um chamado na Meta.

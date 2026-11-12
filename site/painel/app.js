@@ -722,7 +722,8 @@ async function atualizarLeadFicha(patch, log) {
 
 /* ---------------- WhatsApp ---------------- */
 const fmtTel = w => { const d = digitos(w).replace(/^55/, ''); return d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}` : d.length === 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : w; };
-const janelaAberta = c => c && c.ultima_entrada_em && (Date.now() - new Date(c.ultima_entrada_em).getTime()) < 24 * 36e5;
+const EVOLUTION = () => !DEMO && (window.PF_CONFIG || {}).WA_PROVEDOR === 'evolution';
+const janelaAberta = c => EVOLUTION() ? !!c : (c && c.ultima_entrada_em && (Date.now() - new Date(c.ultima_entrada_em).getTime()) < 24 * 36e5);
 const convAtiva = () => S.wa_conversas.find(c => c.wa_id === S.conversa);
 const leadDaConversa = c => c && (S.leads.find(l => l.id === c.lead_id) || S.leads.find(l => l.whatsapp && digitos(l.whatsapp).slice(-9) === digitos(c.wa_id).slice(-9)));
 S.rascunhos = {};
@@ -745,11 +746,11 @@ function telaWhatsapp() {
       return `${sep}<div class="wa-msg ${m.direcao}">${m.bot ? '<span class="wa-bot">🤖 robô</span>' : ''}${arq}${m.texto ? `<div>${fmtWa(m.texto)}</div>` : ''}<span class="wa-hora">${hora(m.created_at)} ${ticks(m)}</span></div>`;
     }).join('') : '<div class="vazio">Nenhuma mensagem ainda</div>';
     const aberta = janelaAberta(c);
-    const fimJanela = aberta ? new Date(new Date(c.ultima_entrada_em).getTime() + 24 * 36e5) : null;
+    const fimJanela = aberta && c.ultima_entrada_em ? new Date(new Date(c.ultima_entrada_em).getTime() + 24 * 36e5) : new Date();
     corpo = `<div class="wa-cab"><div><b>${esc(c.nome || fmtTel(c.wa_id))}</b><div class="desc" style="margin:0">${fmtTel(c.wa_id)}${l ? ` · ${esc(STATUS_LEAD[l.status])}` : ''}</div></div>
         <div class="linha">${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha do lead</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="_blank" href="${waLink(c.wa_id)}">Abrir no app ↗</a></div></div>
-      <div class="wa-janela ${aberta ? 'ok' : 'fechada'}">${aberta ? `✔ Conversa aberta: pode responder livremente até ${fimJanela.toLocaleDateString('pt-BR') === new Date().toLocaleDateString('pt-BR') ? 'hoje' : 'amanhã'} às ${hora(fimJanela)}.`
-        : `⏸ O cliente não escreve há mais de 24h. Pela regra do WhatsApp, só dá para enviar um <b>modelo aprovado</b> para retomar a conversa. <button class="btn mini" data-acao="waModelo">Enviar modelo "${esc(CFG.WA_TEMPLATE || 'retomar_contato')}"</button>`}</div>
+      ${EVOLUTION() ? '' : `<div class="wa-janela ${aberta ? 'ok' : 'fechada'}">${aberta ? `✔ Conversa aberta: pode responder livremente até ${fimJanela.toLocaleDateString('pt-BR') === new Date().toLocaleDateString('pt-BR') ? 'hoje' : 'amanhã'} às ${hora(fimJanela)}.`
+        : `⏸ O cliente não escreve há mais de 24h. Pela regra do WhatsApp, só dá para enviar um <b>modelo aprovado</b> para retomar a conversa. <button class="btn mini" data-acao="waModelo">Enviar modelo "${esc(CFG.WA_TEMPLATE || 'retomar_contato')}"</button>`}</div>`}
       ${cfgRobo().ativo ? `<div class="wa-janela ${roboEmSilencio(c) ? 'fechada' : 'ok'}">${roboEmSilencio(c)
         ? `👤 Equipe atendendo: o robô está quieto até ${new Date(c.humano_ate).toLocaleDateString('pt-BR') === new Date().toLocaleDateString('pt-BR') ? '' : dataBR(c.humano_ate) + ' '}${hora(c.humano_ate)}. <button class="btn mini sec" data-robo-devolver="${c.wa_id}">Devolver ao robô</button>`
         : `🤖 O robô responde esta conversa. Ao enviar uma mensagem, você assume. <button class="btn mini sec" data-robo-assumir="${c.wa_id}">Assumir agora</button>`}</div>` : ''}
@@ -764,7 +765,7 @@ function telaWhatsapp() {
   const rb = cfgRobo();
   return `<div class="topo"><h1>WhatsApp</h1><div class="acoes"><span class="tag ${rb.ativo ? 't-good' : 't-neutro'}">${rb.ativo ? '🤖 Robô ligado' : '🤖 Robô desligado'}</span>
     <button class="btn sec" data-acao="configurarRobo">⚙ Atendimento automático</button><button class="btn sec" data-acao="testarRobo">🧪 Testar robô</button><button class="btn" data-acao="novaConversa">+ Nova conversa</button></div></div>
-  ${DEMO ? '' : (CFG.WA_ATIVO ? '' : '<div class="demo">O WhatsApp ainda não está conectado à API oficial. Veja o passo 5 do <b>COMO_ATIVAR.md</b>. Até lá, use o botão "Abrir no app ↗".</div>')}
+  ${EVOLUTION() ? faixaConexao() : DEMO ? '' : (CFG.WA_ATIVO ? '' : '<div class="demo">O WhatsApp ainda não está conectado à API oficial. Veja o passo 5 do <b>COMO_ATIVAR.md</b>. Até lá, use o botão "Abrir no app ↗".</div>')}
   <div class="wa">
     <div class="wa-lista"><input class="f" id="buscaWa" placeholder="Buscar conversa…" value="${esc(S.buscaWa)}">
       ${convs.length ? convs.map(x => { const lx = leadDaConversa(x); return `<div class="wa-item ${x.wa_id === S.conversa ? 'on' : ''}" data-conv="${x.wa_id}">
@@ -775,6 +776,58 @@ function telaWhatsapp() {
     <div class="wa-chat">${corpo}</div>
   </div>`;
 }
+
+/* conexão com a Evolution API (QR code) */
+async function chamarConexao(acao, extra = {}) {
+  const { data, error } = await sb.functions.invoke('whatsapp-conexao', { body: { acao, ...extra } });
+  if (error) { let det = {}; try { det = await error.context.json(); } catch { } throw new Error(det.mensagem || error.message); }
+  return data;
+}
+async function atualizarEstadoWa(silencioso) {
+  if (!EVOLUTION()) return;
+  try { const r = await chamarConexao('status'); S.waEstado = r.estado; S.waNumero = r.numero; S.waNome = r.nome; S.waErro = null; }
+  catch (e) { S.waEstado = 'erro'; S.waErro = e.message; if (!silencioso) toast('WhatsApp: ' + e.message); }
+  if (rota() === 'whatsapp' || rota() === 'painel') render();
+}
+function faixaConexao() {
+  const st = S.waEstado;
+  if (st === 'open') return `<div class="wa-conexao ok"><span>🟢 <b>WhatsApp conectado</b>${S.waNumero ? ` · ${esc(fmtTel(S.waNumero))}` : ''}${S.waNome ? ` (${esc(S.waNome)})` : ''}. As conversas chegam aqui e o app do celular continua funcionando.</span><button class="btn mini sec" data-acao="waDesconectar">Desconectar</button></div>`;
+  if (st === undefined) return '<div class="wa-conexao"><span>Verificando a conexão do WhatsApp…</span></div>';
+  if (st === 'erro') return `<div class="wa-conexao alerta"><span>⚠ Não foi possível falar com o servidor do WhatsApp: ${esc(S.waErro || '')}. Confira se a Evolution API está no ar e os Secrets no Supabase.</span><button class="btn mini sec" data-acao="waStatus">Tentar de novo</button></div>`;
+  return `<div class="wa-conexao alerta"><span>📵 <b>WhatsApp desconectado.</b> Conecte o (21) 98770-8652 escaneando um QR code com o celular. Enquanto isso, os botões abrem o WhatsApp do aparelho.</span><button class="btn ouro" data-acao="waConectar">Conectar WhatsApp</button></div>`;
+}
+let qrTimer = null;
+async function conectarWhatsapp(modo = 'qr', numero = '') {
+  let f = $('#qrWa');
+  if (!f) { f = document.createElement('div'); f.className = 'modal-fundo'; f.id = 'qrWa'; document.body.appendChild(f); f.addEventListener('click', e => { if (e.target === f) fecharQr(); }); }
+  f.innerHTML = '<div class="modal qr-modal"><h2>Conectar WhatsApp</h2><div class="vazio">Gerando o código…</div></div>';
+  try {
+    const r = await chamarConexao(modo === 'codigo' ? 'codigo' : 'conectar', { numero });
+    if (r.estado === 'open') { fecharQr(); toast('WhatsApp já está conectado'); return atualizarEstadoWa(true); }
+    f.innerHTML = `<div class="modal qr-modal"><div class="linha" style="justify-content:space-between"><h2 style="margin:0">Conectar WhatsApp</h2><button class="btn mini sec" data-qr="fechar">Fechar</button></div>
+      ${modo === 'codigo' && r.codigo ? `<p class="desc">No celular: WhatsApp Business > ⋮ > <b>Aparelhos conectados</b> > Conectar um aparelho > <b>Conectar com número de telefone</b> e digite:</p><div class="qr-codigo">${esc(r.codigo)}</div>`
+        : r.qrcode ? `<ol class="qr-passos"><li>No celular, abra o <b>WhatsApp Business</b> do (21) 98770-8652</li><li>Toque em ⋮ (ou Configurações) > <b>Aparelhos conectados</b> > <b>Conectar um aparelho</b></li><li>Aponte a câmera para este código</li></ol><img class="qr-img" src="${r.qrcode}" alt="QR code para conectar o WhatsApp">`
+        : '<div class="vazio">O servidor não devolveu o código. Tente de novo em alguns segundos.</div>'}
+      <div class="linha" style="justify-content:space-between;margin-top:12px"><span class="desc">O código muda a cada ~40 segundos; esta tela atualiza sozinha.</span>
+      ${modo === 'codigo' ? '<button class="btn mini sec" data-qr="qr">Usar QR code</button>' : '<button class="btn mini sec" data-qr="codigo">Estou no celular: conectar com código</button>'}</div></div>`;
+    f.querySelectorAll('[data-qr]').forEach(b => b.onclick = () => {
+      if (b.dataset.qr === 'fechar') return fecharQr();
+      if (b.dataset.qr === 'qr') return conectarWhatsapp('qr');
+      const n = prompt('Número do WhatsApp que vai conectar (com DDD):', '21987708652'); if (n) conectarWhatsapp('codigo', n);
+    });
+    clearInterval(qrTimer); let voltas = 0;
+    qrTimer = setInterval(async () => {
+      voltas++;
+      try {
+        const st = await chamarConexao('status');
+        if (st.estado === 'open') { fecharQr(); S.waEstado = 'open'; S.waNumero = st.numero; S.waNome = st.nome; toast('✅ WhatsApp conectado!'); render(); return; }
+      } catch { }
+      if (voltas % 10 === 0 && $('#qrWa')) conectarWhatsapp(modo, numero); // código novo a cada ~40s
+      if (voltas > 75) fecharQr();
+    }, 4000);
+  } catch (e) { f.innerHTML = `<div class="modal qr-modal"><h2>Conectar WhatsApp</h2><p style="color:var(--crit)">${esc(e.message)}</p><div class="rodape"><button class="btn sec" onclick="document.getElementById('qrWa').remove()">Fechar</button></div></div>`; }
+}
+function fecharQr() { clearInterval(qrTimer); qrTimer = null; $('#qrWa')?.remove(); }
 
 async function abrirConversa(waId) {
   S.conversa = waId;
@@ -798,7 +851,7 @@ async function whatsManual(l) {
   render(); if (fichaId) renderFicha();
 }
 async function conversaParaLead(l) {
-  if (!WA_PAINEL()) return whatsManual(l);
+  if (!WA_PAINEL() || (EVOLUTION() && S.waEstado !== 'open')) return whatsManual(l);
   let c = conversaDoLead(l);
   if (!c) {
     let wa = digitos(l.whatsapp); if (wa.length <= 11) wa = '55' + wa;
@@ -1918,7 +1971,7 @@ function render() {
   const itemNav = k => `<a href="#${k}" class="${k === r ? 'on' : ''}" ${k === r ? 'aria-current="page"' : ''}>${ICONES[k] || ''}<span class="rot">${ROTAS[k][0]}</span>${contador(k)}</a>`;
   const grupos = GRUPOS_NAV.map(([g, ks]) => { const vis = ks.filter(k => ROTAS[k] && (k !== 'whatsapp' || WA_PAINEL())); return vis.length ? `<div class="grupo">${g}</div>${vis.map(itemNav).join('')}` : ''; }).join('');
   $('#raiz').innerHTML = `<div class="app"><nav>
-    <div class="marca"><span class="selo">PF</span><div>Pontes Ferreira<small>Cálculos Judiciais</small></div></div>
+    <div class="marca"><img src="/img/marca.svg" alt="" width="40" height="40"><div><b>Pontes Ferreira</b><small>Cálculos</small></div></div>
     <button class="busca-btn" data-acao="paleta"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Buscar ou fazer…<kbd>Ctrl K</kbd></button>
     <div class="itens">${grupos}</div>
     <div class="rodape">${DEMO ? '<span class="ponto demo-p"></span>Modo demonstração' : `<span class="ponto"></span>Conectado<div><button data-acao="trocarSenha">Trocar senha</button> · <button data-acao="sair">Sair</button></div>`}</div></nav>
@@ -1963,7 +2016,7 @@ document.addEventListener('click', e => {
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
     novaDespesa: () => editarDespesa(null), importarPJC, limparDemo, novaConversa,
-    novoGasto: () => novoGasto(), novoProsp: () => editarProsp(null), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
+    novoGasto: () => novoGasto(), novoProsp: () => editarProsp(null), waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
     waEnviar: waEnviarTexto, waAnexar,
     waModelo: () => seguro(() => waEnviar({ template: CFG.WA_TEMPLATE || 'retomar_contato', idioma: CFG.WA_TEMPLATE_IDIOMA || 'pt_BR' })),
     addAtividade: () => seguro(async () => {
@@ -2012,6 +2065,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && $('#abordagem') && !PAL.aberta) fecharAbordagem();
 });
 window.addEventListener('hashchange', render);
+setInterval(() => { if (EVOLUTION() && !document.hidden) atualizarEstadoWa(true); }, 120000);
 setInterval(() => { if (!document.querySelector('.modal-fundo') && !CAMPOS_FOCO.includes(document.activeElement?.id) && !document.activeElement?.closest?.('.form-trafego')) render(); }, 60000);
 
 /* ---------------- tempo real: lead novo e mensagens do WhatsApp ---------------- */
@@ -2050,7 +2104,7 @@ function tempoReal() {
 
 /* ---------------- login e início ---------------- */
 function telaLogin(erro = '') {
-  $('#raiz').innerHTML = `<div class="login"><form id="login"><h2>Pontes Ferreira</h2><p style="color:var(--ink-2);margin-bottom:6px">Painel de gestão</p>
+  $('#raiz').innerHTML = `<div class="login"><form id="login"><div class="login-marca"><img src="/img/marca.svg" alt="" width="72" height="72"><b>Pontes Ferreira</b><small>Cálculos</small></div><p style="color:var(--ink-2);margin-bottom:6px;text-align:center">Painel de gestão</p>
     <input type="email" id="email" placeholder="E-mail" required autocomplete="username"><input type="password" id="senha" placeholder="Senha" required autocomplete="current-password">
     ${erro ? `<p style="color:var(--crit);font-size:13px">${esc(erro)}</p>` : ''}<button class="btn">Entrar</button></form></div>`;
   $('#login').onsubmit = async e => {
@@ -2094,6 +2148,7 @@ async function iniciar() {
     await carregar();
     render();
     tempoReal();
+    atualizarEstadoWa(true);
   } catch (e) {
     console.error(e);
     $('#raiz').innerHTML = `<div style="padding:30px"><h2>Não foi possível carregar</h2><p>${esc(e.message || e)}</p><p>Confira o <code>config.js</code> e se o <code>schema.sql</code> foi executado no Supabase.</p></div>`;
