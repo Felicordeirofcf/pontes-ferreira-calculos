@@ -12,6 +12,9 @@
 //   SMTP_PASS  -> senha dessa caixa de e-mail
 //   AVISO_PARA -> opcional: quem recebe (padrão: o próprio SMTP_USER). Vários: separe por vírgula
 //   SMTP_HOST / SMTP_PORT -> opcionais (padrão Locaweb: email-ssl.com.br, 465)
+// Aviso no WhatsApp (pela Evolution API, os mesmos secrets EVOLUTION_URL e EVOLUTION_KEY do painel):
+//   vai para o número definido no painel (Configurações > Avisos > WhatsApp que recebe o aviso);
+//   sem número definido, vai para o próprio WhatsApp da empresa (conversa "Você", sem som no celular).
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import nodemailer from 'npm:nodemailer@6.9.16';
@@ -64,6 +67,18 @@ Deno.serve(async req => {
       <p style="color:#888;font-size:12px">Aviso automático do site pontesferreiracalculos.com</p></div>`;
     const texto = linhas.map(([k, v]) => `${k}: ${v.replace(/<[^>]+>/g, '')}`).join('\n') + `\n\nPainel: ${PAINEL}`;
 
+    // 1) aviso no WhatsApp (antes do e-mail: se o e-mail falhar, o WhatsApp já foi)
+    await avisarWhatsapp([
+      `${urgente ? '🔴 *URGENTE* · ' : '🔔 '}*Novo pedido no site*`,
+      `👤 ${l.nome || 'sem nome'}`,
+      wa ? `📱 ${l.whatsapp} · responder: https://wa.me/${wa}?text=${encodeURIComponent(saudacao)}` : '',
+      `🧮 ${l.tipo || 'Cálculo'}${l.prazo ? ` · prazo: ${l.prazo}` : ''}`,
+      l.numero_processo ? `📄 Processo ${l.numero_processo}` : (pdf ? '📄 Enviou o PDF (link no e-mail)' : ''),
+      `📍 Origem: ${origem || 'site'}${l.cidade ? ` · ${l.cidade}${l.uf ? '/' + l.uf : ''}` : ''}`,
+      `\nAbrir no painel: ${PAINEL}`
+    ].filter(Boolean).join('\n')).catch(e => console.error('aviso whatsapp', e));
+
+    // 2) aviso por e-mail
     const user = Deno.env.get('SMTP_USER')!, pass = Deno.env.get('SMTP_PASS')!;
     if (!user || !pass) throw new Error('Configure SMTP_USER e SMTP_PASS nos Secrets');
     const smtp = nodemailer.createTransport({
@@ -83,3 +98,21 @@ Deno.serve(async req => {
     return new Response('erro: ' + (e as Error).message, { status: 500 });
   }
 });
+
+// Manda o aviso pelo WhatsApp da empresa (Evolution API) para o número configurado no painel
+async function avisarWhatsapp(texto: string) {
+  const url = (Deno.env.get('EVOLUTION_URL') || '').replace(/\/+$/, ''), key = Deno.env.get('EVOLUTION_KEY') || '', inst = Deno.env.get('EVOLUTION_INSTANCIA') || 'pontes';
+  if (!url || !key) return;
+  const { data: aj } = await db.from('ajustes').select('valor').eq('chave', 'alertas').maybeSingle();
+  if (aj?.valor?.aviso_whatsapp_off) return;
+  let numero = digitos(aj?.valor?.aviso_whatsapp || Deno.env.get('AVISO_WHATSAPP') || '');
+  if (!numero) { // sem número definido: o próprio número da empresa
+    const r = await fetch(`${url}/instance/fetchInstances?instanceName=${inst}`, { headers: { apikey: key } }).then(x => x.json()).catch(() => null);
+    const i = Array.isArray(r) ? r[0] : r;
+    numero = digitos(String(i?.ownerJid || i?.owner || i?.instance?.owner || '').split('@')[0]) || '5521987708652';
+  }
+  if (numero.length <= 11) numero = '55' + numero;
+  const r = await fetch(`${url}/message/sendText/${inst}`, { method: 'POST', headers: { apikey: key, 'Content-Type': 'application/json' }, body: JSON.stringify({ number: numero, text: texto }) });
+  if (!r.ok) throw new Error('Evolution ' + r.status + ' ' + (await r.text()).slice(0, 200));
+}
+

@@ -3028,6 +3028,10 @@ function telaAjustes() {
     ${c('WhatsApp', `Situação: <b>${wa}</b>`, `<a class="btn mini sec" href="#whatsapp">Abrir WhatsApp</a>${EVOLUTION() && S.waEstado !== 'open' ? '<button class="btn mini ouro" data-acao="waConectar">Conectar</button>' : ''}`)}
     ${c('Mensagens prontas', 'Variações das respostas rápidas e das mensagens da prospecção.', '<button class="btn mini sec" data-acao="configRespostas">⚡ Respostas rápidas</button><button class="btn mini sec" data-acao="configProsp">🎯 Mensagens da prospecção</button>')}
     ${c('Atendimento automático', `Robô do WhatsApp: <b>${cfgRobo().ativo ? 'ligado' : 'desligado'}</b>.`, '<button class="btn mini sec" data-acao="configurarRobo">⚙ Configurar robô</button><button class="btn mini sec" data-acao="testarRobo">🧪 Testar</button>')}
+    ${c('Aviso de novo pedido no WhatsApp', `Cada pedido feito no site chega também no WhatsApp, além do e-mail.
+      <label class="linha" style="margin-top:6px"><input type="checkbox" id="avisoWaLigado" ${(S.ajustes.alertas || {}).aviso_whatsapp_off ? '' : 'checked'}> Avisar no WhatsApp</label>
+      <label class="rotulo" style="margin-top:6px">Número que recebe (com DDD). Vazio = o próprio WhatsApp da empresa, na conversa "Você", sem som.</label>
+      <input class="f" id="avisoWaNumero" value="${esc((S.ajustes.alertas || {}).aviso_whatsapp || '')}" placeholder="ex.: (21) 99999-0000 (seu celular pessoal, para tocar)" style="width:100%">`, '')}
     ${c('E-mails automáticos', `Para adm@pontesferreiracalculos.com. <label class="linha" style="margin-top:6px"><input type="checkbox" data-email-tipo="diario" ${(S.ajustes.alertas?.desligado || {}).diario ? '' : 'checked'}> Agenda do dia (todo dia, 8h)</label><label class="linha"><input type="checkbox" data-email-tipo="semanal" ${(S.ajustes.alertas?.desligado || {}).semanal ? '' : 'checked'}> Resumo da semana (segunda, 8h)</label>`, '<button class="btn mini sec" data-acao="emailTesteDiario">Enviar teste: agenda</button><button class="btn mini sec" data-acao="emailTesteSemanal">Enviar teste: semana</button>')}
     ${c('Monitor de respostas', 'Palavras que indicam fechamento, interesse, urgência, objeção e desinteresse.', '<button class="btn mini sec" data-acao="configMonitor">⚙ Palavras do monitor</button>')}
     ${c('Anúncios e rastreamento', `Google, Meta Pixel e Clarity: <b>${rast().ativo ? 'ligados' : 'desligados'}</b>.`, '<a class="btn mini sec" href="#trafego" data-aba-trafego="ativacao">Abrir Ativação</a>')}
@@ -3216,6 +3220,13 @@ document.addEventListener('change', e => {
   if (e.target.dataset.utm && e.target.tagName === 'SELECT') { S.utm[e.target.dataset.utm] = e.target.value; return render(); }
   if (e.target.dataset.trafDireto) return seguro(() => salvarTrafego({ [e.target.dataset.trafDireto]: e.target.value.trim() || null }));
   if (e.target.dataset.emailTipo) return alternarEmail(e.target.dataset.emailTipo, e.target.checked);
+  if (id === 'avisoWaLigado' || id === 'avisoWaNumero') return seguro(async () => {
+    const a = S.ajustes.alertas || {}, num = digitos($('#avisoWaNumero')?.value || '');
+    if (num && (num.length < 10 || num.length > 13)) return toast('Número inválido: use DDD + número');
+    const novo = { ...a, aviso_whatsapp: num, aviso_whatsapp_off: !$('#avisoWaLigado')?.checked };
+    await ajustesDb.salvar('alertas', novo); S.ajustes.alertas = novo;
+    toast(novo.aviso_whatsapp_off ? 'Aviso no WhatsApp desligado' : `Avisos de pedido vão para ${num ? fmtTel(num.length <= 11 ? '55' + num : num) : 'o WhatsApp da empresa (conversa "Você")'}`);
+  });
   if (id === 'fProsp') { S.filtroProsp.status = e.target.value; S.filtroProsp.pag = 1; return render(); }
   if (e.target.dataset && e.target.dataset.filtroProsp) { S.filtroProsp[e.target.dataset.filtroProsp] = e.target.value; S.filtroProsp.pag = 1; return render(); }
   if (e.target.dataset.buscaProsp) { const k = e.target.dataset.buscaProsp; if (S.buscaProsp[k] === e.target.value) return; S.buscaProsp[k] = e.target.value; return render(); } // o input já guardou: não redesenha à toa
