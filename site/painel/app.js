@@ -1505,9 +1505,9 @@ const KIT = [
       ['Inicial', ['cálculo para petição inicial trabalhista', 'liquidação dos pedidos inicial', 'cálculo da inicial trabalhista']]
     ],
     negativas: ['grátis', 'gratis', 'gratuito', 'online grátis', 'calculadora', 'rescisão', 'curso', 'apostila', 'download', 'baixar', 'como fazer', 'tutorial', 'vaga', 'emprego', 'concurso', 'salário de calculista', 'quanto ganha', 'meus direitos', 'fgts saque', 'seguro desemprego', 'planilha', 'modelo', 'pdf', 'manual', 'treinamento'],
-    titulos: ['Cálculo Trabalhista R$ 250', 'Só Informe o Nº do Processo', 'Envie o PDF, Nós Calculamos', 'Cálculo Trabalhista em 48h', 'Liquidação no PJe-Calc', 'Entrega do Arquivo .PJC', 'Para Advogados Trabalhistas', 'Prazo Correndo? Fale Agora', 'Orçamento em 1 Hora Útil', 'Impugnação de Cálculos', 'Preço Fechado Antes', 'Pontes Ferreira Cálculos', 'Todos os TRTs do Brasil', 'Resumo do Que Foi Deferido', 'Orçamento pelo WhatsApp'],
-    descricoes: ['A partir de R$ 250. Envie o PDF ou só o número do processo. Entrega do .PJC em 48h.', 'Leitura de sentença, acórdão e embargos. Você recebe .PJC, relatório PDF e resumo.', 'Prazo de liquidação correndo? Envie o processo e receba o orçamento ainda hoje.', 'Cálculos para advogados trabalhistas de todo o Brasil. Preço fechado antes de começar.'],
-    sitelinks: [['Preços', 'A partir de R$ 250', 'Preço fechado antes de começar', SITE_URL + '#precos'], ['Enviar o processo', 'PDF ou só o número', 'Orçamento em 1 hora útil', SITE_URL + '#form'], ['Serviços', 'Liquidação e impugnação', 'Inicial, atualização e parecer', SITE_URL + '#servicos'], ['Como funciona', 'Quatro passos', 'Sem reunião, tudo online', SITE_URL + '#como-funciona']],
+    titulos: ['Cálculo Trabalhista R$ 250', 'Só Informe o Nº do Processo', 'Informe o Nº, Nós Calculamos', 'Cálculo Trabalhista em 48h', 'Liquidação no PJe-Calc', 'Entrega do Arquivo .PJC', 'Para Advogados Trabalhistas', 'Prazo Correndo? Fale Agora', 'Orçamento em 1 Hora Útil', 'Impugnação de Cálculos', 'Preço Fechado Antes', 'Pontes Ferreira Cálculos', 'Todos os TRTs do Brasil', 'Resumo do Que Foi Deferido', 'Orçamento pelo WhatsApp'],
+    descricoes: ['A partir de R$ 250. Informe só o número do processo. Entrega do .PJC em 48h.', 'Leitura de sentença, acórdão e embargos. Você recebe .PJC, relatório PDF e resumo.', 'Prazo de liquidação correndo? Envie o processo e receba o orçamento ainda hoje.', 'Cálculos para advogados trabalhistas de todo o Brasil. Preço fechado antes de começar.'],
+    sitelinks: [['Preços', 'A partir de R$ 250', 'Preço fechado antes de começar', SITE_URL + '#precos'], ['Enviar o processo', 'Só o número do processo', 'Orçamento em 1 hora útil', SITE_URL + '#form'], ['Serviços', 'Liquidação e impugnação', 'Inicial, atualização e parecer', SITE_URL + '#servicos'], ['Como funciona', 'Quatro passos', 'Sem reunião, tudo online', SITE_URL + '#como-funciona']],
     destaques: ['Entrega em 48h', 'Arquivo .PJC incluso', 'Todos os TRTs', 'Orçamento em 1h', 'Preço fechado', 'Envie só o nº']
   },
   {
@@ -1524,7 +1524,7 @@ const KIT = [
       ['URL final', SITE_URL + '#form']
     ],
     titulos: ['Seu Prazo Ainda Está Correndo?', 'Cálculo Trabalhista R$ 250', 'Envie Só o Nº do Processo', 'Entrega do .PJC em 48h', 'Orçamento em 1 Hora Útil'],
-    descricoes: ['Ainda precisa do cálculo? Envie o PDF ou o número do processo e receba o orçamento hoje.', 'Cálculo no PJe-Calc a partir de R$ 250, com relatório e resumo do que foi deferido.'],
+    descricoes: ['Ainda precisa do cálculo? Informe o número do processo e receba o orçamento hoje.', 'Cálculo no PJe-Calc a partir de R$ 250, com relatório e resumo do que foi deferido.'],
     extra: 'Imagens: suba o logotipo (quadrado e horizontal) e 2–3 imagens (1200×628 e 1200×1200) com o texto "Cálculo trabalhista em 48h · a partir de R$ 250".'
   },
   {
@@ -1540,7 +1540,7 @@ const KIT = [
       ['Mensagem inicial', 'Olá! Vim pelo anúncio e quero um orçamento de cálculo trabalhista.']
     ],
     criativos: [
-      ['Reels 20s: "Intimado para apresentar cálculos?"', 'Tela do PJe-Calc gravada + legenda grande.', 'Intimado para apresentar os cálculos e sem tempo para o PJe-Calc? 📄\n\nEnvie o PDF ou só o número do processo. Em até 48h você recebe o arquivo .PJC, o relatório e o resumo do que foi deferido.\n\nA partir de R$ 250. Orçamento em 1 hora útil pelo WhatsApp.', 'Cálculo trabalhista em 48h'],
+      ['Reels 20s: "Intimado para apresentar cálculos?"', 'Tela do PJe-Calc gravada + legenda grande.', 'Intimado para apresentar os cálculos e sem tempo para o PJe-Calc? 📄\n\nInforme o número do processo. Em até 48h você recebe o arquivo .PJC, o relatório e o resumo do que foi deferido.\n\nA partir de R$ 250. Orçamento em 1 hora útil pelo WhatsApp.', 'Cálculo trabalhista em 48h'],
       ['Carrossel: "5 erros na liquidação que custam caro"', 'Cards: 1) índice errado (ADC 58) · 2) termo inicial da prescrição · 3) reflexos em cascata · 4) base do intervalo · 5) INSS cota empregado · 6) "Quer que a gente confira a sua conta?"', 'Um erro de índice ou de reflexo pode custar milhares de reais na liquidação. Veja os 5 mais comuns 👉\n\nQuer que a gente confira a sua conta? Chame no WhatsApp.', 'Confira sua conta de liquidação'],
       ['Imagem: antes × depois', 'Conta do perito × conta revisada (valores ilustrativos).', 'R$ 23 mil de diferença numa impugnação. Revisamos a conta do perito e entregamos a impugnação com o .PJC.\n\nA partir de R$ 250.', 'Impugnação de cálculos']
     ]
@@ -1558,7 +1558,7 @@ const KIT = [
       ['URL do site', SITE_URL + '#form']
     ],
     criativos: [
-      ['Oferta de 1º cálculo', 'Imagem simples com a oferta.', 'Seu prazo de cálculo ainda está correndo? ⏳\n\nNo primeiro cálculo com a Pontes Ferreira você tem 20% de desconto. Envie o PDF ou só o número do processo.', 'Primeiro cálculo com 20% off'],
+      ['Oferta de 1º cálculo', 'Imagem simples com a oferta.', 'Seu prazo de cálculo ainda está correndo? ⏳\n\nNo primeiro cálculo com a Pontes Ferreira você tem 20% de desconto. Informe o número do processo.', 'Primeiro cálculo com 20% off'],
       ['Revisão grátis da conta do perito', 'Imagem com "Revisão grátis".', 'Recebeu a conta do perito? Fazemos uma revisão gratuita e dizemos se vale impugnar.', 'Revisão grátis da conta do perito']
     ]
   }

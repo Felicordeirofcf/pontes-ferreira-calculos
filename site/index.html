@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cálculos Trabalhistas no PJe-Calc a partir de R$ 250 | Pontes Ferreira Cálculos Judiciais</title>
-<meta name="description" content="Cálculos trabalhistas no PJe-Calc a partir de R$ 250. Envie o PDF ou só o número do processo. Entrega do .PJC + relatório em até 48h.">
+<meta name="description" content="Cálculos trabalhistas no PJe-Calc a partir de R$ 250. Informe o número do processo e receba o orçamento. Entrega do .PJC + relatório em até 48h.">
 <link rel="canonical" href="https://pontesferreiracalculos.com/">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://pontesferreiracalculos.com/">
 <meta property="og:title" content="Cálculos trabalhistas no PJe-Calc a partir de R$ 250 | Pontes Ferreira">
-<meta property="og:description" content="Envie o PDF ou só o número do processo. Entrega do .PJC + relatório em até 48h.">
+<meta property="og:description" content="Informe o número do processo e receba o orçamento. Entrega do .PJC + relatório em até 48h.">
 <meta property="og:locale" content="pt_BR">
 
 <!-- Google Analytics, Google Ads e Meta Pixel: configurados no painel (Tráfego pago > Ativação) e carregados no fim da página -->
@@ -182,20 +182,20 @@
       <div class="price-badge">Cálculos a partir de <b>R$ 250</b></div>
       <p class="complexo">Vários autores ou caso complexo? <a href="#" class="js-wa" data-origem="form_complexo">Chame no WhatsApp</a></p>
       <h3>Envie o processo e receba o orçamento</h3>
-      <small>Escolha como prefere mandar. A gente lê, orça e calcula.</small>
+      <small>Informe o número do processo: a gente puxa os autos no PJe, orça e calcula.</small>
 
-      <div class="tabs" role="tablist">
+      <div class="tabs" role="tablist" hidden style="display:none"><!-- envio de PDF desativado: só número do processo -->
         <button type="button" class="tab active" data-modo="pdf" role="tab">📄 Enviar PDF</button>
         <button type="button" class="tab" data-modo="numero" role="tab">🔢 Informar o nº</button>
       </div>
 
       <form id="leadForm" name="pedido-calculo" method="POST" enctype="multipart/form-data" data-netlify="true" netlify-honeypot="bot">
         <input type="hidden" name="form-name" value="pedido-calculo">
-        <input type="hidden" name="modo" id="modo" value="pdf">
+        <input type="hidden" name="modo" id="modo" value="numero">
         <input type="hidden" name="origem" id="origemCampo">
         <p style="display:none"><input name="bot"></p>
 
-        <div class="modo-pdf">
+        <div class="modo-pdf" hidden style="display:none">
           <label class="drop" id="drop" for="arquivo">
             <input type="file" id="arquivo" name="arquivo" accept="application/pdf">
             <span id="dropTxt"><b>Clique ou arraste o PDF do processo</b><br><small>PDF integral baixado do PJe · até <span class="limiteMB">50</span> MB</small></span>
@@ -207,10 +207,10 @@
           </div>
         </div>
 
-        <div class="modo-numero" hidden>
+        <div class="modo-numero">
           <label for="numero">Número do processo (CNJ)</label>
           <input id="numero" name="numero" inputmode="numeric" placeholder="0000000-00.0000.5.00.0000" maxlength="25">
-          <small class="hint">A gente puxa os autos no PJe. Processo em segredo de justiça? Use a opção PDF.</small>
+          <small class="hint">A gente puxa os autos no PJe. Processo em segredo de justiça? <a href="#" class="js-wa" data-origem="form_segredo">Chame no WhatsApp</a>.</small>
         </div>
 
         <div><label for="nome">Nome</label><input id="nome" name="nome" required placeholder="Dr(a). Nome Sobrenome"></div>
@@ -276,7 +276,7 @@
     <div class="eyebrow">Como funciona</div>
     <h2>Quatro passos, sem reunião</h2>
     <div class="steps">
-      <div class="step"><b>Envie o processo</b><br>Suba o PDF aqui no site ou só informe o número, que a gente puxa no PJe.</div>
+      <div class="step"><b>Envie o processo</b><br>Informe o número do processo aqui no site, que a gente puxa os autos no PJe.</div>
       <div class="step"><b>Receba o orçamento</b><br>Preço fechado e prazo em até 1 hora útil.</div>
       <div class="step"><b>Nós calculamos</b><br>Leitura completa das decisões e lançamento no PJe-Calc.</div>
       <div class="step"><b>Receba e protocole</b><br>.PJC, relatório PDF e resumo do deferido.</div>
@@ -346,8 +346,8 @@
     <h2>Perguntas frequentes</h2>
     <details><summary>Vocês atendem processos de qualquer TRT?</summary><p>Sim. O PJe-Calc é o mesmo em todos os regionais; ajustamos índices e particularidades de cada tribunal.</p></details>
     <details><summary>Atendem reclamante e reclamada?</summary><p>Sim. Fazemos a conta da parte que você representa e a impugnação da conta contrária.</p></details>
-    <details><summary>Como envio o processo?</summary><p>De dois jeitos: suba o PDF integral no formulário do topo (até 50 MB) ou apenas informe o número do processo, que nós puxamos os autos no PJe. Se o PDF passar de 50 MB, use o número. Fichas financeiras e cartões de ponto que estiverem nos autos já entram no cálculo.</p></details>
-    <details><summary>E se o processo estiver em segredo de justiça?</summary><p>Nesse caso não conseguimos acessar pelo número. Envie o PDF integral pelo formulário ou pelo WhatsApp.</p></details>
+    <details><summary>Como envio o processo?</summary><p>Basta informar o número do processo no formulário do topo: nós puxamos os autos no PJe. Fichas financeiras e cartões de ponto que estiverem nos autos já entram no cálculo.</p></details>
+    <details><summary>E se o processo estiver em segredo de justiça?</summary><p>Nesse caso não conseguimos acessar pelo número. <a href="#" class="js-wa" data-origem="faq_segredo">Chame a gente no WhatsApp</a> que combinamos como receber os autos.</p></details>
     <details><summary>Quanto custa?</summary><p>A partir de R$ 250 por cálculo de um autor. Processos com mais de um autor (litisconsórcio, ação plúrima ou substituição processual) e casos complexos, como períodos longos, muitas verbas ou ponto e fichas extensos a transcrever, têm valor sob consulta: <a href="#" class="js-wa" data-origem="faq_preco">chame a gente no WhatsApp</a>. Você sempre recebe o preço fechado antes de começarmos.</p></details>
     <details><summary>E se o juiz mandar retificar?</summary><p>A primeira retificação decorrente do próprio cálculo é sem custo.</p></details>
     <details><summary>Como é o sigilo dos dados?</summary><p>Os arquivos são usados só para o cálculo e tratados conforme a LGPD. Podemos assinar termo de confidencialidade.</p></details>
@@ -357,7 +357,7 @@
 <section class="final">
   <div class="wrap">
     <h2>Tem um prazo de cálculo correndo agora?</h2>
-    <p style="margin-bottom:22px">Mande o PDF e receba o orçamento em até 1 hora útil.</p>
+    <p style="margin-bottom:22px">Informe o número do processo e receba o orçamento em até 1 hora útil.</p>
     <a class="btn js-wa" data-origem="final" href="#">Enviar processo pelo WhatsApp</a>
   </div>
 </section>
@@ -474,7 +474,7 @@
   const form = $('leadForm'), arquivo = $('arquivo'), numero = $('numero'), drop = $('drop');
   // Com Supabase configurado (config.js) o pedido vai direto para o painel; senão cai no WhatsApp
   const LIMITE_UPLOAD_MB = SB ? 50 : 8; // acima disso o PDF vai pelo WhatsApp
-  let modo = 'pdf';
+  let modo = 'numero'; // envio de PDF desativado no site
 
   document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
     modo = t.dataset.modo; $('modo').value = modo;

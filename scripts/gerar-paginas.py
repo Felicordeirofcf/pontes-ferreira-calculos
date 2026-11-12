@@ -226,7 +226,7 @@ def pagina(slug, titulo, desc, migalhas, corpo, faq, wa_txt, extra_ld=None):
 </div></div>
 {faq and f'<section><div class="wrap"><div class="eyebrow">Dúvidas</div><h2>Perguntas frequentes</h2>{faq_html}</div></section>' or ''}
 <section class="final"><div class="wrap"><h2>Envie o processo e receba o orçamento hoje</h2>
-<p>PDF integral do PJe ou só o número do processo. Valor fechado antes de começar, a partir de R$ 250.</p>
+<p>Informe o número do processo. Valor fechado antes de começar, a partir de R$ 250.</p>
 <div class="ctas" style="justify-content:center"><a class="btn" href="{form_link(slug.replace('/', '_'))}">Enviar processo</a><a class="btn wa" href="{wa_link(wa_txt)}" target="_blank" rel="noopener">WhatsApp (21) 98770-8652</a></div></div></section>
 {rodape()}
 <a class="wa-float" href="{wa_link(wa_txt)}" target="_blank" rel="noopener" aria-label="WhatsApp">{WA_SVG}</a>
@@ -238,7 +238,7 @@ def pagina(slug, titulo, desc, migalhas, corpo, faq, wa_txt, extra_ld=None):
 
 
 COMO = '''<section style="background:#fff"><div class="wrap"><div class="eyebrow">Como funciona</div><h2>Quatro passos, sem reunião</h2><div class="passos">
-<div class="passo"><b>Envie o processo</b><br>PDF integral do PJe ou só o número, pelo site ou WhatsApp.</div>
+<div class="passo"><b>Envie o processo</b><br>Informe o número do processo pelo site ou WhatsApp.</div>
 <div class="passo"><b>Receba o orçamento</b><br>Em até 1 hora útil, com valor fechado e prazo.</div>
 <div class="passo"><b>Aprovou, começamos</b><br>Leitura completa das decisões e cálculo no PJe-Calc.</div>
 <div class="passo"><b>Entrega em até 48h</b><br>.PJC, relatório em PDF e resumo do deferido.</div></div></div></section>'''
@@ -265,7 +265,7 @@ def gerar_cidade(c):
     sede, area = TRT[reg]
     faq = [
         (f'Vocês fazem cálculos para processos do TRT da {reg}ª Região?', f'Sim. Atendemos processos do TRT da {reg}ª Região ({area}) e de todos os outros regionais. O trabalho é 100% online, pelo PJe.'),
-        (f'Preciso ir ao escritório em {nome}?', 'Não. Você envia o PDF ou o número do processo pelo site ou WhatsApp e recebe tudo por e-mail e WhatsApp, sem reunião presencial.'),
+        (f'Preciso ir ao escritório em {nome}?', 'Não. Você informa o número do processo pelo site ou WhatsApp e recebe tudo por e-mail e WhatsApp, sem reunião presencial.'),
         ('Quanto custa um cálculo trabalhista?', 'A partir de R$ 250 por cálculo de um autor. Mais de um autor ou casos complexos são orçados antes, com valor fechado.'),
         ('Em quanto tempo recebo?', 'Até 48h na maioria dos casos. Com prazo vencendo, consulte o atendimento urgente em 24h.'),
     ]
@@ -303,7 +303,7 @@ def gerar_brasil():
            ('Quanto custa?', 'A partir de R$ 250 por cálculo de um autor, com valor fechado antes de começar.')]
     corpo = f'''<div class="eyebrow">Atendimento 100% online</div>
 <h1>Cálculos trabalhistas para advogados de <em>todo o Brasil</em></h1>
-<p>Atendemos processos dos 24 Tribunais Regionais do Trabalho. Você envia o PDF ou o número do processo e recebe o cálculo pronto no PJe-Calc em até 48h, esteja onde estiver.</p>
+<p>Atendemos processos dos 24 Tribunais Regionais do Trabalho. Você informa o número do processo e recebe o cálculo pronto no PJe-Calc em até 48h, esteja onde estiver.</p>
 <div class="ctas"><a class="btn" href="{form_link('brasil')}">Enviar processo para orçamento</a><a class="btn ghost" href="{wa_link('Olá! Quero um orçamento de cálculo trabalhista.')}" target="_blank" rel="noopener">Falar no WhatsApp</a></div>
 </div></div>
 <section><div class="wrap"><div class="eyebrow">Regiões atendidas</div><h2>Os 24 TRTs</h2>
