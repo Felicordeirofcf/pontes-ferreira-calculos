@@ -1558,8 +1558,8 @@ const STATUS_PROSP = { a_contatar: 'A contatar', contatado: 'Contatado', respond
 const TAG_PROSP = { a_contatar: 't-neutro', contatado: 't-azul', respondeu: 't-warn', interessado: 't-warn', cliente: 't-good', sem_interesse: 't-neutro', nao_contatar: 't-crit' };
 // abas da lista: quem já foi abordado sai de "A contatar" e vai para "Contatados"
 const ABAS_PROSP = { a_contatar: ['A contatar', ['a_contatar']], contatados: ['Contatados', ['contatado']], responderam: ['Responderam', ['respondeu', 'interessado']],
-  clientes: ['Clientes', ['cliente']], encerrados: ['Encerrados', ['sem_interesse', 'nao_contatar']], todos: ['Todos', null] };
-const FONTES_PROSP = ['Google Maps', 'Instagram', 'LinkedIn', 'Site do escritório', 'Jusbrasil', 'Indicação', 'Evento / OAB', 'Outros'];
+  clientes: ['Clientes', ['cliente']], encerrados: ['Encerrados', ['sem_interesse', 'nao_contatar']], sem_tel: ['📞 Sem telefone', null], todos: ['Todos', null] };
+const FONTES_PROSP = ['Credenciados CAIXA (TST)', 'Google Maps', 'Instagram', 'LinkedIn', 'Site do escritório', 'Jusbrasil', 'Indicação', 'Evento / OAB', 'Outros'];
 const PROSP_PADRAO = {
   meta_dia: 20, dias_follow1: 3, dias_follow2: 7, max_tentativas: 3, remetente: '',
   oferta: 'No primeiro cálculo você tem 20% de desconto: sai por R$ 200.', // entra no 1º contato no lugar de {oferta}
@@ -1616,7 +1616,8 @@ function telaProspeccao() {
   const ORDENS = { prioridade: (a, b) => scoreProsp(b) - scoreProsp(a) || (b.ultimo_contato || b.created_at).localeCompare(a.ultimo_contato || a.created_at), recentes: (a, b) => (b.ultimo_contato || b.created_at).localeCompare(a.ultimo_contato || a.created_at), novos: (a, b) => b.created_at.localeCompare(a.created_at),
     retorno: (a, b) => (a.proximo_contato || '9999').localeCompare(b.proximo_contato || '9999'), nome: (a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'), cidade: (a, b) => cidadeDe(a).localeCompare(cidadeDe(b), 'pt-BR') || (a.nome || '').localeCompare(b.nome || '', 'pt-BR') };
   const aba = ABAS_PROSP[f.aba] ? f.aba : 'a_contatar', grupoAba = ABAS_PROSP[aba][1];
-  const naAba = p => !grupoAba || grupoAba.includes(p.status || 'a_contatar');
+  const semTel = p => !digitos(p.whatsapp) && !['cliente', 'sem_interesse', 'nao_contatar'].includes(p.status);
+  const naAba = p => aba === 'sem_tel' ? semTel(p) : (!grupoAba || grupoAba.includes(p.status || 'a_contatar'));
   const filtrada = S.prospects.filter(p => naAba(p) && (!q || [p.nome, p.escritorio, p.cidade, p.email, p.whatsapp, p.obs].join(' ').toLowerCase().includes(q))
       && (!f.cidade || cidadeDe(p) === f.cidade) && (!f.fonte || (p.fonte || '(sem origem)') === f.fonte)
       && (!f.tel || (f.tel === 'sem' ? !digitos(p.whatsapp) : tipoTel(p.whatsapp) === f.tel))
@@ -1628,7 +1629,7 @@ function telaProspeccao() {
   const contaPor = fn => { const m = {}; S.prospects.forEach(p => { const k = fn(p); m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR')); };
   const opt = (v, rot, atual) => `<option value="${esc(v)}" ${v === (atual || '') ? 'selected' : ''}>${esc(rot)}</option>`;
   const filtrosAtivos = ['q', 'cidade', 'fonte', 'tel', 'retorno', 'nota'].filter(k => f[k]).length;
-  const contaAba = k => S.prospects.filter(p => !ABAS_PROSP[k][1] || ABAS_PROSP[k][1].includes(p.status || 'a_contatar')).length;
+  const contaAba = k => S.prospects.filter(p => k === 'sem_tel' ? !digitos(p.whatsapp) && !['cliente', 'sem_interesse', 'nao_contatar'].includes(p.status) : (!ABAS_PROSP[k][1] || ABAS_PROSP[k][1].includes(p.status || 'a_contatar'))).length;
   const numsPag = (() => { const out = []; for (let i = 1; i <= paginas; i++) if (i === 1 || i === paginas || Math.abs(i - pag) <= 2) out.push(i); else if (out[out.length - 1] !== '…') out.push('…'); return out; })();
   const paginacao = paginas > 1 ? `<div class="linha" style="justify-content:space-between;margin-top:12px;flex-wrap:wrap;gap:8px">
       <span class="desc">Mostrando ${(pag - 1) * POR_PAG + 1}–${Math.min(pag * POR_PAG, filtrada.length)} de ${filtrada.length}</span>
@@ -1669,7 +1670,7 @@ function telaProspeccao() {
       ${lista.length ? `<div class="tabela"><table><tr><th>Contato</th><th>Cidade</th><th>Telefone</th><th>Links</th><th>Status</th><th>Último contato</th><th>Retorno</th><th></th></tr>
       ${lista.map(p => `<tr><td><b class="link" data-prosp="${p.id}">${esc(p.nome)}</b> ${seloNota(p)}${p.escritorio && p.escritorio !== p.nome ? `<div class="desc" style="margin:0">${esc(p.escritorio)}</div>` : ''}</td>
         <td>${esc(p.cidade || '—')}</td>
-        <td style="white-space:nowrap">${celTelefone(p)}</td>
+        <td style="white-space:nowrap">${digitos(p.whatsapp) ? celTelefone(p) : `<button class="btn mini ouro" data-localizar="${p.id}" title="Procurar o telefone deste escritório no Google Maps">🔍 Localizar</button>`}</td>
         <td style="white-space:nowrap">${linkExt(p.site, '🌐')}${linkExt(linkInsta(p.instagram), '📸')}${linkExt(p.linkedin, '💼')}${linkExt(p.maps, '📍')}</td>
         <td><span class="tag ${TAG_PROSP[p.status] || 't-neutro'}">${STATUS_PROSP[p.status] || p.status}</span>${p.tentativas ? ` <span class="desc">${p.tentativas}×</span>` : ''}</td>
         <td>${p.ultimo_contato ? dataBR(p.ultimo_contato) : '—'}</td>
@@ -1875,6 +1876,38 @@ async function buscarAuto(mais) {
     S.achados = { ...S.achados, carregando: false, erro: e.codigo === 'sem_chave' ? 'sem_chave' : e.codigo === 'sem_funcao' ? 'A função buscar-escritorios ainda não foi publicada no Supabase.' : (e.message || String(e)) };
   }
   render();
+}
+// 🔍 Localizar: procura o escritório pelo nome no Google Maps e preenche telefone, site e mapa
+async function localizarTelefone(id) {
+  const p = S.prospects.find(x => x.id === id); if (!p) return;
+  const termo = (p.escritorio || p.nome || '').trim(), cidade = (p.cidade || 'Brasil').trim();
+  const fundo = document.createElement('div'); fundo.className = 'modal-fundo';
+  fundo.innerHTML = `<div class="modal"><h2>🔍 Localizar telefone</h2><div class="desc">Procurando <b>${esc(termo)}</b> em ${esc(cidade)} no Google Maps…</div><div id="locRes" class="vazio">Buscando…</div>
+    <div class="rodape"><a class="btn sec" target="_blank" rel="noopener" href="https://www.google.com/search?q=${encodeURIComponent(termo + ' telefone')}">Pesquisar no Google</a><button type="button" class="btn sec" id="locFechar">Fechar</button></div></div>`;
+  document.body.appendChild(fundo);
+  const fechar = () => fundo.remove();
+  $('#locFechar').onclick = fechar; fundo.addEventListener('click', e => { if (e.target === fundo) fechar(); });
+  let lugares = [];
+  try {
+    if (DEMO) lugares = [{ id: 'd1', nome: termo, endereco: 'Av. Exemplo, 1000, sala 12 · ' + cidade, telefone: '(41) 3322-4455', site: 'https://exemplo.adv.br', maps: 'https://maps.google.com', nota: 4.7, avaliacoes: 23 }, { id: 'd2', nome: termo + ' (filial)', endereco: 'Rua Modelo, 50 · ' + cidade, telefone: '(41) 99876-1234', site: '', maps: 'https://maps.google.com', nota: null, avaliacoes: 0 }];
+    else {
+      const { data, error } = await sb.functions.invoke('buscar-escritorios', { body: { termo, cidade } });
+      if (error) { let d = {}; try { d = await error.context.json(); } catch { } throw new Error(d.mensagem || error.message); }
+      lugares = (data.lugares || []).slice(0, 6);
+    }
+  } catch (e) { $('#locRes').innerHTML = `<div class="demo"><span>⚠ ${esc(e.message || e)}</span></div>`; return; }
+  if (!lugares.length) { $('#locRes').innerHTML = '<div class="vazio">Nada encontrado no Google Maps. Tente "Pesquisar no Google" (site do escritório, OAB, LinkedIn).</div>'; return; }
+  $('#locRes').className = ''; 
+  $('#locRes').innerHTML = `<div class="tabela"><table><tr><th>Encontrado</th><th>Telefone</th><th>Google</th><th></th></tr>${lugares.map((l, i) => `<tr><td><b>${esc(l.nome)}</b><div class="desc">${esc(l.endereco || l.cidade || '')}</div></td>
+    <td style="white-space:nowrap">${l.telefone ? esc(l.telefone) + (tipoTel(l.telefone) === 'celular' ? ' <span class="tag t-good">📱 WhatsApp</span>' : ' <span class="tag t-neutro">☎ fixo</span>') : '—'}</td>
+    <td>${l.nota ? '★ ' + String(l.nota).replace('.', ',') + ` <span class="desc">(${l.avaliacoes})</span>` : '<span class="desc">sem nota</span>'}</td>
+    <td style="white-space:nowrap">${l.site ? `<a class="btn mini sec" target="_blank" rel="noopener" href="${esc(urlExt(l.site))}">🌐</a>` : ''}${l.maps ? ` <a class="btn mini sec" target="_blank" rel="noopener" href="${esc(urlExt(l.maps))}">📍</a>` : ''} <button class="btn mini ouro" data-usar-local="${i}" ${l.telefone ? '' : 'disabled'}>Usar este</button></td></tr>`).join('')}</table></div>`;
+  fundo.querySelectorAll('[data-usar-local]').forEach(b => b.onclick = () => seguro(async () => {
+    const l = lugares[Number(b.dataset.usarLocal)];
+    const extra = [tipoTel(l.telefone) === 'fixo' ? 'Telefone fixo: ligar ou procurar o WhatsApp no site.' : '', l.nota ? `Google: ★ ${l.nota} (${l.avaliacoes} avaliações).` : '', l.endereco || ''].filter(Boolean).join(' ');
+    await atualizar('prospects', p.id, { whatsapp: l.telefone, site: p.site || l.site || null, maps: p.maps || l.maps || null, obs: [p.obs, extra].filter(Boolean).join('\n').slice(0, 1500) });
+    fechar(); toast(`Telefone de ${p.nome} salvo: ${l.telefone}`); render();
+  }));
 }
 async function addAchados() {
   const A = S.achados; if (!A || !A.sel.size) return;
@@ -3145,7 +3178,7 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-aba-prosp],[data-pag-prosp],[data-cidade-prosp],[data-filtro-wa],[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-localizar],[data-usar-local],[data-aba-prosp],[data-pag-prosp],[data-cidade-prosp],[data-filtro-wa],[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
   if (d.filtroWa) { S.filtroWa = d.filtroWa; return render(); }
@@ -3166,6 +3199,7 @@ document.addEventListener('click', e => {
   if (d.ufMapa !== undefined) { S.ufMapa = d.ufMapa || null; if (rota() !== 'mapa') location.hash = 'mapa'; return render(); }
   if (d.metricaMapa) { S.metricaMapa = d.metricaMapa; localSet('pf_metrica_mapa', d.metricaMapa); return render(); }
   if (d.prospectarUf) return prospectarUF(d.prospectarUf);
+  if (d.localizar) return localizarTelefone(d.localizar);
   if (d.abaProsp) { S.filtroProsp.aba = d.abaProsp; S.filtroProsp.pag = 1; S.filtroProsp.ordem = ''; return render(); }
   if (d.pagProsp) { S.filtroProsp.pag = Number(d.pagProsp); render(); return document.querySelector('#buscaProsp')?.closest('.card')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
   if (d.cidadeProsp) { S.buscaProsp.cidade = d.cidadeProsp; return buscarAuto(false); }
