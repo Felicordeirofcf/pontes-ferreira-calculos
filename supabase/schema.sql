@@ -313,3 +313,21 @@ language sql stable security definer set search_path = public as $$
     'fora_br', (select count(distinct sessao) from eventos where created_at >= desde and tipo = 'visita' and coalesce(pais, 'BR') not in ('BR', ''))
   ) end;
 $$;
+
+-- ---------------- Painel do cliente, entregas, fluxo de caixa e alertas ----------------
+alter table clientes add column if not exists portal_token text unique;   -- link pessoal do cliente (pontesferreiracalculos.com/cliente/?t=...)
+alter table calculos add column if not exists arquivos jsonb not null default '[]'::jsonb; -- entregas: [{path, nome}]
+insert into ajustes (chave, publico) values ('financeiro', false), ('alertas', false) on conflict do nothing;
+
+-- E-mails automáticos: alertas diários (8h) e relatório semanal (segunda, 8h), horário de Brasília (UTC-3)
+create extension if not exists pg_cron;
+do $$ begin perform cron.unschedule('pf-alertas-diarios'); exception when others then null; end $$;
+do $$ begin perform cron.unschedule('pf-relatorio-semanal'); exception when others then null; end $$;
+select cron.schedule('pf-alertas-diarios', '0 11 * * *', $cron$
+  select net.http_post(url := 'https://ywlnsaypcghizwyhaual.supabase.co/functions/v1/alertas',
+    body := '{"tipo":"diario"}'::jsonb, headers := '{"Content-Type":"application/json"}'::jsonb);
+$cron$);
+select cron.schedule('pf-relatorio-semanal', '0 11 * * 1', $cron$
+  select net.http_post(url := 'https://ywlnsaypcghizwyhaual.supabase.co/functions/v1/alertas',
+    body := '{"tipo":"semanal"}'::jsonb, headers := '{"Content-Type":"application/json"}'::jsonb);
+$cron$);

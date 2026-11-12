@@ -390,6 +390,13 @@
   .nota-barra i.t-good{background:#1f9d55}.nota-barra i.t-warn{background:#e2b13c}.nota-barra i.t-azul{background:#5598e7}.nota-barra i.t-crit{background:#d03b3b}.nota-barra i.t-neutro{background:#b6bdc8}
   .motivos{font-size:12px;line-height:1.5}.motivos span{display:block}.motivos .mais{color:#14632f}.motivos .menos{color:#9a2a2a}
   .trecho{font-size:12.5px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+  .agenda{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+  .ag-dia h2{font-size:15px;text-transform:capitalize;margin-bottom:8px}
+  .ag-dia.hoje{box-shadow:0 0 0 2px var(--selo),var(--sombra)}
+  .ag-item{display:flex;gap:10px;align-items:flex-start;padding:8px 6px;border-radius:10px;border-top:1px solid #eef2f6}
+  .ag-item:first-of-type{border-top:0}.ag-item:hover{background:#fbf5e6}
+  .ag-item.critico b{color:var(--crit)}
+  .ag-ic{font-size:16px;line-height:1.4}
   @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 </head>

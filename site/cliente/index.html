@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Meus cálculos · Pontes Ferreira Cálculos</title>
+<link rel="icon" href="/img/marca.svg" type="image/svg+xml">
+<meta name="theme-color" content="#060f26">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Cormorant+Garamond:wght@600;700&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{--noite:#060f26;--marinho:#0b1a3d;--ouro:linear-gradient(135deg,#fbe7a1 0%,#e2b13c 45%,#b07a12 100%);--ink:#0a1633;--ink-2:#4a5870;--papel:#f3f5f8;--linha:#e3e8ef}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Instrument Sans",system-ui,sans-serif;background:var(--papel);color:var(--ink);line-height:1.5;-webkit-font-smoothing:antialiased}
+  .topo{background:radial-gradient(120% 90% at 85% 0%,#1a3a7a 0%,#0b1a3d 45%,#060f26 100%);color:#fff;padding:22px 0 70px}
+  .wrap{max-width:980px;margin:0 auto;padding:0 20px}
+  .marca{display:flex;align-items:center;gap:11px;text-decoration:none;color:#fff}
+  .marca img{width:42px;height:42px}
+  .marca b{display:block;font-family:Cinzel,serif;letter-spacing:.06em;font-size:1.02rem}
+  .marca i{font-style:normal;font-family:Cinzel,serif;font-size:.64rem;letter-spacing:.42em;background:var(--ouro);-webkit-background-clip:text;background-clip:text;color:transparent}
+  h1{font-family:"Cormorant Garamond",serif;font-size:clamp(1.8rem,4vw,2.5rem);margin:26px 0 4px}
+  .sub{opacity:.85}
+  main{margin-top:-46px}
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+  .kpi{background:#fff;border-radius:16px;padding:16px 18px;border:1px solid var(--linha);box-shadow:0 10px 30px -18px rgba(11,26,61,.4)}
+  .kpi small{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#8693a7;font-weight:600}
+  .kpi b{font-family:"Cormorant Garamond",serif;font-size:30px}
+  .kpi.pagar b{color:#9a6a0b}
+  .card{background:#fff;border-radius:16px;border:1px solid var(--linha);padding:6px 0;margin-bottom:16px}
+  .calc{display:grid;grid-template-columns:1fr auto;gap:10px 18px;padding:16px 20px;border-bottom:1px solid #eef2f6}
+  .calc:last-child{border-bottom:0}
+  .proc{font-family:"JetBrains Mono",monospace;font-size:14px;font-weight:500}
+  .meta{color:var(--ink-2);font-size:13.5px}
+  .tag{display:inline-block;font-size:12px;font-weight:600;border-radius:8px;padding:3px 9px;margin-right:6px}
+  .t-and{background:#e3edfb;color:#1c4f95}.t-ok{background:#dff3e6;color:#14632f}.t-pag{background:#fbf1d6;color:#7a5408}.t-pago{background:#edf0f4;color:#4a5870}
+  .linha{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+  .btn{display:inline-flex;align-items:center;gap:8px;background:var(--ouro);color:#1b1203;font-weight:700;padding:9px 14px;border-radius:10px;text-decoration:none;font-size:14px;border:0}
+  .btn.sec{background:#fff;color:var(--ink);box-shadow:inset 0 0 0 1px #cfd7e1}
+  .btn.wa{background:#1f8a5b;color:#fff}
+  .valor{text-align:right;font-weight:700;white-space:nowrap}
+  .vazio,.erro{padding:40px 20px;text-align:center;color:var(--ink-2)}
+  .acoes{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 30px}
+  footer{color:var(--ink-2);font-size:13px;padding:20px 0 40px;text-align:center}
+  @media (max-width:640px){.kpis{grid-template-columns:1fr 1fr}.kpis .kpi:first-child{grid-column:1/-1}.calc{grid-template-columns:1fr}.valor{text-align:left}}
+</style>
+</head>
+<body>
+<div class="topo"><div class="wrap">
+  <a class="marca" href="/"><img src="/img/marca.svg" alt=""><span><b>PONTES FERREIRA</b><i>CÁLCULOS</i></span></a>
+  <h1 id="ola">Seus cálculos</h1><p class="sub" id="subt">Acompanhe o andamento, baixe os arquivos e veja o que está em aberto.</p>
+</div></div>
+<main class="wrap">
+  <div id="conteudo"><div class="card"><div class="vazio">Carregando…</div></div></div>
+  <div class="acoes"><a class="btn" href="/#form">Pedir novo cálculo</a><a class="btn wa" id="wa" href="https://wa.me/5521987708652" target="_blank" rel="noopener">Falar no WhatsApp</a></div>
+</main>
+<footer>Pontes Ferreira Cálculos Judiciais · CNPJ 51.362.258/0001-79 · Este link é pessoal: não compartilhe.</footer>
+<script src="/config.js"></script>
+<script>
+  const C = window.PF_CONFIG || {};
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const brl = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const data = s => s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—';
+  const STATUS = { recebido: 'Recebido', andamento: 'Em andamento', revisao: 'Em revisão', entregue: 'Entregue' };
+  const t = new URLSearchParams(location.search).get('t');
+  const alvo = document.getElementById('conteudo');
+  (async () => {
+    if (!t) { alvo.innerHTML = '<div class="card"><div class="erro">Link incompleto. Use o link que a Pontes Ferreira te enviou pelo WhatsApp.</div></div>'; return; }
+    try {
+      const r = await fetch(C.SUPABASE_URL + '/functions/v1/portal-cliente', { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: C.SUPABASE_ANON_KEY }, body: JSON.stringify({ t }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.erro === 'link_invalido' ? 'Este link não é mais válido. Peça um novo pelo WhatsApp.' : 'Não foi possível carregar agora. Tente de novo em alguns minutos.');
+      const nome = (d.cliente.nome || '').trim();
+      document.getElementById('ola').textContent = nome ? `Olá, ${nome.split(' ').slice(0, 2).join(' ')}` : 'Seus cálculos';
+      document.getElementById('wa').href = 'https://wa.me/5521987708652?text=' + encodeURIComponent(`Olá! Aqui é ${nome || 'um cliente'}, vim pelo painel de cálculos.`);
+      const s = d.resumo;
+      const cards = d.calculos.map(c => {
+        const entregue = c.status === 'entregue';
+        const tags = `<span class="tag ${entregue ? 't-ok' : 't-and'}">${STATUS[c.status] || esc(c.status)}</span>${entregue ? (c.pago ? '<span class="tag t-pago">Pago</span>' : '<span class="tag t-pag">A pagar</span>') : ''}`;
+        const partes = [c.reclamante, c.reclamada].filter(Boolean).map(esc).join(' × ');
+        return `<div class="calc"><div>
+          <div class="proc">${esc(c.numero_processo || 'Processo')}</div>
+          <div class="meta">${esc(c.tipo || 'Cálculo')}${partes ? ' · ' + partes : ''}</div>
+          <div class="linha">${tags}<span class="meta">${entregue ? 'Entregue em ' + data(c.data_entrega) : 'Entrada ' + data(c.data_entrada) + (c.prazo_entrega ? ' · previsão ' + data(c.prazo_entrega) : '')}</span></div>
+          ${c.arquivos.length ? `<div class="linha">${c.arquivos.map(a => `<a class="btn sec" href="${esc(a.url)}">⬇ ${esc(a.nome)}</a>`).join('')}</div>` : ''}
+        </div><div class="valor">${c.valor_cobrado != null ? brl(c.valor_cobrado) : ''}</div></div>`;
+      }).join('');
+      alvo.innerHTML = `<div class="kpis">
+          <div class="kpi"><small>Em andamento</small><b>${s.em_andamento}</b></div>
+          <div class="kpi"><small>Entregues</small><b>${s.entregues}</b></div>
+          <div class="kpi pagar"><small>A pagar</small><b>${brl(s.a_pagar)}</b></div></div>
+        <div class="card">${cards || '<div class="vazio">Nenhum cálculo ainda. Quando você pedir, ele aparece aqui.</div>'}</div>`;
+    } catch (e) { alvo.innerHTML = `<div class="card"><div class="erro">${esc(e.message)}</div></div>`; }
+  })();
+</script>
+</body>
+</html>

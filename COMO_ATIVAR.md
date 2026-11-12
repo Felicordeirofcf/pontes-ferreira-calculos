@@ -37,6 +37,12 @@ Entre com **adm@pontesferreiracalculos.com** e a senha temporária criada no pas
 3. Rode o `schema.sql` de novo: ele cria o gatilho que chama a função a cada pedido.
 4. Teste: faça um pedido pelo site; o e-mail chega em 1 minuto, com link para responder no WhatsApp e o PDF.
 
+## 4.1.2 Painel do cliente, agenda e e-mails automáticos
+1. Rode o `schema.sql` de novo (cria o link do cliente, os arquivos de entrega e o agendamento dos e-mails).
+2. Supabase > Edge Functions: crie **`portal-cliente`** e **`alertas`** (as duas com **"Enforce JWT verification" desligado**). Elas usam os mesmos secrets SMTP do aviso de pedidos.
+3. Painel > Configurações > Ajustes > **E-mails automáticos** > "Enviar teste" para conferir.
+4. Clientes > **🔗 Portal**: gera o link pessoal do cliente e envia pelo WhatsApp. Cálculos > **📎**: anexe o .PJC e o relatório para o cliente baixar.
+
 ## 4.2 Tráfego pago
 Painel > **Tráfego pago** > **1. Ativação**: siga os 8 passos (contas, códigos, ligar no site, testar, metas e campanhas). As campanhas prontas para copiar ficam na aba **3**.
 > Se você rodou o `schema.sql` antes desta área existir, rode o arquivo de novo (é seguro rodar mais de uma vez) para criar a tabela `ajustes`.

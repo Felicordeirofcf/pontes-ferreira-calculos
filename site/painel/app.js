@@ -454,15 +454,17 @@ function importarPJC() {
     [...inp.files].forEach(f => {
       const m = f.name.match(re); if (!m) return;
       const data = `${m[5]}-${m[4]}-${m[3]}`, chave = data + m[6];
-      if (!porProc[m[1]] || porProc[m[1]].chave < chave) porProc[m[1]] = { data, chave, calc: m[2] };
+      if (!porProc[m[1]] || porProc[m[1]].chave < chave) porProc[m[1]] = { data, chave, calc: m[2], arquivo: f };
     });
     let entregues = 0, novos = 0, jaEstavam = 0;
     for (const [proc, info] of Object.entries(porProc)) {
       const doProc = S.calculos.filter(c => digitos(c.numero_processo) === proc);
       const aberto = doProc.find(c => c.status !== 'entregue');
-      if (aberto) { await atualizar('calculos', aberto.id, { status: 'entregue', data_entrega: info.data }); entregues++; }
+      let alvo = null;
+      if (aberto) { alvo = await atualizar('calculos', aberto.id, { status: 'entregue', data_entrega: info.data }); entregues++; }
       else if (doProc.length) jaEstavam++;
-      else { await criar('calculos', { numero_processo: cnj(proc), status: 'entregue', data_entrada: info.data, data_entrega: info.data, prazo_entrega: info.data, autores: 1, complexidade: 'simples', valor_cobrado: null, pago: false, obs: `Importado do PJe-Calc (cálculo nº ${info.calc}). Defina cliente e valor.` }); novos++; }
+      else { alvo = await criar('calculos', { numero_processo: cnj(proc), status: 'entregue', data_entrada: info.data, data_entrega: info.data, prazo_entrega: info.data, autores: 1, complexidade: 'simples', valor_cobrado: null, pago: false, obs: `Importado do PJe-Calc (cálculo nº ${info.calc}). Defina cliente e valor.` }); novos++; }
+      if (alvo && !(alvo.arquivos || []).some(a => a.nome === info.arquivo.name)) await anexarEntregas(alvo.id, [info.arquivo]).catch(e => console.warn('anexar .PJC', e));
     }
     const tot = Object.keys(porProc).length;
     toast(tot ? `${tot} processo(s): ${entregues} marcado(s) como entregue, ${novos} novo(s), ${jaEstavam} já registrado(s).` : 'Nenhum arquivo .PJC com nome no padrão do PJe-Calc.');
@@ -1074,7 +1076,7 @@ function telaCalculos() {
     <button class="btn sec" data-acao="importarPJC" title="Selecione os arquivos .PJC gerados no PJe-Calc">Importar .PJC</button>
     <button class="btn" data-acao="novoCalculo">+ Cálculo</button></div></div>
   <div class="card"><div class="tabela">${lista.length ? `<table><tr><th>Entrada</th><th>Processo</th><th>Cliente</th><th>Tipo</th><th class="n">Autores</th><th>Prazo</th><th>Status</th><th class="n">Valor</th><th>Pago</th></tr>
-  ${lista.map(c => `<tr class="clic" data-calc="${c.id}"><td>${dataBR(c.data_entrada)}</td><td>${esc(c.numero_processo || '—')}${c.arquivo_path ? ` <button class="btn mini sec" data-pdf="${esc(c.arquivo_path)}">PDF</button>` : ''}</td>
+  ${lista.map(c => `<tr class="clic" data-calc="${c.id}"><td>${dataBR(c.data_entrada)}</td><td>${esc(c.numero_processo || '—')}${c.arquivo_path ? ` <button class="btn mini sec" data-pdf="${esc(c.arquivo_path)}">PDF</button>` : ''} <button class="btn mini sec" data-entregas="${c.id}" title="Arquivos que o cliente baixa no portal">📎 ${(c.arquivos || []).length || ''}</button></td>
     <td>${esc(cliente(c.cliente_id)?.nome || '—')}</td><td>${esc(c.tipo || '—')}</td><td class="n">${c.autores || 1}</td>
     <td>${dataBR(c.prazo_entrega)}</td><td>${tagStatus(c)}</td>
     <td class="n">${c.valor_cobrado == null ? '<span class="tag t-warn">definir</span>' : brl(c.valor_cobrado)}</td>
@@ -1088,12 +1090,14 @@ function telaClientes() {
     return { c, n: cs.length, fat: soma(cs.filter(x => x.status === 'entregue'), x => x.valor_cobrado), ult: cs.map(x => x.data_entrada).sort().pop(), aberto: soma(cs.filter(x => x.status === 'entregue' && !x.pago), x => x.valor_cobrado) };
   }).sort((a, b) => b.fat - a.fat);
   return `<div class="topo"><h1>Clientes</h1><div class="acoes"><button class="btn" data-acao="novoCliente">+ Cliente</button></div></div>
-  <div class="card"><div class="tabela">${linhas.length ? `<table><tr><th>Cliente</th><th>WhatsApp</th><th>OAB</th><th>Cidade</th><th>Origem</th><th class="n">Cálculos</th><th class="n">Faturado</th><th class="n">Em aberto</th><th>Último</th></tr>
+  <div class="card"><div class="tabela">${linhas.length ? `<table><tr><th>Cliente</th><th>WhatsApp</th><th>OAB</th><th>Cidade</th><th>Origem</th><th class="n">Cálculos</th><th class="n">Faturado</th><th class="n">Em aberto</th><th>Último</th><th></th></tr>
   ${linhas.map(({ c, n, fat, ult, aberto }) => `<tr class="clic" data-cliente="${c.id}"><td><b>${esc(c.nome)}</b></td><td>${waBotao(c.whatsapp, { classe: 'link-wa', nome: c.nome, cliente_id: c.id, rotulo: esc(c.whatsapp), vazio: '—' })}</td>
-  <td>${esc(c.oab || '—')}</td><td>${esc(c.cidade || '—')}</td><td>${esc(c.origem || '—')}</td><td class="n">${n}</td><td class="n">${brl(fat)}</td><td class="n">${aberto ? brl(aberto) : '—'}</td><td>${dataBR(ult)}</td></tr>`).join('')}</table>` : '<div class="vazio">Nenhum cliente ainda. Eles são criados ao converter um lead em cálculo.</div>'}</div></div>`;
+  <td>${esc(c.oab || '—')}</td><td>${esc(c.cidade || '—')}</td><td>${esc(c.origem || '—')}</td><td class="n">${n}</td><td class="n">${brl(fat)}</td><td class="n">${aberto ? brl(aberto) : '—'}</td><td>${dataBR(ult)}</td><td><button class="btn mini sec" data-portal="${c.id}" title="Link do painel do cliente">🔗 Portal</button></td></tr>`).join('')}</table>` : '<div class="vazio">Nenhum cliente ainda. Eles são criados ao converter um lead em cálculo.</div>'}</div></div>`;
 }
 
 function telaFinanceiro() {
+  const abaFin = `<div class="seg" style="margin-bottom:16px">${[['geral', 'Visão geral'], ['caixa', 'Fluxo de caixa']].map(([k, v]) => `<button class="${(S.abaFin || 'geral') === k ? 'on' : ''}" data-aba-fin="${k}">${v}</button>`).join('')}</div>`;
+  if (S.abaFin === 'caixa') return `<div class="topo"><h1>Financeiro</h1><div class="acoes"><button class="btn" data-acao="novaDespesa">+ Despesa / anúncio</button></div></div>${abaFin}${telaFluxoCaixa()}`;
   const m = metricas();
   const porCanal = CANAIS.map(k => {
     const leads = m.leadsP.filter(l => canalLead(l) === k);
@@ -1105,6 +1109,7 @@ function telaFinanceiro() {
   }).filter(r => r.leads || r.fat || r.gasto);
   const cobrar = [...m.aReceberLista].sort((a, b) => (a.data_entrega || '').localeCompare(b.data_entrega || ''));
   return `<div class="topo"><h1>Financeiro</h1><div class="acoes">${seletorPeriodo()}<button class="btn" data-acao="novaDespesa">+ Despesa / anúncio</button></div></div>
+  ${abaFin}
   <div class="kpis">
     ${kpi('Faturado', brl0(m.faturado), 'cálculos entregues')}
     ${kpi('Recebido', brl0(m.recebido), 'pagamentos no período')}
@@ -1948,6 +1953,154 @@ function exportMeta() {
   baixarArquivo(`meta-clientes-${hoje()}.csv`, csv(linhas));
 }
 
+/* ---------------- Painel do cliente (link pessoal) ---------------- */
+const novoToken = () => [...crypto.getRandomValues(new Uint8Array(24))].map(b => b.toString(16).padStart(2, '0')).join('');
+const linkPortal = c => `https://pontesferreiracalculos.com/cliente/?t=${c.portal_token}`;
+async function abrirPortal(id, renovar) {
+  let c = cliente(id); if (!c) return;
+  await seguro(async () => {
+    if (!c.portal_token || renovar) c = await atualizar('clientes', c.id, { portal_token: novoToken() });
+    const url = linkPortal(c);
+    const msg = `Olá, ${(c.nome || '').split(' ').slice(0, 2).join(' ')}! Este é o seu painel na Pontes Ferreira Cálculos: por ele você acompanha seus cálculos, baixa os arquivos (.PJC e relatório) e vê o que está em aberto.\n\n${url}\n\nO link é pessoal, não compartilhe. 🙂`;
+    const f = document.createElement('div'); f.className = 'modal-fundo';
+    f.innerHTML = `<div class="modal" style="width:min(560px,100%)"><h2>🔗 Painel do cliente</h2>
+      <p class="desc" style="margin-bottom:10px">${esc(c.nome)} acompanha os cálculos, baixa os arquivos entregues e vê o que está a pagar. Sem senha: quem tem o link entra.</p>
+      <div class="link-gerado"><code>${esc(url)}</code></div>
+      <div class="linha" style="margin-top:12px">
+        <button class="btn mini sec" data-p="copiar">📋 Copiar link</button>
+        ${c.whatsapp ? '<button class="btn mini ouro" data-p="wa">💬 Enviar pelo WhatsApp</button>' : ''}
+        <a class="btn mini sec" href="${esc(url)}" target="_blank" rel="noopener">Ver como o cliente ↗</a>
+        <button class="btn mini perigo" data-p="renovar" style="margin-left:auto" title="O link antigo para de funcionar">Gerar novo link</button></div>
+      <div class="rodape"><button class="btn sec" data-p="fechar">Fechar</button></div></div>`;
+    document.body.appendChild(f);
+    f.addEventListener('click', e => { if (e.target === f) f.remove(); });
+    f.querySelectorAll('[data-p]').forEach(b => b.onclick = () => {
+      const a = b.dataset.p; if (a === 'fechar') return f.remove();
+      if (a === 'copiar') return copiarTexto(url);
+      if (a === 'wa') { f.remove(); return abrirNoPainel(c.whatsapp, c.nome, msg, { cliente_id: c.id }); }
+      if (a === 'renovar' && confirm('Gerar um novo link? O link antigo deixa de funcionar.')) { f.remove(); abrirPortal(id, true); }
+    });
+  });
+}
+
+/* ---------------- Entregas do cálculo (arquivos que o cliente baixa no portal) ---------------- */
+async function anexarEntregas(calcId, arquivosSel) {
+  const c = S.calculos.find(x => x.id === calcId); if (!c) return;
+  const lista = [...(c.arquivos || [])];
+  for (const f of arquivosSel) {
+    if (f.size > 50 * 1048576) { toast(`${f.name}: maior que 50 MB`); continue; }
+    const path = await db.upload(`entregas/${calcId}/${Date.now()}-${f.name.replace(/[^\w.\-]+/g, '_')}`, f);
+    lista.push({ path, nome: f.name });
+  }
+  return atualizar('calculos', calcId, { arquivos: lista });
+}
+function abrirEntregas(calcId) {
+  const c = S.calculos.find(x => x.id === calcId); if (!c) return;
+  const f = document.createElement('div'); f.className = 'modal-fundo'; f.id = 'entregas';
+  const desenhar = () => {
+    const cc = S.calculos.find(x => x.id === calcId), arq = cc.arquivos || [];
+    f.innerHTML = `<div class="modal" style="width:min(560px,100%)"><h2>📎 Arquivos de entrega</h2>
+      <p class="desc">${esc(cc.numero_processo || 'Cálculo')} · ${esc(cliente(cc.cliente_id)?.nome || 'sem cliente')}. ${cc.status === 'entregue' ? 'O cliente já pode baixar pelo painel dele.' : 'O cliente vê os arquivos quando o cálculo estiver como <b>Entregue</b>.'}</p>
+      ${arq.length ? `<div class="tabela" style="margin-top:10px"><table>${arq.map((a, i) => `<tr><td>📄 ${esc(a.nome)}</td><td style="text-align:right;white-space:nowrap"><button class="btn mini sec" data-e="abrir" data-i="${i}">Abrir</button> <button class="btn mini perigo" data-e="tirar" data-i="${i}">Remover</button></td></tr>`).join('')}</table></div>` : '<div class="vazio">Nenhum arquivo ainda. Anexe o .PJC e o relatório em PDF.</div>'}
+      <div class="rodape"><button class="btn sec" data-e="fechar">Fechar</button><button class="btn ouro" data-e="anexar">+ Anexar arquivos</button></div></div>`;
+    f.querySelectorAll('[data-e]').forEach(b => b.onclick = () => seguro(async () => {
+      const a = b.dataset.e, i = Number(b.dataset.i);
+      if (a === 'fechar') { f.remove(); return render(); }
+      if (a === 'abrir') return abrirPdf(arq[i].path);
+      if (a === 'tirar') { if (!confirm(`Remover ${arq[i].nome}?`)) return; await atualizar('calculos', calcId, { arquivos: arq.filter((_, j) => j !== i) }); return desenhar(); }
+      if (a === 'anexar') {
+        const inp = document.createElement('input'); inp.type = 'file'; inp.multiple = true; inp.accept = '.pjc,.PJC,.pdf,.xlsx,.xls,.docx,.zip';
+        inp.onchange = () => seguro(async () => { if (!inp.files.length) return; toast('Enviando…'); await anexarEntregas(calcId, [...inp.files]); toast('Arquivos anexados'); desenhar(); });
+        inp.click();
+      }
+    }));
+  };
+  document.body.appendChild(f); f.addEventListener('click', e => { if (e.target === f) { f.remove(); render(); } }); desenhar();
+}
+
+/* ---------------- Fluxo de caixa ---------------- */
+const cfgFin = () => ({ meta_mensal: 0, ...(S.ajustes.financeiro || {}) });
+function telaFluxoCaixa() {
+  const n = 12, ms = meses(n), meta = Number(cfgFin().meta_mensal) || 0;
+  const linhas = ms.map(x => {
+    const ent = soma(S.calculos.filter(c => c.pago && (c.data_pagamento || '').slice(0, 7) === x.chave), c => c.valor_cobrado);
+    const fat = soma(S.calculos.filter(c => c.status === 'entregue' && (c.data_entrega || '').slice(0, 7) === x.chave), c => c.valor_cobrado);
+    const sai = soma(S.despesas.filter(d => (d.data || '').slice(0, 7) === x.chave), d => d.valor);
+    const ads = soma(S.despesas.filter(d => (d.data || '').slice(0, 7) === x.chave && CANAIS_ADS.includes(d.canal)), d => d.valor);
+    return { ...x, ent, fat, sai, ads, res: ent - sai };
+  });
+  let acum = 0; linhas.forEach(l => { acum += l.res; l.acum = acum; });
+  const atual = linhas[linhas.length - 1], hojeD = new Date(), diasMes = new Date(hojeD.getFullYear(), hojeD.getMonth() + 1, 0).getDate();
+  const ritmo = meta ? meta * hojeD.getDate() / diasMes : 0;
+  const aReceber = soma(S.calculos.filter(c => c.status === 'entregue' && !c.pago), c => c.valor_cobrado);
+  const emProducao = soma(S.calculos.filter(c => c.status !== 'entregue'), c => c.valor_cobrado);
+  const ltv = S.clientes.map(c => { const cs = S.calculos.filter(x => x.cliente_id === c.id); return { c, n: cs.length, total: soma(cs, x => x.valor_cobrado), pago: soma(cs.filter(x => x.pago), x => x.valor_cobrado), desde: cs.map(x => x.data_entrada).sort()[0] }; }).filter(x => x.n).sort((a, b) => b.total - a.total).slice(0, 10);
+  const total12 = soma(linhas, l => l.ent), mediaMes = total12 / n;
+  return `<div class="kpis">
+    ${kpi('Recebido no mês', brl0(atual.ent), meta ? `meta ${brl0(meta)} · ${pct(atual.ent / meta)}` : 'defina a meta mensal', meta && atual.ent < ritmo)}
+    ${kpi('Despesas no mês', brl0(atual.sai), `anúncios: ${brl0(atual.ads)}`)}
+    ${kpi('Resultado do mês', brl0(atual.res), 'recebido − despesas', atual.res < 0)}
+    ${kpi('A receber', brl0(aReceber), 'cálculos entregues não pagos')}
+    ${kpi('Em produção', brl0(emProducao), 'cálculos ainda não entregues')}
+    ${kpi('Média mensal', brl0(mediaMes), 'recebido, últimos 12 meses')}
+  </div>
+  <div class="grade">
+    <div class="card"><div class="linha" style="justify-content:space-between"><h2>Meta do mês</h2><button class="btn mini sec" data-acao="definirMeta">${meta ? 'Alterar meta' : 'Definir meta'}</button></div>
+      <div class="desc">${meta ? `Recebido até hoje × meta de ${brl0(meta)} · a linha marca onde deveria estar hoje` : 'Defina quanto quer receber por mês para acompanhar o ritmo.'}</div>
+      ${meta ? `<div class="verba" style="height:16px;margin-top:14px"><div style="width:${Math.min(100, atual.ent / meta * 100).toFixed(1)}%;background:${atual.ent >= ritmo ? 'var(--good)' : 'var(--selo)'}"></div><i style="left:${Math.min(100, ritmo / meta * 100).toFixed(1)}%"></i></div>
+        <p style="margin-top:10px">${atual.ent >= meta ? '🎉 Meta batida!' : `Faltam <b>${brl0(meta - atual.ent)}</b> · cerca de <b>${Math.ceil((meta - atual.ent) / (Number(traf().ticket_medio) || 250))}</b> cálculo(s) de ${brl0(Number(traf().ticket_medio) || 250)}`}${atual.ent < ritmo ? ' · abaixo do ritmo' : ''}</p>` : ''}</div>
+    <div class="card"><h2>Entradas × saídas</h2><div class="desc">Recebido e despesas por mês, últimos 12 meses</div>
+      <div class="legenda"><span><i style="background:var(--s1)"></i>Recebido</span><span><i style="background:var(--s2)"></i>Despesas</span></div>
+      ${graficoColunas(linhas.map(l => ({ rot: l.rot, valores: [l.ent, l.sai] })), [{ nome: 'Recebido', cor: 'var(--s1)' }, { nome: 'Despesas', cor: 'var(--s2)' }], v => v >= 1000 ? 'R$ ' + (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mil' : brl0(v))}</div>
+    <div class="card larga"><h2>Fluxo de caixa mês a mês</h2><div class="desc">Recebido = pagamentos com data no mês · Faturado = cálculos entregues no mês</div>
+      <div class="tabela"><table><tr><th>Mês</th><th class="n">Faturado</th><th class="n">Recebido</th><th class="n">Despesas</th><th class="n">Anúncios</th><th class="n">Resultado</th><th class="n">Acumulado</th></tr>
+      ${[...linhas].reverse().map(l => `<tr><td>${l.rot}</td><td class="n">${brl0(l.fat)}</td><td class="n">${brl0(l.ent)}</td><td class="n">${brl0(l.sai)}</td><td class="n">${brl0(l.ads)}</td><td class="n" style="color:${l.res < 0 ? 'var(--crit)' : 'inherit'}">${brl0(l.res)}</td><td class="n">${brl0(l.acum)}</td></tr>`).join('')}
+      <tr><td><b>12 meses</b></td><td class="n"><b>${brl0(soma(linhas, l => l.fat))}</b></td><td class="n"><b>${brl0(total12)}</b></td><td class="n"><b>${brl0(soma(linhas, l => l.sai))}</b></td><td class="n"><b>${brl0(soma(linhas, l => l.ads))}</b></td><td class="n"><b>${brl0(soma(linhas, l => l.res))}</b></td><td></td></tr></table></div></div>
+    <div class="card larga"><h2>Quanto cada cliente rende</h2><div class="desc">Os 10 clientes com mais valor em cálculos (todo o período)</div>
+      ${ltv.length ? `<div class="tabela"><table><tr><th>Cliente</th><th>Cliente desde</th><th class="n">Cálculos</th><th class="n">Total</th><th class="n">Pago</th><th class="n">Ticket médio</th></tr>
+      ${ltv.map(x => `<tr class="clic" data-cliente="${x.c.id}"><td><b>${esc(x.c.nome)}</b></td><td>${dataBR(x.desde)}</td><td class="n">${x.n}</td><td class="n">${brl0(x.total)}</td><td class="n">${brl0(x.pago)}</td><td class="n">${brl0(x.total / x.n)}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Sem cálculos com cliente ainda</div>'}</div>
+  </div>`;
+}
+async function definirMeta() {
+  const v = await abrirForm('Meta mensal de recebimento', [{ k: 'meta_mensal', rot: 'Quanto quer receber por mês (R$)', tipo: 'number', req: true, full: true }], cfgFin());
+  if (!v) return;
+  await seguro(async () => { const novo = { ...cfgFin(), meta_mensal: v.meta_mensal }; await ajustesDb.salvar('financeiro', novo); S.ajustes.financeiro = novo; toast('Meta salva'); render(); });
+}
+
+/* ---------------- Agenda (prazos, retornos e follow-ups por dia) ---------------- */
+function itensAgenda() {
+  const h = hoje(), itens = [];
+  S.calculos.filter(c => c.status !== 'entregue' && c.prazo_entrega).forEach(c => itens.push({ dia: c.prazo_entrega, tipo: 'prazo', ic: '📑', titulo: `Entrega: ${c.numero_processo || 'cálculo'}`, sub: `${cliente(c.cliente_id)?.nome || 'sem cliente'} · ${c.tipo || ''} · ${STATUS_CALC[c.status] || c.status}`, attr: `data-calc="${c.id}"`, critico: c.prazo_entrega < h }));
+  S.leads.filter(l => ativo(l) && l.proximo_contato).forEach(l => itens.push({ dia: l.proximo_contato, tipo: 'retorno', ic: '📞', titulo: `Retorno: ${l.nome || 'lead'}`, sub: `${STATUS_LEAD[l.status]}${l.valor_orcado ? ' · ' + brl0(l.valor_orcado) : ''}`, attr: `data-ficha="${l.id}"`, critico: l.proximo_contato < h }));
+  S.prospects.filter(p => contatavel(p) && p.status === 'contatado' && p.proximo_contato && (p.tentativas || 0) < cfgProsp().max_tentativas).forEach(p => itens.push({ dia: p.proximo_contato, tipo: 'prosp', ic: '🎯', titulo: `Follow-up: ${p.nome}`, sub: `${p.cidade || ''} · ${p.tentativas}ª tentativa feita`, attr: `data-abordar="${p.id}"`, critico: false }));
+  S.calculos.filter(c => c.status === 'entregue' && !c.pago && c.data_entrega).forEach(c => { const d = somaDias(c.data_entrega, 7); itens.push({ dia: d, tipo: 'cobrar', ic: '💰', titulo: `Cobrar: ${cliente(c.cliente_id)?.nome || c.numero_processo || 'cálculo'}`, sub: `${brl(c.valor_cobrado)} · entregue ${dataBR(c.data_entrega)}`, attr: `data-calc="${c.id}"`, critico: d < h }); });
+  return itens;
+}
+function telaAgenda() {
+  const h = hoje(), filtro = S.filtroAgenda || 'todos', itens = itensAgenda().filter(i => filtro === 'todos' || i.tipo === filtro);
+  const atrasados = itens.filter(i => i.dia < h), dias = Array.from({ length: 14 }, (_, k) => somaDias(h, k));
+  const nomeDia = d => d === h ? 'Hoje' : d === somaDias(h, 1) ? 'Amanhã' : new Date(d + 'T12:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' });
+  const item = i => `<div class="ag-item ${i.critico ? 'critico' : ''} clic" ${i.attr}><span class="ag-ic">${i.ic}</span><div><b>${esc(i.titulo)}</b><div class="desc" style="margin:0">${esc(i.sub)}</div></div></div>`;
+  const cont = t => itensAgenda().filter(i => i.tipo === t && i.dia <= somaDias(h, 6)).length;
+  return `<div class="topo"><h1>Agenda</h1><div class="acoes"><div class="seg">${[['todos', 'Tudo'], ['prazo', '📑 Entregas'], ['retorno', '📞 Retornos'], ['prosp', '🎯 Prospecção'], ['cobrar', '💰 Cobranças']].map(([k, v]) => `<button class="${k === filtro ? 'on' : ''}" data-filtro-agenda="${k}">${v}</button>`).join('')}</div></div></div>
+  <div class="kpis">${kpi('Atrasados', atrasados.length, 'prazos e retornos vencidos', atrasados.length > 0)}${kpi('Entregas em 7 dias', cont('prazo'))}${kpi('Retornos em 7 dias', cont('retorno'))}${kpi('Follow-ups em 7 dias', cont('prosp'))}${kpi('Cobranças em 7 dias', cont('cobrar'))}</div>
+  ${atrasados.length ? `<div class="card larga ag-dia" style="border-color:#f3c2c2"><h2>⚠ Atrasados</h2>${atrasados.sort((a, b) => a.dia.localeCompare(b.dia)).map(i => item({ ...i, sub: `${dataBR(i.dia)} · ${i.sub}` })).join('')}</div>` : ''}
+  <div class="agenda">${dias.map(d => { const doDia = itens.filter(i => i.dia === d); return `<div class="card ag-dia ${d === h ? 'hoje' : ''}"><h2>${nomeDia(d)} <span class="desc">${dataBR(d)}</span></h2>${doDia.length ? doDia.map(item).join('') : '<div class="desc">Livre</div>'}</div>`; }).join('')}</div>
+  <p class="desc" style="margin-top:12px">Todo dia às 8h você recebe por e-mail o que vence hoje e amanhã, os atrasos e os leads sem resposta (Configurações > Ajustes).</p>`;
+}
+async function testarEmail(tipo) {
+  if (DEMO) return toast('O e-mail de teste funciona depois de ligar o Supabase.');
+  await seguro(async () => {
+    toast('Enviando e-mail de teste…');
+    const { data, error } = await sb.functions.invoke('alertas', { body: { tipo, teste: true } });
+    if (error) { let d = {}; try { d = await error.context.json(); } catch { } throw new Error(d.mensagem || error.message); }
+    toast(data?.enviado ? `E-mail ${tipo === 'diario' ? 'diário' : 'semanal'} enviado para adm@` : 'Nada enviado');
+  });
+}
+async function alternarEmail(tipo, ligado) {
+  await seguro(async () => { const a = S.ajustes.alertas || {}; const novo = { ...a, desligado: { ...(a.desligado || {}), [tipo]: !ligado } }; await ajustesDb.salvar('alertas', novo); S.ajustes.alertas = novo; toast(ligado ? 'Ligado' : 'Desligado'); render(); });
+}
+
 /* ---------------- Configurações + Monitor de respostas ---------------- */
 // Palavras que o monitor procura nas mensagens RECEBIDAS (editáveis em Configurações)
 const MONITOR_PADRAO = {
@@ -2111,6 +2264,7 @@ function telaAjustes() {
     ${c('WhatsApp', `Situação: <b>${wa}</b>`, `<a class="btn mini sec" href="#whatsapp">Abrir WhatsApp</a>${EVOLUTION() && S.waEstado !== 'open' ? '<button class="btn mini ouro" data-acao="waConectar">Conectar</button>' : ''}`)}
     ${c('Mensagens prontas', 'Variações das respostas rápidas e das mensagens da prospecção.', '<button class="btn mini sec" data-acao="configRespostas">⚡ Respostas rápidas</button><button class="btn mini sec" data-acao="configProsp">🎯 Mensagens da prospecção</button>')}
     ${c('Atendimento automático', `Robô do WhatsApp: <b>${cfgRobo().ativo ? 'ligado' : 'desligado'}</b>.`, '<button class="btn mini sec" data-acao="configurarRobo">⚙ Configurar robô</button><button class="btn mini sec" data-acao="testarRobo">🧪 Testar</button>')}
+    ${c('E-mails automáticos', `Para adm@pontesferreiracalculos.com. <label class="linha" style="margin-top:6px"><input type="checkbox" data-email-tipo="diario" ${(S.ajustes.alertas?.desligado || {}).diario ? '' : 'checked'}> Agenda do dia (todo dia, 8h)</label><label class="linha"><input type="checkbox" data-email-tipo="semanal" ${(S.ajustes.alertas?.desligado || {}).semanal ? '' : 'checked'}> Resumo da semana (segunda, 8h)</label>`, '<button class="btn mini sec" data-acao="emailTesteDiario">Enviar teste: agenda</button><button class="btn mini sec" data-acao="emailTesteSemanal">Enviar teste: semana</button>')}
     ${c('Monitor de respostas', 'Palavras que indicam fechamento, interesse, urgência, objeção e desinteresse.', '<button class="btn mini sec" data-acao="configMonitor">⚙ Palavras do monitor</button>')}
     ${c('Anúncios e rastreamento', `Google, Meta Pixel e Clarity: <b>${rast().ativo ? 'ligados' : 'desligados'}</b>.`, '<a class="btn mini sec" href="#trafego" data-aba-trafego="ativacao">Abrir Ativação</a>')}
     ${c('Conta', DEMO ? 'Modo demonstração.' : 'Login: adm@pontesferreiracalculos.com', DEMO ? '' : '<button class="btn mini sec" data-acao="trocarSenha">Trocar senha</button><button class="btn mini sec" data-acao="sair">Sair</button>')}
@@ -2118,10 +2272,11 @@ function telaAjustes() {
 }
 
 /* ---------------- menu e busca rápida (Ctrl+K) ---------------- */
-const GRUPOS_NAV = [['Operação', ['painel', 'leads', 'prospeccao', 'whatsapp', 'calculos', 'clientes']], ['Crescimento', ['mapa', 'trafego']], ['Gestão', ['financeiro', 'configuracoes']]];
+const GRUPOS_NAV = [['Operação', ['painel', 'agenda', 'leads', 'prospeccao', 'whatsapp', 'calculos', 'clientes']], ['Crescimento', ['mapa', 'trafego']], ['Gestão', ['financeiro', 'configuracoes']]];
 const ic = d => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
 const ICONES = {
   painel: ic('<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>'),
+  agenda: ic('<rect x="3" y="4.5" width="18" height="16.5" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M7.5 13.5h3M13.5 13.5h3M7.5 17h3"/>'),
   mapa: ic('<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>'),
   leads: ic('<path d="M3 5h18l-7 8v6l-4 2v-8z"/>'),
   prospeccao: ic('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".8"/>'),
@@ -2185,7 +2340,7 @@ document.addEventListener('keydown', e => {
 });
 
 /* ---------------- shell, rotas e eventos ---------------- */
-const ROTAS = { painel: ['Painel', telaPainel], mapa: ['Mapa do Brasil', telaMapa], leads: ['Leads · CRM', telaLeads], prospeccao: ['Prospecção', telaProspeccao], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro], configuracoes: ['Configurações', telaConfiguracoes], trafego: ['Tráfego pago', telaTrafego] };
+const ROTAS = { painel: ['Painel', telaPainel], mapa: ['Mapa do Brasil', telaMapa], leads: ['Leads · CRM', telaLeads], agenda: ['Agenda', telaAgenda], prospeccao: ['Prospecção', telaProspeccao], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro], configuracoes: ['Configurações', telaConfiguracoes], trafego: ['Tráfego pago', telaTrafego] };
 const rota = () => { const r = location.hash.slice(1); return ROTAS[r] && (r !== 'whatsapp' || WA_PAINEL()) ? r : 'painel'; };
 const CAMPOS_FOCO = ['busca', 'buscaLeads', 'buscaWa', 'waTexto', 'buscaProsp'];
 
@@ -2198,7 +2353,7 @@ function render() {
   const msgsAntes = $('#waMsgs'), noFim = !msgsAntes || msgsAntes.scrollHeight - msgsAntes.scrollTop - msgsAntes.clientHeight < 60;
   const pill = n => n ? `<span class="pill">${n}</span>` : '';
   const sel = (S._ultimaRota !== r); S._ultimaRota = r;
-  const contador = k => k === 'leads' ? pill(pendentes) : k === 'whatsapp' ? pill(naoLidas) : k === 'calculos' ? pill(atras) : k === 'prospeccao' ? pill(filaProsp().filter(p => p.tentativas > 0).length) : '';
+  const contador = k => k === 'leads' ? pill(pendentes) : k === 'whatsapp' ? pill(naoLidas) : k === 'calculos' ? pill(atras) : k === 'prospeccao' ? pill(filaProsp().filter(p => p.tentativas > 0).length) : k === 'agenda' ? pill(itensAgenda().filter(i => i.dia < hoje()).length) : '';
   const itemNav = k => `<a href="#${k}" class="${k === r ? 'on' : ''}" ${k === r ? 'aria-current="page"' : ''}>${ICONES[k] || ''}<span class="rot">${ROTAS[k][0]}</span>${contador(k)}</a>`;
   const grupos = GRUPOS_NAV.map(([g, ks]) => { const vis = ks.filter(k => ROTAS[k] && (k !== 'whatsapp' || WA_PAINEL())); return vis.length ? `<div class="grupo">${g}</div>${vis.map(itemNav).join('')}` : ''; }).join('');
   $('#raiz').innerHTML = `<div class="app"><nav>
@@ -2214,9 +2369,13 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
+  if (d.portal) { e.stopPropagation(); return abrirPortal(d.portal); }
+  if (d.entregas) { e.stopPropagation(); return abrirEntregas(d.entregas); }
+  if (d.abaFin) { S.abaFin = d.abaFin; return render(); }
+  if (d.filtroAgenda) { S.filtroAgenda = d.filtroAgenda; return render(); }
   if (d.abaConfig) { S.abaConfig = d.abaConfig; return render(); }
   if (d.filtroMonitor) { S.filtroMonitor = d.filtroMonitor; return render(); }
   if (d.convMonitor) return abrirConversa(d.convMonitor);
@@ -2252,7 +2411,7 @@ document.addEventListener('click', e => {
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
     novaDespesa: () => editarDespesa(null), importarPJC, limparDemo, novaConversa,
-    novoGasto: () => novoGasto(), novoProsp: () => editarProsp(null), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
+    novoGasto: () => novoGasto(), novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
     waEnviar: waEnviarTexto, waAnexar,
     waModelo: () => seguro(() => waEnviar({ template: CFG.WA_TEMPLATE || 'retomar_contato', idioma: CFG.WA_TEMPLATE_IDIOMA || 'pt_BR' })),
     addAtividade: () => seguro(async () => {
@@ -2271,6 +2430,7 @@ document.addEventListener('change', e => {
   if (id === 'rastAtivo') return seguro(async () => { const r = { ...rast(), ativo: e.target.checked }; await ajustesDb.salvar('rastreamento', r); S.ajustes.rastreamento = r; toast(r.ativo ? 'Rastreamento LIGADO no site' : 'Rastreamento desligado'); render(); });
   if (e.target.dataset.utm && e.target.tagName === 'SELECT') { S.utm[e.target.dataset.utm] = e.target.value; return render(); }
   if (e.target.dataset.trafDireto) return seguro(() => salvarTrafego({ [e.target.dataset.trafDireto]: e.target.value.trim() || null }));
+  if (e.target.dataset.emailTipo) return alternarEmail(e.target.dataset.emailTipo, e.target.checked);
   if (id === 'fProsp') { S.filtroProsp.status = e.target.value; return render(); }
   if (e.target.dataset.buscaProsp) { S.buscaProsp[e.target.dataset.buscaProsp] = e.target.value; return render(); }
   if (id === 'periodo') { S.periodo = e.target.value; localSet('pf_periodo', S.periodo); render(); }
@@ -2299,6 +2459,7 @@ document.addEventListener('keydown', e => {
   if (e.target.id === 'waTexto' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); waEnviarTexto(); }
   if (e.key === 'Escape' && fichaId) fecharFicha();
   if (e.key === 'Escape' && $('#abordagem') && !PAL.aberta) fecharAbordagem();
+  else if (e.key === 'Escape' && !PAL.aberta && !fichaId) { const m = [...document.querySelectorAll('.modal-fundo')].pop(); if (m && m.id !== 'qrWa') { m.remove(); if (m.id === 'entregas') render(); } }
 });
 window.addEventListener('hashchange', render);
 setInterval(() => { if (EVOLUTION() && !document.hidden) atualizarEstadoWa(true); }, 120000);
