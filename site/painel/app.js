@@ -31,6 +31,7 @@ const S = {
 const TEMPERATURAS = { quente: '🔥 Quente', morno: '🌤 Morno', frio: '❄ Frio' };
 const TIPOS_ATIV = { nota: '📝 Nota', ligacao: '📞 Ligação', whatsapp: '💬 WhatsApp', email: '✉ E-mail', reuniao: '🤝 Reunião', status: '🔄 Status' };
 const RESPOSTAS_RAPIDAS = [
+  ['Apresentação', '__apresentacao__'], // usa a mensagem de apresentação da Prospecção (⚙ Mensagens), com o link do portfólio
   ['Saudação', 'Olá, {nome}! Aqui é da Pontes Ferreira Cálculos Judiciais. Recebemos seu pedido e já vamos analisar. 😊'],
   ['Pedir PDF', 'Para orçarmos, pode nos enviar o PDF integral do processo (baixado do PJe)? Se preferir, basta o número do processo que puxamos os autos.'],
   ['Orçamento', 'Analisamos o processo: o cálculo fica em R$ {valor}, com entrega em até 48h. Você recebe o arquivo .PJC, o relatório em PDF e o resumo do que foi deferido. Podemos seguir?'],
@@ -911,6 +912,12 @@ function preencherRapida(i) {
   const c = convAtiva(), l = leadDaConversa(c);
   const calc = l ? S.calculos.filter(x => x.lead_id === l.id || (l.cliente_id && x.cliente_id === l.cliente_id)).sort((a, b) => (b.data_entrada || '').localeCompare(a.data_entrada || ''))[0] : null;
   const nome = ((c && c.nome) || '').split(' ').slice(0, 2).join(' ');
+  if (RESPOSTAS_RAPIDAS[i][1] === '__apresentacao__') {
+    const prosp = S.prospects.find(p => p.whatsapp && digitos(p.whatsapp).slice(-9) === digitos(c.wa_id).slice(-9));
+    S.rascunhos[c.wa_id] = textoProsp(prosp || { nome: c.nome || '' }, 'primeiro'); render();
+    const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
+    return;
+  }
   const txt = RESPOSTAS_RAPIDAS[i][1].replace('{nome}', nome).replace('{valor}', ((calc && calc.valor_cobrado) || (l && l.valor_orcado) || 250).toLocaleString('pt-BR', { minimumFractionDigits: 2 }))
     .replace('{prazo}', calc && calc.prazo_entrega ? dataBR(calc.prazo_entrega) : 'em até 48h');
   S.rascunhos[c.wa_id] = txt; render();
@@ -1251,7 +1258,7 @@ const PROSP_PADRAO = {
   }
 };
 const cfgProsp = () => { const a = S.ajustes.prospeccao || {}; return { ...PROSP_PADRAO, ...a, textos: { ...PROSP_PADRAO.textos, ...(a.textos || {}) } }; };
-const linkPortfolio = p => `https://pontesferreiracalculos.com/portfolio.html?r=${String(p?.id || '').slice(0, 8)}${p && !p.whatsapp && p.email ? '&m=e' : ''}`; // a página converte r/m em utm_* (origem Prospecção)
+const linkPortfolio = p => p?.id ? `https://pontesferreiracalculos.com/portfolio.html?r=${String(p.id).slice(0, 8)}${!p.whatsapp && p.email ? '&m=e' : ''}` : 'https://pontesferreiracalculos.com/portfolio.html'; // a página converte r/m em utm_* (origem Prospecção)
 const primeiroNome = n => { const partes = String(n || '').trim().split(/\s+/).filter(x => !/^(dra?\.?|adv\.?|escrit[oó]rio)$/i.test(x)); return partes[0] || ''; };
 const pessoaOuEscritorio = p => /advoga|associad|escrit|sociedade|&|ltda|s\/s/i.test(p.nome || '') ? '' : primeiroNome(p.nome);
 const etapaProsp = p => (p.tentativas || 0) === 0 ? 'primeiro' : p.tentativas === 1 ? 'follow1' : 'follow2';
