@@ -835,15 +835,18 @@ function telaWhatsapp() {
 }
 
 /* editar as variações das respostas rápidas (separe as versões com uma linha ---) */
+// dados de pagamento padrão (podem ser trocados em ⚡ Respostas › Dados para pagamento)
+const PAGAMENTO_PADRAO = 'Pix (CNPJ): 51.362.258/0001-79\nFavorecido: Pontes Pereira Assessoria Administrativa · Banco Inter';
+const dadosPagamento = () => (S.ajustes.respostas || {}).__pagamento || PAGAMENTO_PADRAO;
 async function configRespostas() {
   const chaves = RESPOSTAS_RAPIDAS.filter(([, k]) => k !== '__apresentacao__');
   const v = await abrirForm('⚙ Respostas rápidas (variações)', [
     { k: '__pagamento', rot: 'Dados para pagamento: entram no lugar de {pagamento} em "Pronto + pagamento" (ex.: Pix CNPJ 51.362.258/0001-79 · Banco … ag. … c/c … · favorecido Pontes Ferreira Cálculos)', tipo: 'textarea', full: true },
     ...chaves.map(([rot, k], n) => ({ k, rot: `${rot} (${listaVariacoes(k).length} versões)${n === 0 ? ' · separe as versões com uma linha ---; marcadores {nome}, {valor}, {prazo}. A Apresentação é editada em Prospecção > ⚙ Mensagens' : ''}`, tipo: 'textarea', full: true }))
-  ], { __pagamento: (S.ajustes.respostas || {}).__pagamento || '', ...Object.fromEntries(chaves.map(([, k]) => [k, listaVariacoes(k).join('\n---\n')])) });
+  ], { __pagamento: dadosPagamento(), ...Object.fromEntries(chaves.map(([, k]) => [k, listaVariacoes(k).join('\n---\n')])) });
   if (!v) return;
   const novo = {};
-  if ((v.__pagamento || '').trim()) novo.__pagamento = v.__pagamento.trim();
+  if ((v.__pagamento || '').trim() && v.__pagamento.trim() !== PAGAMENTO_PADRAO) novo.__pagamento = v.__pagamento.trim();
   chaves.forEach(([, k]) => { const t = (v[k] || '').trim(); if (t && t !== (VARIACOES[k] || []).join('\n---\n')) novo[k] = t; });
   await seguro(async () => { await ajustesDb.salvar('respostas', novo); S.ajustes.respostas = novo; toast('Respostas rápidas salvas'); render(); });
 }
@@ -1006,8 +1009,7 @@ function preencherRapida(i) {
   const txt = (nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome).replace(/\{valor\}/g, ((calc && calc.valor_cobrado) || (l && l.valor_orcado) || 250).toLocaleString('pt-BR', { minimumFractionDigits: 2 }))
     .replace(/(?:até|para|em) \{prazo\}/g, m => calc && calc.prazo_entrega ? m.replace('{prazo}', dataBR(calc.prazo_entrega)) : 'em até 48h') // sem data: "até {prazo}" vira "em até 48h"
     .replace(/\{prazo\}/g, calc && calc.prazo_entrega ? dataBR(calc.prazo_entrega) : 'em até 48h')
-    .replace(/\{pagamento\}/g, () => (S.ajustes.respostas || {}).__pagamento || '⚠ [cadastre seus dados de pagamento no botão ⚡ Respostas, no topo da aba WhatsApp]');
-  if (/\{pagamento\}/.test(modelo) && !(S.ajustes.respostas || {}).__pagamento) toast('Cadastre seus dados de pagamento (Pix/banco) no botão ⚡ Respostas, no topo da aba WhatsApp.');
+    .replace(/\{pagamento\}/g, () => dadosPagamento());
   if (/\{prazo\}/.test(modelo) && !(calc && calc.prazo_entrega)) toast('Este contato não tem cálculo com prazo cadastrado: a mensagem saiu com "em até 48h". Ajuste antes de enviar.');
   S.rascunhos[c.wa_id] = txt; render();
   const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
