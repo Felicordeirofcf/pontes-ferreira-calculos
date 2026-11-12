@@ -340,6 +340,14 @@ async function contatoConhecido(waId: string) {
   }
   return null;
 }
+// número desconhecido com cara de cliente: entra no painel (e o robô pode atender)
+const INTENCAO = /c[aá]lculo|calcul|or[cç]amento|processo|liquida[cç]|impugna|pje|pjc|senten[cç]a|ac[oó]rd[aã]o|perit|advoga|escrit[oó]rio|trabalhista|reclamante|reclamada|vim pelo site|pelo site|vi o an[uú]ncio|an[uú]ncio|pontes ferreira|quanto custa|valor do c|honor[aá]rio|tabela de pre/i;
+function temIntencao(texto: string, tipo: string, arquivo_nome: string | null, m: any) {
+  if (m?.message?.extendedTextMessage?.contextInfo?.externalAdReply || m?.contextInfo?.externalAdReply || m?.referral) return true; // veio de anúncio
+  if (tipo === 'document' && /\.pdf$/i.test(arquivo_nome || '')) return true;
+  if (roboCnj(texto)) return true;
+  return INTENCAO.test(String(texto || ''));
+}
 async function prospectDoNumero(waId: string) {
   const fim = ultimos9(waId);
   const { data } = await db.from('prospects').select('id,nome,cidade,whatsapp').not('whatsapp', 'is', null).limit(5000);
@@ -391,8 +399,12 @@ async function processarMsgEvolution(m: any) {
   else texto = `[${m.messageType || Object.keys(msg)[0] || 'mensagem'}]`;
   const ts = Number(m.messageTimestamp || Date.now() / 1000) * 1000;
   if (Date.now() - ts > 10 * 60e3) return;                 // histórico/antigas: não importa
-  const conhecido = await contatoConhecido(waId);
-  if (!conhecido) return;                                   // fora do CRM: fica só no celular
+  let conhecido = await contatoConhecido(waId);
+  if (!conhecido) {
+    // fora do CRM: só entra se for mensagem recebida com cara de cliente (amigos e família ficam só no celular)
+    if (k.fromMe || !temIntencao(texto, tipo, arquivo_nome, m)) return;
+    conhecido = { tipo: 'novo' };
+  }
 
   if (k.fromMe) { // enviada por você (celular ou painel). Se veio do painel/robô, já está gravada pelo id.
     const { data: ja } = await db.from('wa_mensagens').select('id').eq('wamid', k.id).maybeSingle();
@@ -415,7 +427,11 @@ async function processarMsgEvolution(m: any) {
     const prosp = await prospectDoNumero(waId);
     const { data: lead } = await db.from('leads').insert({
       nome: prosp?.nome || nome || waId, whatsapp: waId, modo: 'whatsapp', status: 'novo',
-      ...(prosp ? { origem: 'Prospecção', utm_source: 'prospeccao', utm_medium: 'whatsapp', utm_campaign: 'prospeccao_1a1', cidade: prosp.cidade || null } : { origem: 'WhatsApp direto' })
+      ...(prosp ? { origem: 'Prospecção', utm_source: 'prospeccao', utm_medium: 'whatsapp', utm_campaign: 'prospeccao_1a1', cidade: prosp.cidade || null }
+        : /vim pelo site|pelo site/i.test(texto) ? { origem: 'Site orgânico', utm_source: 'site', utm_medium: 'whatsapp' }
+        : /an[uú]ncio/i.test(texto) ? { origem: 'Meta Ads', utm_source: 'meta', utm_medium: 'ctwa', utm_campaign: 'meta_topo_reels' }
+        : { origem: 'WhatsApp direto' }),
+      numero_processo: roboCnj(texto) || null
     }).select().single();
     if (lead) { await db.from('wa_conversas').update({ lead_id: lead.id }).eq('id', conv.id); conv.lead_id = lead.id; if (prosp) await db.from('prospects').update({ lead_id: lead.id }).eq('id', prosp.id); }
   }

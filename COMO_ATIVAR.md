@@ -70,7 +70,7 @@ O número conecta como "WhatsApp Web" no servidor da Locaweb Cloud. **O app do c
 **Regra do CRM (número também usado para assuntos pessoais):**
 - o histórico antigo nunca é importado (mensagens com mais de 10 minutos são ignoradas);
 - só entra no painel quem já está no CRM: conversa iniciada pelo painel, lead, cliente ou contato da Prospecção;
-- mensagens de números desconhecidos ficam só no celular. Para trazer alguém, cadastre como lead ou inicie a conversa pelo painel;
+- mensagens de números desconhecidos ficam só no celular, **exceto quando têm cara de cliente** (falam em cálculo, orçamento, processo, liquidação, impugnação, PJe, advogado; vêm do site ou de anúncio; trazem nº de processo ou PDF). Essas entram no painel como lead e o robô pode atender;
 - contato da Prospecção que responde vira lead (origem Prospecção) e fica como "Respondeu".
 
 ## 5. WhatsApp dentro do painel (API oficial da Meta)
