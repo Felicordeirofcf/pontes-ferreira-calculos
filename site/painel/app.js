@@ -411,8 +411,8 @@ async function moverLead(l, status) {
     if (m === null) return render(); patch.motivo_perda = m;
   }
   if (status === 'orcamento' && !l.valor_orcado) {
-    const primeiroDaProsp = canalLead(l) === 'Prospecção' && !S.calculos.some(c => c.lead_id === l.id || (l.cliente_id && c.cliente_id === l.cliente_id));
-    const v = prompt(primeiroDaProsp && valorOferta() ? `Valor orçado (R$) · 1º cálculo de cliente da prospecção, com a oferta:` : 'Valor orçado (R$):', String(primeiroDaProsp && valorOferta() || 250));
+    const primeiro = primeiroCalculo(l);
+    const v = prompt(primeiro ? `Valor orçado (R$) · 1º cálculo deste cliente (preço de entrada):` : 'Valor orçado (R$):', String(primeiro ? PRECO_PRIMEIRO : PRECO_BASE));
     if (v) patch.valor_orcado = numBR(v) || null;
   }
   await seguro(async () => {
@@ -1006,7 +1006,7 @@ function preencherRapida(i) {
     return;
   }
   const lista = listaVariacoes(chave), modelo = lista[sortearVariacao('rap_' + chave, lista.length)];
-  const txt = (nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome).replace(/\{valor\}/g, ((calc && calc.valor_cobrado) || (l && l.valor_orcado) || 250).toLocaleString('pt-BR', { minimumFractionDigits: 2 }))
+  const txt = (nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome).replace(/\{valor\}/g, ((calc && calc.valor_cobrado) || (l && l.valor_orcado) || (primeiroCalculo(l) ? PRECO_PRIMEIRO : PRECO_BASE)).toLocaleString('pt-BR', { minimumFractionDigits: 2 }))
     .replace(/(?:até|para|em) \{prazo\}/g, m => calc && calc.prazo_entrega ? m.replace('{prazo}', dataBR(calc.prazo_entrega)) : 'em até 48h') // sem data: "até {prazo}" vira "em até 48h"
     .replace(/\{prazo\}/g, calc && calc.prazo_entrega ? dataBR(calc.prazo_entrega) : 'em até 48h')
     .replace(/\{pagamento\}/g, () => dadosPagamento());
@@ -1379,6 +1379,9 @@ function textoProsp(p, etapa = etapaProsp(p), idx) {
     .replace(/^([\s\S]*?)(\n\n[^\n]*$)/, (t, corpo, fim) => etapa === 'primeiro' && c.oferta && !t.includes(c.oferta) ? `${corpo}\n\n${c.oferta}${fim}` : t); // textos próprios sem {oferta}: a oferta entra antes do último parágrafo
 }
 // valor do 1º cálculo com a oferta (lido do texto: "sai por R$ 200")
+// preço do 1º cálculo de qualquer cliente novo (o seguinte volta ao preço normal)
+const PRECO_BASE = 250, PRECO_PRIMEIRO = 200;
+const primeiroCalculo = l => !!l && !S.calculos.some(c => c.lead_id === l.id || (l.cliente_id && c.cliente_id === l.cliente_id));
 function valorOferta() { const m = String(cfgProsp().oferta || '').match(/R\$\s*([\d.,]+)/); return m ? numBR(m[1]) || null : null; }
 const contatavel = p => !['cliente', 'sem_interesse', 'nao_contatar', 'respondeu', 'interessado'].includes(p.status) && (p.whatsapp || p.email);
 // nota do Google guardada pela busca automática ("Google: ★ 4.8 (52 avaliações)")
