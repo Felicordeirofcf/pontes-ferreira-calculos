@@ -26,7 +26,7 @@ SERVICOS = [
     dict(slug='calculo-de-liquidacao-trabalhista', curto='Liquidação de sentença',
          titulo='Cálculo de liquidação trabalhista no PJe-Calc',
          h1='Cálculo de <em>liquidação de sentença</em> trabalhista, pronto no PJe-Calc',
-         desc='Cálculo de liquidação trabalhista no PJe-Calc a partir de R$ 250: leitura de sentença, acórdão e embargos, entrega do .PJC e relatório em até 48h.',
+         desc='Cálculo de liquidação trabalhista no PJe-Calc (1º cálculo por R$ 200): leitura de sentença, acórdão e embargos, entrega do .PJC e relatório em até 48h.',
          intro='Intimado para apresentar os cálculos de liquidação? Lemos a sentença, o acórdão e os embargos, aplicamos exatamente o que foi deferido e entregamos a conta pronta no PJe-Calc, com o arquivo .PJC para você importar, conferir e juntar.',
          itens=['Leitura de todas as decisões: sentença, acórdão, embargos e decisões de execução',
                 'Parâmetros do título: prescrição, termo inicial, base de cálculo, reflexos e divisor',
@@ -40,7 +40,7 @@ SERVICOS = [
     dict(slug='impugnacao-de-calculos-trabalhistas', curto='Impugnação aos cálculos',
          titulo='Impugnação aos cálculos trabalhistas',
          h1='<em>Impugnação aos cálculos</em> do reclamante, do perito ou do contador',
-         desc='Revisamos a conta da parte contrária ou do perito no PJe-Calc e apontamos as divergências com o valor correto. A partir de R$ 250, entrega em até 48h.',
+         desc='Revisamos a conta da parte contrária ou do perito no PJe-Calc e apontamos as divergências com o valor correto. 1º cálculo por R$ 200, entrega em até 48h.',
          intro='Recebeu a conta da outra parte ou do perito e precisa impugnar no prazo? Refazemos o cálculo pelo título executivo, comparamos item a item e mostramos onde está a diferença, com valores, para você fundamentar a impugnação.',
          itens=['Conferência item a item com o que foi deferido no título',
                 'Quadro comparativo: valor apresentado × valor correto, por verba',
@@ -54,7 +54,7 @@ SERVICOS = [
     dict(slug='calculo-para-peticao-inicial-trabalhista', curto='Cálculo da inicial',
          titulo='Cálculo para petição inicial trabalhista',
          h1='Cálculo dos pedidos da <em>petição inicial</em> trabalhista',
-         desc='Liquidação dos pedidos da inicial trabalhista com valor de cada pedido e reflexos, para atender o art. 840, §1º, da CLT. A partir de R$ 250, em até 48h.',
+         desc='Liquidação dos pedidos da inicial trabalhista com valor de cada pedido e reflexos, para atender o art. 840, §1º, da CLT. 1º cálculo por R$ 200, em até 48h.',
          intro='Desde a Reforma Trabalhista, cada pedido precisa vir com a indicação do valor (art. 840, §1º, da CLT). Calculamos os pedidos com base nos documentos do cliente e entregamos a tabela pronta para a inicial.',
          itens=['Valor de cada pedido e dos reflexos, separadamente',
                 'Uso dos documentos do cliente: TRCT, holerites, CTPS, extrato do FGTS e cartões de ponto',
@@ -68,7 +68,7 @@ SERVICOS = [
     dict(slug='atualizacao-de-calculo-trabalhista', curto='Atualização de cálculo',
          titulo='Atualização de cálculo trabalhista',
          h1='<em>Atualização</em> de cálculo trabalhista até a data do pagamento',
-         desc='Atualizamos cálculos trabalhistas com os índices e juros vigentes (ADC 58 e Lei 14.905/2024) até a data que você precisar. A partir de R$ 250.',
+         desc='Atualizamos cálculos trabalhistas com os índices e juros vigentes (ADC 58 e Lei 14.905/2024) até a data que você precisar. 1º cálculo por R$ 200.',
          intro='Conta homologada há meses e precisa do valor atualizado para acordo, depósito ou penhora? Atualizamos o cálculo no PJe-Calc até a data informada, com os critérios de correção e juros do título.',
          itens=['Correção e juros conforme o título e a legislação vigente em cada período',
                 'Abatimento de depósitos e pagamentos já feitos',
@@ -78,11 +78,11 @@ SERVICOS = [
          faq=[('Quais índices vocês usam?', 'Os definidos no título. Na ausência, os critérios fixados pelo STF na ADC 58 e, para o período a partir de 30/08/2024, os da Lei 14.905/2024.'),
               ('Dá para atualizar para uma data futura?', 'Sim, para simular um acordo ou depósito em data definida.'),
               ('Abatem os depósitos recursais?', 'Sim. Informe os depósitos e pagamentos, ou deixamos indicado o que consta nos autos.'),
-              ('Quanto custa?', 'A partir de R$ 250. Casos com muitos pagamentos parciais são orçados antes.')]),
+              ('Quanto custa?', '1º cálculo por R$ 200; depois, a partir de R$ 250. Casos com muitos pagamentos parciais são orçados antes.')]),
     dict(slug='calculista-trabalhista-pje-calc', curto='Calculista PJe-Calc',
          titulo='Calculista trabalhista PJe-Calc para escritórios',
          h1='Seu <em>calculista trabalhista</em> no PJe-Calc, sem contratar ninguém',
-         desc='Calculista trabalhista para escritórios de advocacia: cálculos no PJe-Calc sob demanda, a partir de R$ 250, com entrega em até 48h e atendimento pelo WhatsApp.',
+         desc='Calculista trabalhista para escritórios de advocacia: cálculos no PJe-Calc sob demanda, 1º cálculo por R$ 200, com entrega em até 48h e atendimento pelo WhatsApp.',
          intro='Ter um calculista na equipe custa caro e fica ocioso entre um prazo e outro. Com a Pontes Ferreira, o escritório tem cálculos no PJe-Calc sob demanda: manda o processo quando precisa e paga só pelo que usa.',
          itens=['Liquidação, impugnação, cálculo da inicial e atualização',
                 'Atendimento pelo WhatsApp, sem reunião',
@@ -184,7 +184,7 @@ def pagina(slug, titulo, desc, migalhas, corpo, faq, wa_txt, extra_ld=None):
     url = f'{SITE}/{slug}/'
     ld = [{
         '@context': 'https://schema.org', '@type': 'ProfessionalService', 'name': 'Pontes Ferreira Cálculos Judiciais',
-        'url': SITE + '/', 'telephone': '+55-21-98770-8652', 'priceRange': 'A partir de R$ 250', 'areaServed': {'@type': 'Country', 'name': 'Brasil'},
+        'url': SITE + '/', 'telephone': '+55-21-98770-8652', 'priceRange': '1º cálculo R$ 200; a partir de R$ 250', 'areaServed': {'@type': 'Country', 'name': 'Brasil'},
         'description': 'Cálculos trabalhistas no PJe-Calc para advogados e escritórios: liquidação, impugnação, cálculo da inicial e atualização.'
     }, {
         '@context': 'https://schema.org', '@type': 'BreadcrumbList',
@@ -226,7 +226,7 @@ def pagina(slug, titulo, desc, migalhas, corpo, faq, wa_txt, extra_ld=None):
 </div></div>
 {faq and f'<section><div class="wrap"><div class="eyebrow">Dúvidas</div><h2>Perguntas frequentes</h2>{faq_html}</div></section>' or ''}
 <section class="final"><div class="wrap"><h2>Envie o processo e receba o orçamento hoje</h2>
-<p>Informe o número do processo. Valor fechado antes de começar, a partir de R$ 250.</p>
+<p>Informe o número do processo. Valor fechado antes de começar: 1º cálculo por R$ 200, depois a partir de R$ 250.</p>
 <div class="ctas" style="justify-content:center"><a class="btn" href="{form_link(slug.replace('/', '_'))}">Enviar processo</a><a class="btn wa" href="{wa_link(wa_txt)}" target="_blank" rel="noopener">WhatsApp (21) 98770-8652</a></div></div></section>
 {rodape()}
 <a class="wa-float" href="{wa_link(wa_txt)}" target="_blank" rel="noopener" aria-label="WhatsApp">{WA_SVG}</a>
@@ -248,7 +248,7 @@ def gerar_servico(s):
     corpo = f'''<div class="eyebrow">Cálculos trabalhistas para advogados</div>
 <h1>{s["h1"]}</h1><p>{e(s["intro"])}</p>
 <div class="ctas"><a class="btn" href="{form_link(s["slug"])}">Enviar processo para orçamento</a><a class="btn ghost" href="{wa_link(f'Olá! Preciso de {s["curto"].lower()}. Pode me passar um orçamento?')}" target="_blank" rel="noopener">Falar no WhatsApp</a></div>
-<div class="fatos"><div><b>48h</b>prazo padrão</div><div><b>R$ 250</b>a partir de</div><div><b>.PJC</b>+ relatório em PDF</div></div>
+<div class="fatos"><div><b>48h</b>prazo padrão</div><div><b>R$ 200</b>seu 1º cálculo</div><div><b>.PJC</b>+ relatório em PDF</div></div>
 </div></div>
 <section><div class="wrap duas"><div><div class="eyebrow">O que está incluído</div><h2>Tudo pronto para juntar ao processo</h2><ul class="lista">{''.join(f'<li>{e(i)}</li>' for i in s["itens"])}</ul></div>
 <div class="box"><h3>Outros serviços</h3><div class="links" style="grid-template-columns:1fr">{''.join(f'<a href="/{o["slug"]}/">{e(o["curto"])}</a>' for o in SERVICOS if o is not s)}</div>
@@ -266,14 +266,14 @@ def gerar_cidade(c):
     faq = [
         (f'Vocês fazem cálculos para processos do TRT da {reg}ª Região?', f'Sim. Atendemos processos do TRT da {reg}ª Região ({area}) e de todos os outros regionais. O trabalho é 100% online, pelo PJe.'),
         (f'Preciso ir ao escritório em {nome}?', 'Não. Você informa o número do processo pelo site ou WhatsApp e recebe tudo por e-mail e WhatsApp, sem reunião presencial.'),
-        ('Quanto custa um cálculo trabalhista?', 'A partir de R$ 250 por cálculo de um autor. Mais de um autor ou casos complexos são orçados antes, com valor fechado.'),
+        ('Quanto custa um cálculo trabalhista?', 'O 1º cálculo sai por R$ 200; depois, a partir de R$ 250 por cálculo de um autor. Mais de um autor ou casos complexos são orçados antes, com valor fechado.'),
         ('Em quanto tempo recebo?', 'Até 48h na maioria dos casos. Com prazo vencendo, consulte o atendimento urgente em 24h.'),
     ]
     corpo = f'''<div class="eyebrow">{e(nome)} · {uf} · TRT da {reg}ª Região</div>
 <h1>Cálculo trabalhista em <em>{e(nome)}</em> no PJe-Calc, entregue em até 48h</h1>
 <p>Advogados e escritórios de {e(nome)} enviam o processo online e recebem o cálculo pronto no PJe-Calc: liquidação, impugnação, cálculo da inicial e atualização, com o arquivo .PJC, o relatório em PDF e o resumo do que foi deferido.</p>
 <div class="ctas"><a class="btn" href="{form_link('cidade_' + slug)}">Enviar processo para orçamento</a><a class="btn ghost" href="{wa_link(f'Olá! Sou de {nome} e quero um orçamento de cálculo trabalhista.')}" target="_blank" rel="noopener">Falar no WhatsApp</a></div>
-<div class="fatos"><div><b>TRT-{reg}</b>{e(area)}</div><div><b>R$ 250</b>a partir de</div><div><b>48h</b>prazo padrão</div></div>
+<div class="fatos"><div><b>TRT-{reg}</b>{e(area)}</div><div><b>R$ 200</b>seu 1º cálculo</div><div><b>48h</b>prazo padrão</div></div>
 </div></div>
 <section><div class="wrap duas"><div><div class="eyebrow">Para escritórios de {e(nome)}</div><h2>Cálculos para processos do TRT da {reg}ª Região</h2>
 <p style="margin-bottom:14px;color:var(--ink-2)">O TRT da {reg}ª Região tem sede em {e(sede)} e abrange {e(area)}. Fazemos cálculos para processos das Varas do Trabalho de {e(nome)} e região, incluindo {e(prox)}.</p>
@@ -283,7 +283,7 @@ def gerar_cidade(c):
 {COMO}
 <div style="display:none"><div><div>'''
     html_ = pagina(f'calculo-trabalhista/{slug}', f'Cálculo trabalhista em {nome}/{uf} · TRT-{reg}',
-                   f'Cálculo trabalhista em {nome} no PJe-Calc para advogados: liquidação, impugnação e inicial. TRT da {reg}ª Região. A partir de R$ 250, entrega em até 48h.',
+                   f'Cálculo trabalhista em {nome} no PJe-Calc para advogados: liquidação, impugnação e inicial. TRT da {reg}ª Região. 1º cálculo por R$ 200, entrega em até 48h.',
                    [('Início', '/'), ('Atendemos todo o Brasil', '/atendimento-todo-brasil/'), (f'{nome} ({uf})', f'/calculo-trabalhista/{slug}/')],
                    corpo, faq, f'Olá! Sou de {nome} e quero um orçamento de cálculo trabalhista.')
     return html_.replace('<div style="display:none"><div><div>\n</div></div>', '')
@@ -300,7 +300,7 @@ def gerar_brasil():
                      f'<td>{f"<a href='/calculo-trabalhista/{pag[r][3]}/'>{e(pag[r][0])}</a>" if r in pag else "✔ atendemos"}</td></tr>' for r in range(1, 25))
     faq = [('Vocês atendem processos de qualquer estado?', 'Sim. Todos os 24 Tribunais Regionais do Trabalho usam o PJe, e o PJe-Calc é o mesmo em todo o país. Ajustamos as particularidades de cada regional.'),
            ('Como é o atendimento a distância?', 'Você envia o processo pelo site ou WhatsApp, recebe o orçamento em até 1 hora útil e o cálculo em até 48h, por e-mail e WhatsApp.'),
-           ('Quanto custa?', 'A partir de R$ 250 por cálculo de um autor, com valor fechado antes de começar.')]
+           ('Quanto custa?', 'O 1º cálculo sai por R$ 200; depois, a partir de R$ 250 por cálculo de um autor, com valor fechado antes de começar.')]
     corpo = f'''<div class="eyebrow">Atendimento 100% online</div>
 <h1>Cálculos trabalhistas para advogados de <em>todo o Brasil</em></h1>
 <p>Atendemos processos dos 24 Tribunais Regionais do Trabalho. Você informa o número do processo e recebe o cálculo pronto no PJe-Calc em até 48h, esteja onde estiver.</p>
@@ -312,7 +312,7 @@ def gerar_brasil():
 {COMO}
 <div style="display:none"><div><div>'''
     html_ = pagina('atendimento-todo-brasil', 'Cálculos trabalhistas em todo o Brasil · 24 TRTs',
-                   'Cálculos trabalhistas no PJe-Calc para advogados de todos os estados e dos 24 TRTs. A partir de R$ 250, entrega em até 48h, atendimento online.',
+                   'Cálculos trabalhistas no PJe-Calc para advogados de todos os estados e dos 24 TRTs. 1º cálculo por R$ 200, entrega em até 48h, atendimento online.',
                    [('Início', '/'), ('Atendemos todo o Brasil', '/atendimento-todo-brasil/')], corpo, faq, 'Olá! Quero um orçamento de cálculo trabalhista.')
     return html_.replace('<div style="display:none"><div><div>\n</div></div>', '')
 
