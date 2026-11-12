@@ -291,6 +291,7 @@ function abrirForm(titulo, campos, valores = {}, extras = {}) {
       if (f.tipo === 'select') return `<select id="${id}" ${f.req ? 'required' : ''}>${f.vazio !== false ? '<option value="">—</option>' : ''}${f.opcoes.map(o => { const [val, rot] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(rot)}</option>`; }).join('')}</select>`;
       if (f.tipo === 'textarea') return `<textarea id="${id}" rows="3">${esc(v)}</textarea>`;
       if (f.tipo === 'checkbox') return `<input type="checkbox" id="${id}" ${v ? 'checked' : ''}>`;
+      if (f.tipo === 'file') return `<input id="${id}" type="file" multiple ${f.accept ? `accept="${esc(f.accept)}"` : ''}>`;
       return `<input id="${id}" type="${f.tipo || 'text'}" ${f.tipo === 'number' ? 'step="0.01"' : ''} value="${esc(v)}" ${f.req ? 'required' : ''} placeholder="${esc(f.ph || '')}">`;
     };
     fundo.innerHTML = `<form class="modal"><h2>${esc(titulo)}</h2><div class="campos">${campos.map(f =>
@@ -805,7 +806,7 @@ function telaWhatsapp() {
     const fimJanela = aberta && c.ultima_entrada_em ? new Date(new Date(c.ultima_entrada_em).getTime() + 24 * 36e5) : new Date();
     const cliC = c.cliente_id && cliente(c.cliente_id);
     corpo = `<div class="wa-cab"><div class="wa-quem">${avatar(c.nome || c.wa_id, c.wa_id, 'g')}<div><b>${esc(c.nome || fmtTel(c.wa_id))}</b><div class="wa-sub">${fmtTel(c.wa_id)}${cliC ? ' · <span class="tag t-good">Cliente</span>' : l ? ` · <span class="tag t-azul">${esc(STATUS_LEAD[l.status])}</span>` : ''}${l?.temperatura ? ' ' + tagTemp(l) : ''}</div></div></div>
-        <div class="wa-acoes"><button class="btn mini ouro" data-acao="orcamentoRapido" title="Montar a mensagem de orçamento com o valor que você definir">💰 Orçamento</button><button class="btn mini ouro" data-acao="prontoPagamento" title="Avisar que o cálculo está pronto e mandar os dados de pagamento">✅ Pronto + pagamento</button><button class="btn mini sec" data-cadastro="${c.wa_id}" title="Preencher o cadastro com os dados da conversa">📋 Cadastro</button>${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini ouro" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(c.wa_id)}" title="Abrir no WhatsApp Web">WhatsApp Web ↗</a></div></div>
+        <div class="wa-acoes"><button class="btn mini ouro" data-acao="orcamentoRapido" title="Montar a mensagem de orçamento com o valor que você definir">💰 Orçamento</button><button class="btn mini ouro" data-acao="prontoPagamento" title="Avisar que o cálculo está pronto e mandar os dados de pagamento">✅ Pronto + pagamento</button><button class="btn mini ouro" data-acao="envioPago" title="Pagamento confirmado: mandar a mensagem com o PDF e o .PJC e marcar como pago/entregue">📦 Envio após pagamento</button><button class="btn mini sec" data-cadastro="${c.wa_id}" title="Preencher o cadastro com os dados da conversa">📋 Cadastro</button>${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini ouro" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(c.wa_id)}" title="Abrir no WhatsApp Web">WhatsApp Web ↗</a></div></div>
       ${EVOLUTION() ? '' : `<div class="wa-janela ${aberta ? 'ok' : 'fechada'}">${aberta ? `✔ Conversa aberta: pode responder livremente até ${fimJanela.toLocaleDateString('pt-BR') === new Date().toLocaleDateString('pt-BR') ? 'hoje' : 'amanhã'} às ${hora(fimJanela)}.`
         : `⏸ O cliente não escreve há mais de 24h. Pela regra do WhatsApp, só dá para enviar um <b>modelo aprovado</b> para retomar a conversa. <button class="btn mini" data-acao="waModelo">Enviar modelo "${esc(CFG.WA_TEMPLATE || 'retomar_contato')}"</button>`}</div>`}
       ${cfgRobo().ativo ? `<div class="wa-janela ${roboEmSilencio(c) ? 'fechada' : 'ok'}">${roboEmSilencio(c)
@@ -905,6 +906,38 @@ async function prontoPagamento() {
   S.rascunhos[c.wa_id] = comRef(txt, refProcesso((v.processo || '').trim(), (v.autor || '').trim(), (v.reu || '').trim()));
   render(); const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
   toast('Revise e envie. Depois do comprovante, use "Envio após pagamento" e anexe o PDF e o .PJC.');
+}
+// 📦 Envio após pagamento: confirma o pagamento, manda a mensagem e os arquivos do cálculo (PDF e .PJC)
+// e marca o cálculo como pago e entregue
+async function envioPago() {
+  const c = convAtiva(); if (!c) return;
+  const todos = calcsDaConversa(c), base = todos.find(x => !x.pago) || todos.find(x => x.status !== 'entregue') || todos[0];
+  if (!base) return toast('Este contato ainda não tem cálculo cadastrado. Use → Cálculo primeiro.');
+  const arqs = base.arquivos || [];
+  S.arqEnvio = [];
+  const v = await abrirForm('📦 Envio após pagamento', [
+    ...(todos.length > 1 ? [{ k: 'calc', rot: 'Qual cálculo', tipo: 'select', vazio: false, full: true, opcoes: todos.map(x => [x.id, `${x.numero_processo || 'sem nº'}${x.reclamante ? ' · ' + x.reclamante : ''} · ${x.pago ? 'pago' : 'a pagar'}`]) }] : []),
+    { k: 'processo', rot: 'Nº do processo', full: true },
+    { k: 'autor', rot: 'Autor (reclamante)' }, { k: 'reu', rot: 'Réu (reclamada)' },
+    arqs.length ? { k: 'enviarArqs', rot: `Enviar junto os arquivos do cálculo: ${arqs.map(a => a.nome).join(', ')}`, tipo: 'checkbox', full: true }
+      : { k: 'arquivos', rot: 'PDF e .PJC do cálculo (escolha os dois; ficam guardados no cálculo e vão junto na mensagem)', tipo: 'file', accept: '.pdf,.pjc,.PJC,application/pdf', full: true },
+    { k: 'pago', rot: 'Marcar o cálculo como pago hoje', tipo: 'checkbox' }, { k: 'entregue', rot: 'Marcar o cálculo como entregue hoje', tipo: 'checkbox' }
+  ], { calc: base.id, processo: base.numero_processo || '', autor: base.reclamante || '', reu: base.reclamada || '', enviarArqs: true, pago: !base.pago, entregue: base.status !== 'entregue' }, { ok: 'Montar mensagem' });
+  if (!v) return;
+  const calc = (v.calc && S.calculos.find(x => x.id === v.calc)) || base;
+  if (calc !== base) { if (v.processo === (base.numero_processo || '')) v.processo = calc.numero_processo || ''; if (v.autor === (base.reclamante || '')) v.autor = calc.reclamante || ''; if (v.reu === (base.reclamada || '')) v.reu = calc.reclamada || ''; }
+  await seguro(async () => {
+    if ((S.arqEnvio || []).length) { toast('Guardando os arquivos no cálculo…'); await anexarEntregas(calc.id, S.arqEnvio); }
+    const atual = S.calculos.find(x => x.id === calc.id) || calc;
+    const enviar = (S.arqEnvio || []).length || v.enviarArqs ? (atual.arquivos || []) : [];
+    const nome = nomeParaMensagem(c.nome), lista = listaVariacoes('envio_pago'), modelo = lista[sortearVariacao('rap_envio_pago', lista.length)];
+    const txt = (nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome);
+    S.rascunhos[c.wa_id] = comRef(txt, refProcesso((v.processo || '').trim(), (v.autor || '').trim(), (v.reu || '').trim()));
+    S.envioPendente = { wa: c.wa_id, calc: calc.id, arquivos: enviar, pago: !!v.pago, entregue: !!v.entregue };
+    render(); const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
+    toast(enviar.length ? `Revise e envie: depois da mensagem vão ${enviar.length} arquivo(s) e o cálculo é atualizado.` : 'Revise e envie. Nenhum arquivo guardado no cálculo: anexe pelo 📎.');
+  });
+  S.arqEnvio = [];
 }
 async function configRespostas() {
   const chaves = RESPOSTAS_RAPIDAS.filter(([, k]) => k !== '__apresentacao__');
@@ -1097,6 +1130,13 @@ async function waEnviar(opts) {
   }
   const lista = (S.wa_mensagens[c.wa_id] = S.wa_mensagens[c.wa_id] || []);
   if (!lista.some(x => x.id === msg.id)) lista.push(msg); // o tempo real pode já ter mostrado
+  if (S.envioPendente && S.envioPendente.wa === c.wa_id && opts.texto) { // envio após pagamento: arquivos + cálculo pago/entregue
+    const e = S.envioPendente; S.envioPendente = null;
+    for (const a of e.arquivos) { try { await waEnviar({ arquivo_path: a.path, arquivo_nome: a.nome }); } catch (er) { toast(`Não consegui enviar ${a.nome}: ${er.message || er}`); } }
+    const patch = { ...(e.pago ? { pago: true, data_pagamento: hoje() } : {}), ...(e.entregue ? { status: 'entregue', data_entrega: hoje() } : {}) };
+    if (Object.keys(patch).length) await atualizar('calculos', e.calc, patch).catch(er => console.warn('envio', er));
+    toast(`Enviado${e.arquivos.length ? ` com ${e.arquivos.length} arquivo(s)` : ''}${e.pago ? ' · cálculo pago' : ''}${e.entregue ? ' · entregue' : ''}`);
+  }
   if (S.orcPendente && S.orcPendente.wa === c.wa_id && /R\$/.test(opts.texto || '')) { // orçamento enviado: lead vai para "Orçamento enviado"
     const o = S.orcPendente; S.orcPendente = null;
     const lo = o.lead && S.leads.find(x => x.id === o.lead);
@@ -3057,7 +3097,7 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), orcamentoRapido, prontoPagamento, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
+    novaDespesa: () => editarDespesa(null), orcamentoRapido, prontoPagamento, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
     selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
@@ -3076,6 +3116,7 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   const id = e.target.id;
   if (e.target.dataset.feito) { const k = e.target.dataset.feito; return seguro(async () => { await salvarTrafego({ feito: { ...(traf().feito || {}), [k]: e.target.checked } }); render(); }); }
+  if (e.target.id === 'f_arquivos') { S.arqEnvio = [...e.target.files]; return; }
   if (e.target.dataset && e.target.dataset.achado && S.achados) { const sel = S.achados.sel; e.target.checked ? sel.add(e.target.dataset.achado) : sel.delete(e.target.dataset.achado); return render(); }
   if (e.target.dataset && e.target.dataset.monRegra) return alternarRegraMon(e.target.dataset.monRegra, e.target.checked);
   if (id === 'monEmail') return seguro(async () => { const novo = { ...cfgMonAds(), email: e.target.checked }; await ajustesDb.salvar('monitor_ads', novo); S.ajustes.monitor_ads = novo; toast(novo.email ? 'Avisos por e-mail ligados' : 'Avisos por e-mail desligados'); });
