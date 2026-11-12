@@ -101,7 +101,14 @@
       });
     document.addEventListener('click', e => {
       const a = e.target.closest && e.target.closest('a[href*="wa.me"],a[href*="api.whatsapp.com"]');
-      if (!a || ss.get('pf_conv_wa')) return; // 1 conversão por visita
+      if (!a) return;
+      // leva a origem na mensagem ("Vim pelo site (google_pesquisa_calculo)") para o painel classificar o contato
+      try {
+        const u = new URL(a.href), camp = ss.get('utm_campaign') || ss.get('utm_source');
+        const t = u.searchParams.get('text') || '';
+        if (camp && !/pelo site/i.test(t)) { u.searchParams.set('text', (t ? t + ' ' : '') + '(Vim pelo site (' + camp + '))'); a.href = u.toString(); }
+      } catch (er) { }
+      if (ss.get('pf_conv_wa')) return; // 1 conversão por visita
       ss.set('pf_conv_wa', '1');
       rast.then(r => {
         if (!r.ativo) return;

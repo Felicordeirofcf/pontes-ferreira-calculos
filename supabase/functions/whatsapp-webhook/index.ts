@@ -380,6 +380,15 @@ function temIntencao(texto: string, tipo: string, arquivo_nome: string | null, m
   if (roboCnj(texto)) return true;
   return INTENCAO.test(String(texto || ''));
 }
+// "Olá! Vim pelo site (google_pesquisa_calculo)…": o botão de WhatsApp do site manda a campanha de origem entre parênteses
+function origemDoSite(texto: string) {
+  const camp = (String(texto).match(/pelo site\s*\(([^)]{1,80})\)/i)?.[1] || '').trim();
+  const c = camp.toLowerCase();
+  if (/^google|gads|cpc/.test(c)) return { origem: 'Google Ads', utm_source: 'google', utm_medium: 'cpc', utm_campaign: camp };
+  if (/^meta|facebook|instagram_ads|^fb/.test(c)) return { origem: 'Meta Ads', utm_source: 'meta', utm_medium: 'paid_social', utm_campaign: camp };
+  if (/prospec/.test(c)) return { origem: 'Prospecção', utm_source: 'prospeccao', utm_medium: 'whatsapp', utm_campaign: camp };
+  return { origem: 'Site orgânico', utm_source: 'site', utm_medium: 'whatsapp', ...(camp && c !== 'organico' ? { utm_campaign: camp } : {}) };
+}
 async function prospectDoNumero(waId: string) {
   const fim = ultimos9(waId);
   const { data } = await db.from('prospects').select('id,nome,cidade,whatsapp').like('whatsapp', fim4(waId)).limit(500);
@@ -478,7 +487,7 @@ async function processarMsgEvolution(m: any) {
     const { data: lead } = await db.from('leads').insert({
       nome: prosp?.nome || nome || waId, whatsapp: waId, modo: 'whatsapp', status: 'novo',
       ...(prosp ? { origem: 'Prospecção', utm_source: 'prospeccao', utm_medium: 'whatsapp', utm_campaign: 'prospeccao_1a1', cidade: prosp.cidade || null }
-        : /vim pelo site|pelo site/i.test(texto) ? { origem: 'Site orgânico', utm_source: 'site', utm_medium: 'whatsapp' }
+        : /vim pelo site|pelo site/i.test(texto) ? origemDoSite(texto)
         : /an[uú]ncio/i.test(texto) ? { origem: 'Meta Ads', utm_source: 'meta', utm_medium: 'ctwa', utm_campaign: 'meta_topo_reels' }
         : { origem: 'WhatsApp direto' }),
       numero_processo: roboCnj(texto) || null
