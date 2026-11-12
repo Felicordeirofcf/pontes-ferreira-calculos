@@ -57,7 +57,10 @@ const digitos = s => String(s || '').replace(/\D/g, '');
 const cnj = s => { const d = digitos(s); return d.length === 20 ? `${d.slice(0, 7)}-${d.slice(7, 9)}.${d.slice(9, 13)}.${d.slice(13, 14)}.${d.slice(14, 16)}.${d.slice(16)}` : (s || ''); };
 const soma = (arr, f) => arr.reduce((t, x) => t + (Number(f(x)) || 0), 0);
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
-const waLink = (num, txt = '') => { let d = digitos(num); if (d.length <= 11) d = '55' + d; return `https://wa.me/${d}${txt ? '?text=' + encodeURIComponent(txt) : ''}`; };
+// No computador abre o WhatsApp Web (sempre na mesma aba); no celular abre o app
+const NO_CELULAR = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+const waLink = (num, txt = '') => { let d = digitos(num); if (d.length <= 11) d = '55' + d; return NO_CELULAR ? `https://wa.me/${d}${txt ? '?text=' + encodeURIComponent(txt) : ''}` : `https://web.whatsapp.com/send?phone=${d}${txt ? '&text=' + encodeURIComponent(txt) : ''}`; };
+const ALVO_WA = NO_CELULAR ? '_blank' : 'whatsapp-web';
 function localGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function localSet(k, v) { try { localStorage.setItem(k, v); } catch { } }
 const cliente = id => S.clientes.find(c => c.id === id);
@@ -748,7 +751,7 @@ function telaWhatsapp() {
     const aberta = janelaAberta(c);
     const fimJanela = aberta && c.ultima_entrada_em ? new Date(new Date(c.ultima_entrada_em).getTime() + 24 * 36e5) : new Date();
     corpo = `<div class="wa-cab"><div><b>${esc(c.nome || fmtTel(c.wa_id))}</b><div class="desc" style="margin:0">${fmtTel(c.wa_id)}${l ? ` · ${esc(STATUS_LEAD[l.status])}` : ''}</div></div>
-        <div class="linha">${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha do lead</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="_blank" href="${waLink(c.wa_id)}">Abrir no app ↗</a></div></div>
+        <div class="linha">${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha do lead</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(c.wa_id)}">Abrir no WhatsApp Web ↗</a></div></div>
       ${EVOLUTION() ? '' : `<div class="wa-janela ${aberta ? 'ok' : 'fechada'}">${aberta ? `✔ Conversa aberta: pode responder livremente até ${fimJanela.toLocaleDateString('pt-BR') === new Date().toLocaleDateString('pt-BR') ? 'hoje' : 'amanhã'} às ${hora(fimJanela)}.`
         : `⏸ O cliente não escreve há mais de 24h. Pela regra do WhatsApp, só dá para enviar um <b>modelo aprovado</b> para retomar a conversa. <button class="btn mini" data-acao="waModelo">Enviar modelo "${esc(CFG.WA_TEMPLATE || 'retomar_contato')}"</button>`}</div>`}
       ${cfgRobo().ativo ? `<div class="wa-janela ${roboEmSilencio(c) ? 'fechada' : 'ok'}">${roboEmSilencio(c)
@@ -844,7 +847,7 @@ async function whatsManual(l) {
   const nome = (l.nome || '').split(' ').slice(0, 2).join(' ');
   const proc = l.numero_processo ? ` do processo ${l.numero_processo}` : '';
   const txt = `Olá, ${nome}! Aqui é da Pontes Ferreira Cálculos Judiciais. Recebemos seu pedido de cálculo${proc} e já vamos analisar. 😊`;
-  window.open(waLink(l.whatsapp, txt), '_blank');
+  window.open(waLink(l.whatsapp, txt), ALVO_WA);
   const agora = new Date().toISOString();
   await atualizar('leads', l.id, { ultimo_contato: agora, ...(l.respondido_em ? {} : { respondido_em: agora }) });
   await registrar(l.id, 'whatsapp', 'Contato pelo WhatsApp (app)', l.cliente_id || null);
@@ -1032,7 +1035,7 @@ function telaClientes() {
   }).sort((a, b) => b.fat - a.fat);
   return `<div class="topo"><h1>Clientes</h1><div class="acoes"><button class="btn" data-acao="novoCliente">+ Cliente</button></div></div>
   <div class="card"><div class="tabela">${linhas.length ? `<table><tr><th>Cliente</th><th>WhatsApp</th><th>OAB</th><th>Cidade</th><th>Origem</th><th class="n">Cálculos</th><th class="n">Faturado</th><th class="n">Em aberto</th><th>Último</th></tr>
-  ${linhas.map(({ c, n, fat, ult, aberto }) => `<tr class="clic" data-cliente="${c.id}"><td><b>${esc(c.nome)}</b></td><td>${c.whatsapp ? `<a target="_blank" href="${waLink(c.whatsapp)}" onclick="event.stopPropagation()">${esc(c.whatsapp)}</a>` : '—'}</td>
+  ${linhas.map(({ c, n, fat, ult, aberto }) => `<tr class="clic" data-cliente="${c.id}"><td><b>${esc(c.nome)}</b></td><td>${c.whatsapp ? `<a target="${ALVO_WA}" href="${waLink(c.whatsapp)}" onclick="event.stopPropagation()">${esc(c.whatsapp)}</a>` : '—'}</td>
   <td>${esc(c.oab || '—')}</td><td>${esc(c.cidade || '—')}</td><td>${esc(c.origem || '—')}</td><td class="n">${n}</td><td class="n">${brl(fat)}</td><td class="n">${aberto ? brl(aberto) : '—'}</td><td>${dataBR(ult)}</td></tr>`).join('')}</table>` : '<div class="vazio">Nenhum cliente ainda. Eles são criados ao converter um lead em cálculo.</div>'}</div></div>`;
 }
 
@@ -1063,7 +1066,7 @@ function telaFinanceiro() {
     <div class="card"><h2>A receber</h2><div class="desc">Entregues e ainda não pagos, mais antigos primeiro</div>
     ${cobrar.length ? `<div class="tabela"><table><tr><th>Entregue</th><th>Cliente</th><th class="n">Valor</th><th></th></tr>
     ${cobrar.map(c => { const cl = cliente(c.cliente_id); const d = difDias(c.data_entrega, hoje()); return `<tr><td>${dataBR(c.data_entrega)} ${d > 7 ? `<span class="tag t-crit">${d} dias</span>` : ''}</td><td>${esc(cl?.nome || '—')}</td><td class="n">${c.valor_cobrado == null ? '—' : brl(c.valor_cobrado)}</td>
-      <td style="white-space:nowrap">${cl?.whatsapp ? `<a class="btn mini sec" target="_blank" href="${waLink(cl.whatsapp, `Olá, ${cl.nome}! Tudo bem? Passando para lembrar do pagamento do cálculo do processo ${c.numero_processo || ''}, no valor de ${brl(c.valor_cobrado)}. Obrigado!`)}">Cobrar</a>` : ''} <button class="btn mini" data-pagar="${c.id}">Pago</button></td></tr>`; }).join('')}</table></div>` : '<div class="vazio">Nada a receber 🎉</div>'}</div>
+      <td style="white-space:nowrap">${cl?.whatsapp ? `<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(cl.whatsapp, `Olá, ${cl.nome}! Tudo bem? Passando para lembrar do pagamento do cálculo do processo ${c.numero_processo || ''}, no valor de ${brl(c.valor_cobrado)}. Obrigado!`)}">Cobrar</a>` : ''} <button class="btn mini" data-pagar="${c.id}">Pago</button></td></tr>`; }).join('')}</table></div>` : '<div class="vazio">Nada a receber 🎉</div>'}</div>
     <div class="card"><h2>Despesas</h2><div class="desc">${PERIODOS[S.periodo]}</div>
     ${m.despesasP.length ? `<div class="tabela"><table><tr><th>Data</th><th>Categoria</th><th>Descrição</th><th class="n">Valor</th></tr>
     ${[...m.despesasP].sort((a, b) => b.data.localeCompare(a.data)).map(d => `<tr class="clic" data-despesa="${d.id}"><td>${dataBR(d.data)}</td><td>${esc(d.canal)}</td><td>${esc(d.descricao || '')}</td><td class="n">${brl(d.valor)}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Nenhuma despesa lançada</div>'}</div>
@@ -1242,7 +1245,7 @@ function filaProsp() {
   return [...followups, ...novos];
 }
 const contatadosHoje = () => S.prospects.filter(p => p.ultimo_contato && dia(p.ultimo_contato) === hoje()).length;
-const linkExt = (url, rot) => url ? `<a class="btn mini sec" href="${esc(/^https?:/.test(url) ? url : 'https://' + url)}" target="_blank" rel="noopener">${rot}</a>` : '';
+const linkExt = (url, rot) => url ? `<a class="btn mini sec" href="${esc(/^https?:/.test(url) ? url : 'https://' + url)}" target="${ALVO_WA}" rel="noopener">${rot}</a>` : '';
 const linkInsta = h => h ? (/^https?:/.test(h) ? h : `https://instagram.com/${h.replace(/^@/, '')}`) : '';
 
 function telaProspeccao() {
@@ -1305,14 +1308,14 @@ function celTelefone(p) {
   let wa = '';
   if (p.whatsapp && p.status !== 'nao_contatar') wa = contatavel(p)
     ? `<button class="wa-bolha" data-wa-prosp="${p.id}" title="Enviar a mensagem do ${ROT_ETAPA[etapaProsp(p)]} no WhatsApp">${WA_SVG}</button>`
-    : `<a class="wa-bolha conversa" href="${esc(waLink(p.whatsapp))}" target="_blank" rel="noopener" title="Abrir a conversa no WhatsApp (sem mensagem pronta)">${WA_SVG}</a>`;
+    : `<a class="wa-bolha conversa" href="${esc(waLink(p.whatsapp))}" target="${ALVO_WA}" rel="noopener" title="Abrir a conversa no WhatsApp (sem mensagem pronta)">${WA_SVG}</a>`;
   const mail = p.email && p.status !== 'nao_contatar' ? `<button class="mail-bolha" data-mail-prosp="${p.id}" title="Enviar por e-mail: ${esc(p.email)}">✉</button>` : '';
   return `<div class="tel-cel">${tel}${wa}${mail}</div>`;
 }
 /* envia direto da lista, com a mensagem da etapa, e registra a abordagem */
 async function registrarAbordagem(p, canal, txt) {
   const c = cfgProsp(), agora = new Date().toISOString();
-  if (canal === 'wa') window.open(waLink(p.whatsapp, txt), '_blank');
+  if (canal === 'wa') window.open(waLink(p.whatsapp, txt), ALVO_WA);
   else window.open(`mailto:${encodeURIComponent(p.email)}?subject=${encodeURIComponent(c.textos.email_assunto)}&body=${encodeURIComponent(txt.replace(/\*/g, ''))}`, '_blank');
   if (!contatavel(p)) return;
   const t = (p.tentativas || 0) + 1, prox = t >= c.max_tentativas ? null : somaDias(hoje(), t === 1 ? c.dias_follow1 : c.dias_follow2 - c.dias_follow1);
