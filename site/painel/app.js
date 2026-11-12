@@ -1768,7 +1768,7 @@ function campoRast(k, rot, ph) {
 }
 function trafegoAtivacao() {
   const r = rast(), t = traf();
-  const temGoogle = !!(r.ga4_id && r.gads_id && r.gads_label), temMeta = !!r.meta_pixel_id, temAlgum = temGoogle || temMeta || !!r.clarity_id;
+  const temAds = !!(r.gads_id && r.gads_label), temGoogle = temAds && !!r.ga4_id, temMeta = !!r.meta_pixel_id, temAlgum = temAds || !!r.ga4_id || temMeta || !!r.clarity_id;
   const criadas = KIT.filter(k => feito('camp_' + k.id)).length;
   const prontos = [temAlgum, r.ativo, criadas > 0].filter(Boolean).length;
   return `<div class="demo" style="background:#eef4fc;border-color:var(--s1)"><span>Siga os passos na ordem. Tudo que depende de você está marcado com ☐; o resto o painel confere sozinho. <b>${prontos}/3</b> etapas principais concluídas.</span></div>
@@ -1794,7 +1794,7 @@ function trafegoAtivacao() {
       ${campoRast('valor_lead', 'Valor estimado de cada lead (R$)', '250')}
     </div>
     <div class="linha" style="margin-top:12px"><button class="btn" data-acao="salvarRast">Salvar códigos</button>
-    <span style="color:var(--ink-2);font-size:13px">Google: ${temGoogle ? '✅ completo' : '⏳ faltando'} · Meta: ${temMeta ? '✅ completo' : '⏳ faltando'} · Clarity: ${r.clarity_id ? '✅' : '⏳ opcional'}</span></div>`, temAlgum)}
+    <span style="color:var(--ink-2);font-size:13px">Google Ads: ${temAds ? '✅' : '⏳ faltando'} · Analytics: ${r.ga4_id ? '✅' : '⏳ opcional'} · Meta: ${temMeta ? '✅ completo' : '⏳ faltando'} · Clarity: ${r.clarity_id ? '✅' : '⏳ opcional'}</span></div>`, temAlgum)}
   ${passo('ligar', '3. Ligar no site', `<p>Com os códigos salvos, ligue a chave. O site passa a carregar o Google e o Meta e a registrar como conversão cada pedido de orçamento (formulário e botões de WhatsApp). Não precisa mexer no código nem publicar de novo.</p>
     <label class="linha" style="font-size:15px;font-weight:600;margin-top:8px"><input type="checkbox" id="rastAtivo" ${r.ativo ? 'checked' : ''} ${temAlgum ? '' : 'disabled'}> Rastreamento ligado no site</label>
     ${temAlgum ? '' : '<div class="desc">Salve pelo menos um código no passo 2 para liberar.</div>'}`, !!r.ativo)}
