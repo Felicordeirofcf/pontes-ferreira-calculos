@@ -4,7 +4,7 @@
 // Com tipo "apresentacao": envia a apresentação do serviço para um escritório (prospecção).
 // Com tipo "robo": robô de prospecção por e-mail, chamado pelo agendador (pg_cron) a cada 15 min.
 //   Manda 1 apresentação por chamada para o próximo contato "A contatar" com e-mail, respeitando o limite diário,
-//   o intervalo mínimo e o horário (seg–sex, 9h–22h de Brasília). Liga/desliga e limites no painel (Prospecção > 🤖 Robô de e-mail).
+//   o intervalo mínimo, os dias e o horário (de Brasília) escolhidos no painel. Liga/desliga, horário e limites no painel (Prospecção > 🤖 Robô de e-mail).
 // Só o dono logado no painel pode usar. Deixe "Verify JWT" LIGADO.
 // Secrets: os mesmos da função aviso-lead (SMTP_USER, SMTP_PASS, opcionais SMTP_HOST, SMTP_PORT).
 // Arquivos grandes (mais de 15 MB no total) vão como links de download válidos por 7 dias, em vez de anexo.
@@ -207,14 +207,17 @@ function apresentacaoHtml(d: any) {
 }
 
 // ---------- robô de prospecção por e-mail ----------
-const ROBO_PADRAO = { ativo: false, por_dia: 20, intervalo_min: 20, assinatura: 'Amanda Pontes' };
+const ROBO_PADRAO = { ativo: false, por_dia: 20, intervalo_min: 20, assinatura: 'Amanda Pontes', hora_inicio: 9, hora_fim: 22, dias: [1, 2, 3, 4, 5] };
+const NOMES_DIA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 async function lerAjuste(chave: string) { const { data } = await db.from('ajustes').select('valor').eq('chave', chave).maybeSingle(); return data?.valor || {}; }
 async function roboEmail(teste: boolean) {
   const cfg = { ...ROBO_PADRAO, ...(await lerAjuste('robo_email')) };
   const porDia = Math.min(Math.max(1, Number(cfg.por_dia) || 20), 40), intervalo = Math.max(10, Number(cfg.intervalo_min) || 20);
   if (!cfg.ativo) return { ok: false, motivo: 'robô desligado' };
   const agoraBR = new Date(Date.now() - 3 * 3600e3), dia = agoraBR.toISOString().slice(0, 10), hora = agoraBR.getUTCHours(), sem = agoraBR.getUTCDay();
-  if (!teste && (sem === 0 || sem === 6 || hora < 9 || hora >= 22)) return { ok: false, motivo: 'fora do horário (seg–sex, 9h–22h)' };
+  const ini = Math.min(Math.max(0, Number(cfg.hora_inicio) || 0), 23), fim = Math.min(Math.max(ini + 1, Number(cfg.hora_fim) || 24), 24);
+  const dias = Array.isArray(cfg.dias) && cfg.dias.length ? cfg.dias.map(Number) : ROBO_PADRAO.dias;
+  if (!teste && (!dias.includes(sem) || hora < ini || hora >= fim)) return { ok: false, motivo: `fora do horário (${dias.map(x => NOMES_DIA[x]).join(', ')}, ${ini}h–${fim}h)` };
   const log = (await lerAjuste('robo_email_log')).lista || [];
   const hoje = log.filter((x: any) => x.dia === dia && x.ok).length;
   if (hoje >= porDia) return { ok: false, motivo: `limite do dia atingido (${hoje}/${porDia})` };

@@ -2200,17 +2200,20 @@ async function addAchados() {
 // ✉ procura o e-mail de contato no site de cada escritório (o Google Maps não informa e-mail)
 const emailsTentados = () => { try { return new Set(JSON.parse(localStorage.getItem('pf_emails_tentados') || '[]')); } catch { return new Set(); } };
 /* 🤖 Robô de e-mail: manda a apresentação sozinho para quem está "A contatar" e tem e-mail (o servidor faz o envio) */
-const ROBO_EMAIL_PADRAO = { ativo: false, por_dia: 20, intervalo_min: 20, assinatura: 'Amanda Pontes' };
+const ROBO_EMAIL_PADRAO = { ativo: false, por_dia: 20, intervalo_min: 20, assinatura: 'Amanda Pontes', hora_inicio: 9, hora_fim: 22, dias: [1, 2, 3, 4, 5] };
+const DIAS_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+const descDias = d => { d = [...d].map(Number).sort(); const s = d.join(','); return s === '1,2,3,4,5' ? 'de segunda a sexta' : s === '0,1,2,3,4,5,6' ? 'todos os dias' : s === '1,2,3,4,5,6' ? 'de segunda a sábado' : d.map(x => DIAS_SEMANA[x].slice(0, 3).toLowerCase()).join(', '); };
 const cfgRoboEmail = () => ({ ...ROBO_EMAIL_PADRAO, ...(S.ajustes.robo_email || {}) });
 const logRoboEmail = () => (S.ajustes.robo_email_log || {}).lista || [];
 const filaRoboEmail = () => { const ja = new Set(logRoboEmail().map(x => x.id)); return S.prospects.filter(p => (p.status || 'a_contatar') === 'a_contatar' && !p.tentativas && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(p.email || '').trim()) && !ja.has(p.id)); };
 function cartaoRoboEmail() {
   const c = cfgRoboEmail(), log = logRoboEmail(), dia = isoLocal(new Date()), hojeOk = log.filter(x => x.dia === dia && x.ok).length, fila = filaRoboEmail().length;
-  const agora = new Date(), util = agora.getDay() > 0 && agora.getDay() < 6 && agora.getHours() >= 9 && agora.getHours() < 22;
-  const estado = !c.ativo ? '<span class="tag t-neutro">Desligado</span>' : !fila ? '<span class="tag t-warn">Ligado · fila vazia</span>' : hojeOk >= c.por_dia ? '<span class="tag t-good">Ligado · limite do dia atingido</span>' : util ? '<span class="tag t-good">Ligado · enviando</span>' : '<span class="tag t-azul">Ligado · volta seg–sex às 9h</span>';
+  const agora = new Date(), util = c.dias.map(Number).includes(agora.getDay()) && agora.getHours() >= c.hora_inicio && agora.getHours() < c.hora_fim;
+  const quando = `${descDias(c.dias)}, das ${c.hora_inicio}h às ${c.hora_fim}h`;
+  const estado = !c.ativo ? '<span class="tag t-neutro">Desligado</span>' : !fila ? '<span class="tag t-warn">Ligado · fila vazia</span>' : hojeOk >= c.por_dia ? '<span class="tag t-good">Ligado · limite do dia atingido</span>' : util ? '<span class="tag t-good">Ligado · enviando</span>' : `<span class="tag t-azul">Ligado · fora do horário (volta ${c.hora_inicio}h)</span>`;
   return `<div class="card larga" style="margin:14px 0"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <div><b>🤖 Robô de e-mail</b> ${estado}<div class="desc" style="margin:4px 0 0">Manda a apresentação por e-mail, sozinho, para quem está em "A contatar" e tem e-mail: 1 a cada ${c.intervalo_min} min, até ${c.por_dia} por dia, de segunda a sexta das 9h às 22h. Hoje: <b>${hojeOk}/${c.por_dia}</b> · na fila: <b>${fila}</b>${log[0] ? ` · último: ${esc(log[0].nome || log[0].email)} ${log[0].ok ? '✓' : '✗'}` : ''}</div></div>
-    <div class="linha" style="gap:6px"><button class="btn ${c.ativo ? 'sec' : 'ouro'}" data-acao="ligarRoboEmail">${c.ativo ? '⏸ Desligar' : '▶ Ligar robô'}</button><button class="btn sec" data-acao="configRoboEmail">⚙ Ajustar</button><button class="btn sec" data-acao="verRoboEmail">📜 Envios</button></div></div></div>`;
+    <div><b>🤖 Robô de e-mail</b> ${estado}<div class="desc" style="margin:4px 0 0">Manda a apresentação por e-mail, sozinho, para quem está em "A contatar" e tem e-mail: 1 a cada ${c.intervalo_min} min, até ${c.por_dia} por dia, ${quando}. Hoje: <b>${hojeOk}/${c.por_dia}</b> · na fila: <b>${fila}</b>${log[0] ? ` · último: ${esc(log[0].nome || log[0].email)} ${log[0].ok ? '✓' : '✗'}` : ''}</div></div>
+    <div class="linha" style="gap:6px"><button class="btn ${c.ativo ? 'sec' : 'ouro'}" data-acao="ligarRoboEmail">${c.ativo ? '⏸ Desligar' : '▶ Ligar robô'}</button><button class="btn sec" data-acao="configRoboEmail">⚙ Regras</button><button class="btn sec" data-acao="verRoboEmail">📜 Envios</button></div></div></div>`;
 }
 async function salvarRoboEmail(patch) {
   const v = { ...cfgRoboEmail(), ...patch };
@@ -2220,17 +2223,25 @@ async function ligarRoboEmail() {
   const c = cfgRoboEmail();
   if (c.ativo) return salvarRoboEmail({ ativo: false }).then(() => toast('Robô de e-mail desligado'));
   const fila = filaRoboEmail().length;
-  if (!confirm(`Ligar o robô? Ele vai mandar a apresentação por e-mail, sozinho, para ${fila} contato(s) em "A contatar" com e-mail: 1 a cada ${c.intervalo_min} min, até ${c.por_dia} por dia, seg–sex 9h–22h. Cada envio marca o contato como contatado e agenda o retorno.`)) return;
+  if (!confirm(`Ligar o robô? Ele vai mandar a apresentação por e-mail, sozinho, para ${fila} contato(s) em "A contatar" com e-mail: 1 a cada ${c.intervalo_min} min, até ${c.por_dia} por dia, ${descDias(c.dias)}, das ${c.hora_inicio}h às ${c.hora_fim}h. Cada envio marca o contato como contatado e agenda o retorno.`)) return;
   await salvarRoboEmail({ ativo: true }); toast('🤖 Robô de e-mail ligado' + (fila ? '' : ': a fila está vazia, use ✉ Buscar e-mails'));
 }
 async function configRoboEmail() {
-  const v = await abrirForm('⚙ Robô de e-mail', [
-    { k: 'por_dia', rot: 'Máximo de e-mails por dia (até 40)', tipo: 'number' },
-    { k: 'intervalo_min', rot: 'Intervalo entre e-mails (minutos, mínimo 10)', tipo: 'number' },
+  const c = cfgRoboEmail(), dias = c.dias.map(Number);
+  const v = await abrirForm('⚙ Regras do robô de e-mail', [
+    { k: 'hora_inicio', rot: 'Começa a enviar às (hora, 0–23)', tipo: 'number' },
+    { k: 'hora_fim', rot: 'Para de enviar às (hora, 1–24)', tipo: 'number' },
+    ...DIAS_SEMANA.map((d, i) => ({ k: 'dia' + i, rot: d, tipo: 'checkbox' })),
+    { k: 'por_dia', rot: 'Máximo de e-mails por dia (até 40)', tipo: 'number', full: true },
+    { k: 'intervalo_min', rot: 'Intervalo entre e-mails (minutos, mínimo 10)', tipo: 'number', full: true },
     { k: 'assinatura', rot: 'Quem assina', full: true }
-  ], cfgRoboEmail());
+  ], { ...c, ...Object.fromEntries(DIAS_SEMANA.map((d, i) => ['dia' + i, dias.includes(i)])) });
   if (!v) return;
-  await salvarRoboEmail({ por_dia: Math.min(Math.max(1, Number(v.por_dia) || 20), 40), intervalo_min: Math.max(10, Number(v.intervalo_min) || 20), assinatura: v.assinatura || 'Amanda Pontes' });
+  const novosDias = DIAS_SEMANA.map((d, i) => v['dia' + i] ? i : null).filter(x => x !== null);
+  if (!novosDias.length) return toast('Marque pelo menos um dia da semana.');
+  const ini = Math.min(Math.max(0, Math.round(Number(v.hora_inicio))), 23) || 0, fim = Math.min(Math.max(ini + 1, Math.round(Number(v.hora_fim)) || 24), 24);
+  await salvarRoboEmail({ hora_inicio: ini, hora_fim: fim, dias: novosDias, por_dia: Math.min(Math.max(1, Number(v.por_dia) || 20), 40), intervalo_min: Math.max(10, Number(v.intervalo_min) || 20), assinatura: v.assinatura || 'Amanda Pontes' });
+  toast(`Regras salvas: ${descDias(novosDias)}, das ${ini}h às ${fim}h, até ${Math.min(Math.max(1, Number(v.por_dia) || 20), 40)} por dia`);
 }
 async function verRoboEmail() {
   if (!DEMO) { try { const { data } = await sb.from('ajustes').select('valor').eq('chave', 'robo_email_log').maybeSingle(); S.ajustes.robo_email_log = data?.valor || {}; } catch { } }
