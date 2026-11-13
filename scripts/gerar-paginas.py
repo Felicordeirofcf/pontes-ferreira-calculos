@@ -99,6 +99,13 @@ SERVICOS = [
 COM_ARTIGO = {'Rio de Janeiro', 'Recife'}
 def em(n): return ('no ' if n in COM_ARTIGO else 'em ') + n
 def de(n): return ('do ' if n in COM_ARTIGO else 'de ') + n
+# "abrange o Paraná", "a Bahia", "Minas Gerais" (sem artigo); vale para cada parte de "Pará e Amapá"
+ARTIGO = {'estado': 'o', 'capital': 'a', 'interior': 'o', 'Bahia': 'a', 'Paraíba': 'a', 'Ceará': 'o', 'Pará': 'o', 'Amapá': 'o', 'Paraná': 'o', 'Distrito': 'o', 'Tocantins': 'o',
+          'Amazonas': 'o', 'Rio': 'o', 'Espírito': 'o', 'Maranhão': 'o', 'Piauí': 'o', 'Acre': 'o', 'Mato': 'o', 'Grande': 'a', 'Baixada': 'a', 'litoral': 'o'}
+def com_artigo(area):
+    import re as _re
+    partes = _re.split(r'(, | e )', area)
+    return ''.join(p if p in (', ', ' e ') else ((ARTIGO[p.split(' ')[0]] + ' ' + p) if p.split(' ')[0] in ARTIGO else p) for p in partes)
 
 CIDADES = [  # cidade, UF, região do TRT, slug, municípios próximos atendidos
     ('São Paulo', 'SP', 2, 'sao-paulo', 'Guarulhos, Osasco, Santo André, São Bernardo do Campo e Santos'),
@@ -281,7 +288,7 @@ def gerar_cidade(c):
 <div class="fatos"><div><b>TRT-{reg}</b>{e(area)}</div><div><b>R$ 200</b>seu 1º cálculo</div><div><b>48h</b>prazo padrão</div></div>
 </div></div>
 <section><div class="wrap duas"><div><div class="eyebrow">Para escritórios {e(de(nome))}</div><h2>Cálculos para processos do TRT da {reg}ª Região</h2>
-<p style="margin-bottom:14px;color:var(--ink-2)">O TRT da {reg}ª Região tem sede {e(em(sede))} e abrange {e(area)}. Fazemos cálculos para processos das Varas do Trabalho {e(de(nome))} e região, incluindo {e(prox)}.</p>
+<p style="margin-bottom:14px;color:var(--ink-2)">O TRT da {reg}ª Região tem sede {e(em(sede))} e abrange {e(com_artigo(area))}. Fazemos cálculos para processos das Varas do Trabalho {e(de(nome))} e região, incluindo {e(prox)}.</p>
 <ul class="lista">{''.join(f'<li><a href="/{s["slug"]}/">{e(s["curto"])}</a></li>' for s in SERVICOS[:4])}<li>Processos em qualquer fase: conhecimento, liquidação e execução</li></ul></div>
 <div class="box"><h3>Outras cidades atendidas</h3><div class="links" style="grid-template-columns:1fr 1fr">{''.join(f'<a href="/calculo-trabalhista/{o[3]}/">{e(o[0])}</a>' for o in CIDADES if o[3] != slug)}</div>
 <p style="margin-top:12px;font-size:.95rem"><a href="/atendimento-todo-brasil/">Ver todos os TRTs →</a></p></div></div></section>
