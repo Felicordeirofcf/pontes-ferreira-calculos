@@ -596,7 +596,6 @@
 
     $('origemCampo').value = origemCampanha();
     const urgente = $('prazo').value.includes('48h');
-    if(window.PF_EVENTO) PF_EVENTO('pedido', { alvo: modo==='pdf' ? 'formulario_pdf' : 'formulario_numero', secao: 'form' });
 
     const resumo =
       'Olá! Sou '+$('nome').value+'.\n'+
@@ -640,6 +639,7 @@
         if(!r.ok) throw new Error(r.status);
       } else throw new Error('sem backend');
       conversao(modo==='pdf'?'form_pdf':'form_numero', urgente ? 2 : 1); // só conta o pedido que foi salvo
+      if(window.PF_EVENTO) PF_EVENTO('pedido', { alvo: modo==='pdf' ? 'formulario_pdf' : 'formulario_numero', secao: 'form' }); // idem: só depois de salvo
       concluir(modo==='numero'
         ? 'Vamos puxar o processo '+numero.value+' no PJe. Em até 1 hora útil você recebe o orçamento no WhatsApp.'
         : null);

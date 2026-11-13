@@ -2633,7 +2633,7 @@ function sessoesJornada() {
   return [...m.values()].map(s => {
     const l = porSes.get(s.id) || porRef.get(s.ref) || null;
     const dur = Math.max(s.tempo, Math.round((new Date(s.fim) - new Date(s.inicio)) / 1000));
-    return { ...s, lead: l, dur, engajou: dur >= 10 || s.rol >= 25 || s.cliques.length > 0, leu: s.rol >= 50, clicou: s.wa || s.form || s.pedido, contato: s.pedido || !!l, orcado: !!l && ['orcamento', 'fechado'].includes(l.status), fechou: !!l && l.status === 'fechado' };
+    return { ...s, lead: l, dur, engajou: dur >= 10 || s.rol >= 25 || s.cliques.length > 0, leu: s.rol >= 50, clicou: s.wa || s.form || s.pedido, contato: !!l, pedidoSemLead: s.pedido && !l, orcado: !!l && ['orcamento', 'fechado'].includes(l.status), fechou: !!l && l.status === 'fechado' };
   }).sort((a, b) => b.inicio.localeCompare(a.inicio));
 }
 const PASSOS_JORNADA = [
@@ -2641,7 +2641,7 @@ const PASSOS_JORNADA = [
   ['engajou', 'Ficaram (10s+ ou rolaram)', 'Saem em menos de 10 segundos: o anúncio promete uma coisa e a página mostra outra, ou a página demora. Confira se o título repete o que a pessoa pesquisou (o site já ajusta pelo anúncio) e se as palavras-chave são de quem contrata, não de leigo.'],
   ['leu', 'Leram até a metade', 'Ficam, mas não descem: a primeira tela não convenceu. Reforce a dor ("prazo de liquidação correndo?"), a oferta (1º cálculo R$ 200) e uma prova (exemplo de relatório, avaliações).'],
   ['clicou', 'Clicaram para falar', 'Leem e não clicam: falta confiança ou um motivo para agir agora. Mostre exemplo de relatório, avaliações no Google, e deixe o botão do WhatsApp sempre à vista (já está na barra do celular).'],
-  ['contato', 'Mandaram mensagem ou pedido', 'Clicam no WhatsApp e a mensagem não chega: ou a pessoa desistiu no WhatsApp, ou o recebimento falhou. Confira o 📥 Fora do CRM e o log da função; a mensagem pronta já leva o código do visitante para ligar a conversa a ele.'],
+  ['contato', 'Viraram lead no painel', 'Clicam no WhatsApp e a mensagem não chega: ou a pessoa desistiu no WhatsApp, ou o recebimento falhou. Confira o 📥 Fora do CRM e o log da função; a mensagem pronta já leva o código do visitante para ligar a conversa a ele.'],
   ['orcado', 'Receberam orçamento', 'Chegam contatos e não recebem orçamento: responda em até 15 minutos (o painel avisa) e use o botão 💰 Orçamento.'],
   ['fechou', 'Viraram cliente', 'Recebem orçamento e não fecham: confira o motivo das perdas, faça follow-up em 24h e 3 dias e lembre a oferta do 1º cálculo.']
 ];
@@ -2672,7 +2672,8 @@ function trafegoJornada() {
   <div class="card larga" style="margin-bottom:14px"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
     <div><h2 style="margin:0">🧭 Jornada do cliente</h2><div class="desc">Cada visitante recebe um código (ex.: PF7K2QA) que vai na mensagem do WhatsApp. Assim o painel liga a conversa ao caminho dele no site e mostra onde as pessoas desistem. ${PERIODOS[S.periodo]}.${nTestes ? ` <b>${nTestes} visita(s) de teste fora da conta.</b>` : ''}</div></div>
     <div class="linha"><select class="f" id="filtroJornada"><option value="">Todas as origens</option>${fontes.map(x => `<option ${x === f ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select><button class="btn sec" data-acao="atualizarJornada">↻</button></div></div>
-    ${J.erro ? `<div class="demo" style="margin-top:10px"><span>⚠ ${esc(J.erro)}</span></div>` : ''}${J.carregando && !todas.length ? '<div class="demo" style="margin-top:10px"><span>Carregando a jornada…</span></div>' : ''}</div>
+    ${J.erro ? `<div class="demo" style="margin-top:10px"><span>⚠ ${esc(J.erro)}</span></div>` : ''}
+    ${todas.filter(s => s.pedidoSemLead).length ? `<div class="demo" style="margin-top:10px"><span>⚠ ${todas.filter(s => s.pedidoSemLead).length} visitante(s) enviaram o formulário e nenhum lead apareceu no painel (${todas.filter(s => s.pedidoSemLead).map(s => s.ref).join(', ')}). Se não foram testes, me avise: pode ser falha no envio.</span></div>` : ''}${J.carregando && !todas.length ? '<div class="demo" style="margin-top:10px"><span>Carregando a jornada…</span></div>' : ''}</div>
   <div class="grade">
     <div class="card"><h2>Funil passo a passo</h2><div class="desc">Visitantes únicos. Passe o mouse para ver a taxa de cada passagem.</div>
       ${barrasH(passos.map((p, i) => ({ rot: p.rot, valor: p.n, tip: `${p.rot}: ${p.n}${i ? ` · ${pct(p.n / Math.max(passos[i - 1].n, 1))} do passo anterior` : ''}` })))}</div>
