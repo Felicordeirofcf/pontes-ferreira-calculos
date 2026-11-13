@@ -244,7 +244,7 @@ async function guardarMidia(mediaId: string, waId: string, nome: string) {
   const arq = await fetch(meta.url, { headers: { Authorization: `Bearer ${TOKEN}` } });
   const bytes = new Uint8Array(await arq.arrayBuffer());
   const limpo = nome.replace(/[^\w.\-]+/g, '_').slice(-80);
-  const path = `whatsapp/${waId}/${Date.now()}-${limpo}`;
+  const path = `whatsapp/${waId.replace(/[^0-9a-z]+/gi, '_')}/${Date.now()}-${limpo}`;
   const { error } = await db.storage.from('processos').upload(path, bytes, { contentType: meta.mime_type || 'application/octet-stream' });
   if (error) throw error;
   return path;
@@ -404,22 +404,31 @@ async function prospectRespondeu(waId: string) {
 function numeroDoJid(k: any): string | null {
   let j = String(k.remoteJid || '');
   if (j.endsWith('@lid')) j = String(k.remoteJidAlt || k.senderPn || k.participantAlt || '');
-  if (!j.endsWith('@s.whatsapp.net')) {
-    if (String(k.remoteJid || '').endsWith('@lid')) console.warn('evolution: mensagem de número oculto (@lid) sem número alternativo, descartada', k.id);
-    return null;
-  }
+  if (!j.endsWith('@s.whatsapp.net')) return null;
   return digitos(j.split('@')[0]) || null;
 }
 async function guardarBase64(b64: string, waId: string, nome: string, mime: string) {
   const bytes = Uint8Array.from(atob(b64.replace(/^data:[^,]+,/, '')), c => c.charCodeAt(0));
-  const path = `whatsapp/${waId}/${Date.now()}-${nome.replace(/[^\w.\-]+/g, '_').slice(-80)}`;
+  const path = `whatsapp/${waId.replace(/[^0-9a-z]+/gi, '_')}/${Date.now()}-${nome.replace(/[^\w.\-]+/g, '_').slice(-80)}`;
   const { error } = await db.storage.from('processos').upload(path, bytes, { contentType: mime || 'application/octet-stream' });
   if (error) throw error;
   return path;
 }
+// diagnóstico para o painel (🩺): guarda os últimos 40 acontecimentos, sem conteúdo das mensagens
+const DIAG: any[] = [];
+async function salvarDiag() {
+  if (!DIAG.length) return;
+  const { data } = await db.from('ajustes').select('valor').eq('chave', 'wa_diag').maybeSingle();
+  const lista = [...DIAG.splice(0), ...((data?.valor?.lista) || [])].slice(0, 40);
+  await db.from('ajustes').upsert({ chave: 'wa_diag', publico: false, valor: { lista } });
+}
 async function processarEvolution(b: any) {
+  try { await processarEvolutionInterno(b); } finally { await salvarDiag().catch(e => console.error('diag', e)); }
+}
+async function processarEvolutionInterno(b: any) {
   const ev = String(b.event || '').toLowerCase().replace(/[_-]/g, '.');
   if (ev === 'connection.update') {
+    DIAG.unshift({ em: new Date().toISOString(), tipo: 'conexao', res: 'conexão: ' + (b.data?.state || '?') + (b.data?.statusReason ? ' (motivo ' + b.data.statusReason + ')' : '') });
     await db.from('ajustes').upsert({ chave: 'whatsapp_status', publico: false, valor: { state: b.data?.state || null, numero: b.sender ? digitos(b.sender) : null, atualizado: new Date().toISOString() } });
     return;
   }
@@ -443,8 +452,9 @@ async function processarEvolution(b: any) {
   for (const m of lista) {
     const k = m?.key || {}, j = String(k.remoteJid || ''), tipoJid = j.split('@')[1] || '?';
     const mask = (j.split('@')[0] || '').replace(/^(\d{4})\d+(\d{2})$/, '$1*****$2');
-    try { const r = await processarMsgEvolution(m); console.log(`evolution: msg ${k.fromMe ? 'enviada' : 'recebida'} ${mask}@${tipoJid}${k.remoteJidAlt ? ' (alt ok)' : ''} → ${r || 'gravada'}`); }
-    catch (e) { console.error('evolution msg', mask, e); }
+    try { const r = await processarMsgEvolution(m); console.log(`evolution: msg ${k.fromMe ? 'enviada' : 'recebida'} ${mask}@${tipoJid}${k.remoteJidAlt ? ' (alt ok)' : ''} → ${r || 'gravada'}`);
+      DIAG.unshift({ em: new Date().toISOString(), tipo: k.fromMe ? 'enviada' : 'recebida', quem: `${mask}@${tipoJid}`, nome: String(m.pushName || '').slice(0, 40), res: r || 'gravada no painel' }); }
+    catch (e) { console.error('evolution msg', mask, e); DIAG.unshift({ em: new Date().toISOString(), tipo: 'erro', quem: `${mask}@${tipoJid}`, res: 'ERRO: ' + String((e as Error)?.message || e).slice(0, 160) }); }
   }
 }
 // guarda (só para o dono ver no painel) mensagens de números fora do CRM que não tinham cara de cliente
@@ -455,9 +465,12 @@ async function guardarForaCrm(waId: string, nome: string, texto: string, ts: num
   await db.from('ajustes').upsert({ chave: 'wa_fora_crm', publico: false, valor: { lista: lista.slice(0, 40) } });
 }
 async function processarMsgEvolution(m: any) {
-  const k = m.key || {}, numero = numeroDoJid(k);
-  if (!numero) return String(k.remoteJid || '').endsWith('@g.us') ? 'ignorada (grupo)' : String(k.remoteJid || '').endsWith('@lid') ? 'DESCARTADA (número oculto @lid sem número alternativo)' : 'ignorada (status/canal)';
-  const waId = await waIdDaConversa(numero);
+  const k = m.key || {}, numero = numeroDoJid(k), jid = String(k.remoteJid || '');
+  let waId: string;
+  if (numero) waId = await waIdDaConversa(numero);
+  // número oculto (@lid) sem o número real: a conversa fica pelo identificador do WhatsApp ("…@lid") e dá para responder normalmente
+  else if (jid.endsWith('@lid') && digitos(jid.split('@')[0])) waId = digitos(jid.split('@')[0]) + '@lid';
+  else return jid.endsWith('@g.us') ? 'ignorada (grupo)' : 'ignorada (status/canal)';
   const msg = m.message || {};
   if (msg.reactionMessage || msg.protocolMessage || msg.senderKeyDistributionMessage && Object.keys(msg).length === 1) return 'ignorada (reação/sistema)';
   let tipo = 'outro', texto = '', arquivo_nome: string | null = null, mime = '';

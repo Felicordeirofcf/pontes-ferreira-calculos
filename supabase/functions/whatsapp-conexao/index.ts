@@ -82,6 +82,16 @@ Deno.serve(async req => {
     }
 
     if (acao === 'webhook') { await configurarWebhook(); return resp({ ok: true }); }
+    if (acao === 'diagnostico') { // estado da conexão e configuração do webhook (senha mascarada)
+      const st = await estado();
+      const w = await evo('GET', `/webhook/find/${INST}`).catch(() => ({ dados: null }));
+      const r = await evo('GET', `/instance/fetchInstances?instanceName=${INST}`).catch(() => ({ dados: null }));
+      const i = Array.isArray(r.dados) ? r.dados[0] : r.dados;
+      const url = String(w.dados?.url || '');
+      return resp({ estado: st, numero: String(i?.ownerJid || i?.owner || '').split('@')[0] || null, nome: i?.profileName || null,
+        webhook: { ligado: !!w.dados?.enabled, url_ok: url.includes('/functions/v1/whatsapp-webhook') && url.includes('k='), chave_ok: url.includes('k=' + encodeURIComponent(Deno.env.get('EVOLUTION_WEBHOOK_KEY') || '§')),
+          url: url.replace(/k=[^&]+/, 'k=***'), eventos: w.dados?.events || [], por_evento: !!w.dados?.webhookByEvents } });
+    }
 
     if (acao === 'desconectar') {
       const r = await evo('DELETE', `/instance/logout/${INST}`);

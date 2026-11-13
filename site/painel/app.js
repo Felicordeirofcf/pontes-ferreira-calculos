@@ -773,7 +773,7 @@ async function atualizarLeadFicha(patch, log) {
 }
 
 /* ---------------- WhatsApp ---------------- */
-const fmtTel = w => { const d = digitos(w).replace(/^55/, ''); return d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}` : d.length === 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : w; };
+const fmtTel = w => { if (/@lid$/.test(String(w || ''))) return 'Número oculto pelo WhatsApp'; const d = digitos(w).replace(/^55/, ''); return d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}` : d.length === 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : w; };
 const EVOLUTION = () => !DEMO && (window.PF_CONFIG || {}).WA_PROVEDOR === 'evolution';
 const janelaAberta = c => EVOLUTION() ? !!c : (c && c.ultima_entrada_em && (Date.now() - new Date(c.ultima_entrada_em).getTime()) < 24 * 36e5);
 const convAtiva = () => S.wa_conversas.find(c => c.wa_id === S.conversa);
@@ -833,6 +833,7 @@ function telaWhatsapp() {
   }
   const rb = cfgRobo();
   return `<div class="topo"><h1>WhatsApp</h1><div class="acoes">
+    <button class="btn sec" data-acao="diagnosticoWa" title="Ver se as mensagens estão chegando e por quê">🩺 Diagnóstico</button>
     <button class="btn ${foraCrm().length ? 'ouro' : 'sec'}" data-acao="abrirForaCrm" title="Mensagens de números fora do CRM (não entraram no painel sozinhas)">📥 Fora do CRM${foraCrm().length ? ` (${foraCrm().length})` : ''}</button>
     <div class="grupo-btn"><button class="btn sec" data-acao="configRespostas" title="Editar as respostas rápidas">⚡ Respostas</button><button class="btn sec" data-acao="configurarRobo" title="Atendimento automático">🤖 Robô <span class="ponto-st ${rb.ativo ? 'on' : ''}"></span></button><button class="btn sec" data-acao="testarRobo" title="Testar o robô">🧪</button></div>
     <button class="btn ouro" data-acao="novaConversa">+ Nova conversa</button></div></div>
@@ -1056,6 +1057,38 @@ async function abrirForaCrm() {
 }
 // a cada 2 min, na aba WhatsApp, confere se chegou mensagem nova de fora do CRM
 setInterval(() => { if (!DEMO && typeof rota === 'function' && rota() === 'whatsapp' && !document.hidden) { const antes = foraCrm().length; recarregarForaCrm().then(() => { if (foraCrm().length !== antes && !document.querySelector('.modal-fundo')) render(); }).catch(() => { }); } }, 120000);
+// 🩺 Diagnóstico do WhatsApp: conexão, webhook e o que aconteceu com as últimas mensagens
+async function diagnosticoWa() {
+  const fundo = document.createElement('div'); fundo.className = 'modal-fundo';
+  fundo.innerHTML = '<div class="modal"><h2>🩺 Diagnóstico do WhatsApp</h2><div class="vazio" id="diagCorpo">Verificando…</div><div class="rodape"><button class="btn sec" id="diagFechar">Fechar</button></div></div>';
+  document.body.appendChild(fundo); $('#diagFechar', fundo).onclick = () => fundo.remove();
+  if (DEMO) { $('#diagCorpo').textContent = 'No modo demonstração não há WhatsApp conectado.'; return; }
+  let d = {}, lista = [], erroCon = '';
+  try { d = await chamarConexao('diagnostico'); } catch (e) { erroCon = e.message || String(e); }
+  try { const { data } = await sb.from('ajustes').select('valor').eq('chave', 'wa_diag').maybeSingle(); lista = data?.valor?.lista || []; } catch { }
+  const ok = (b, sim, nao) => `<span class="tag ${b ? 't-good' : 't-crit'}">${b ? '✓ ' + sim : '✗ ' + nao}</span>`;
+  const w = d.webhook || {}, evs = (w.eventos || []).map(x => String(x).toUpperCase());
+  const recebidas = lista.filter(x => x.tipo === 'recebida'), gravadas = recebidas.filter(x => /gravada/.test(x.res));
+  const ultRec = recebidas[0];
+  const conclusao = erroCon ? `Não consegui falar com o servidor do WhatsApp: ${esc(erroCon)}`
+    : d.estado !== 'open' ? 'O WhatsApp NÃO está conectado. Clique em Conectar e escaneie o QR code.'
+    : !w.ligado || !w.url_ok ? 'O webhook está desligado ou apontando para o lugar errado: clique em "Corrigir webhook".'
+    : w.chave_ok === false ? 'A senha do webhook não confere com a do Supabase: clique em "Corrigir webhook".'
+    : !evs.includes('MESSAGES_UPSERT') ? 'O webhook não está recebendo mensagens (falta MESSAGES_UPSERT): clique em "Corrigir webhook".'
+    : !lista.length ? 'Conectado e configurado, mas nenhuma mensagem chegou ao sistema desde a última atualização. Mande uma mensagem de outro celular e abra este diagnóstico de novo.'
+    : !recebidas.length ? 'Chegaram eventos, mas nenhuma mensagem recebida de cliente ainda. Mande uma mensagem de teste de outro celular.'
+    : !gravadas.length ? 'Mensagens chegam ao sistema, mas nenhuma foi gravada no painel. Veja o motivo de cada uma abaixo.'
+    : `Tudo funcionando: a última mensagem recebida foi gravada ${new Date(ultRec.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}.`;
+  $('#diagCorpo').className = '';
+  $('#diagCorpo').innerHTML = `<div class="demo" style="margin-bottom:12px"><span><b>Conclusão:</b> ${conclusao}</span></div>
+    <div class="linha" style="flex-wrap:wrap;gap:6px;margin-bottom:6px">${ok(d.estado === 'open', 'WhatsApp conectado' + (d.numero ? ' (' + fmtTel(d.numero) + ')' : ''), 'WhatsApp desconectado (' + (d.estado || '?') + ')')}
+      ${ok(w.ligado && w.url_ok, 'Webhook aponta para o painel', 'Webhook errado ou desligado')} ${ok(w.chave_ok !== false, 'Senha do webhook confere', 'Senha do webhook não confere')}
+      ${ok(evs.includes('MESSAGES_UPSERT'), 'Recebe mensagens', 'Não recebe mensagens')}</div>
+    <div class="linha" style="margin:8px 0 12px"><button class="btn mini ouro" id="diagCorrigir">🔧 Corrigir webhook</button><span class="desc">Reconfigura o webhook com o endereço e a senha certos.</span></div>
+    <h3 class="sub">Últimas mensagens que chegaram ao sistema</h3>
+    ${lista.length ? `<div class="tabela"><table><tr><th>Quando</th><th>Tipo</th><th>De/para</th><th>O que aconteceu</th></tr>${lista.slice(0, 25).map(x => `<tr><td style="white-space:nowrap">${esc(new Date(x.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }))}</td><td>${esc(x.tipo)}</td><td>${esc((x.nome ? x.nome + ' · ' : '') + (x.quem || ''))}</td><td><span class="tag ${/gravada|tiques/.test(x.res) ? 't-good' : /ERRO|DESCART/.test(x.res) ? 't-crit' : 't-neutro'}">${esc(x.res)}</span></td></tr>`).join('')}</table></div>` : '<div class="desc">Nenhum registro ainda (os registros começam depois de publicar a versão nova da função whatsapp-webhook).</div>'}`;
+  $('#diagCorrigir', fundo).onclick = () => seguro(async () => { await chamarConexao('webhook'); toast('Webhook reconfigurado'); fundo.remove(); diagnosticoWa(); });
+}
 async function removerForaCrm(waId) { const v = { lista: ((S.ajustes.wa_fora_crm || {}).lista || []).filter(x => x.wa_id !== waId) }; await ajustesDb.salvar('wa_fora_crm', v); S.ajustes.wa_fora_crm = v; }
 async function configRespostas() {
   const chaves = RESPOSTAS_RAPIDAS.filter(([, k]) => k !== '__apresentacao__');
@@ -3538,7 +3571,7 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), atualizarJornada: () => carregarJornada(true), mostrarRobos: () => { S.mostrarRobos = !S.mostrarRobos; render(); }, abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
+    novaDespesa: () => editarDespesa(null), diagnosticoWa, atualizarJornada: () => carregarJornada(true), mostrarRobos: () => { S.mostrarRobos = !S.mostrarRobos; render(); }, abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
     selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),

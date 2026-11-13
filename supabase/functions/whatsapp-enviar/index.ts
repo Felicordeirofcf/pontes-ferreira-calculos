@@ -34,8 +34,10 @@ Deno.serve(async req => {
 
     const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
     const b = await req.json();
-    let waId = digitos(b.wa_id);
-    if (waId.length <= 11) waId = '55' + waId;
+    // número oculto do WhatsApp ("…@lid"): envia para o identificador; senão, número com 55
+    const ehLid = /@lid$/.test(String(b.wa_id || ''));
+    let waId = ehLid ? digitos(b.wa_id) + '@lid' : digitos(b.wa_id);
+    if (!ehLid && waId.length <= 11) waId = '55' + waId;
     if (waId.length < 12) return resp({ erro: 'numero_invalido' }, 400);
 
     // garante a conversa
