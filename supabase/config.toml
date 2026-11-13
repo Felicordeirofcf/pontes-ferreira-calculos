@@ -24,3 +24,6 @@ verify_jwt = true
 
 [functions.enviar-calculo-email]
 verify_jwt = true
+
+[functions.vigia]
+verify_jwt = true

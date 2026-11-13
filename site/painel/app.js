@@ -589,6 +589,90 @@ const tagStatus = c => {
   return { recebido: '<span class="tag t-neutro">● Recebido</span>', andamento: '<span class="tag t-azul">◐ Em andamento</span>', revisao: '<span class="tag t-warn">◑ Em revisão</span>', entregue: '<span class="tag t-good">✔ Entregue</span>' }[c.status] || esc(c.status);
 };
 
+/* ---------------- 🛡 Vigia da captação ---------------- */
+const VIGIA_PADRAO = { ativo: true, desligadas: [], aviso_dias: [0, 1, 2, 3, 4, 5, 6], aviso_ini: 8, aviso_fim: 21, anuncio_dias: [1, 2, 3, 4, 5], anuncio_ini: 8, anuncio_fim: 19, horas_sem_visita: 3, horas_sem_mensagem: 24, cliques_sem_conversa: 3 };
+const VIGIA_ITENS = {
+  site: ['🌐 Site no ar', 'Abre o site e confere se o formulário e os botões de WhatsApp estão lá.'],
+  anuncio: ['📈 Visitas do anúncio', 'Em horário de anúncio, avisa se passar muito tempo sem nenhuma visita vinda do Google Ads (campanha pausada, saldo acabou, reprovação).'],
+  whatsapp: ['💬 WhatsApp conectado', 'Confere se o WhatsApp da empresa está conectado no servidor.'],
+  mensagens: ['📥 Mensagens chegando', 'Avisa se passar muito tempo sem chegar nenhuma mensagem no WhatsApp (recebimento travado).'],
+  formulario: ['📝 Formulário', 'Avisa se alguém enviou o formulário e o pedido não apareceu no painel.'],
+  funil: ['🧭 Cliques viram conversa', 'Avisa se várias pessoas clicaram no WhatsApp do site e nenhuma conversa nova chegou.'],
+  robo: ['🤖 Robô de e-mail', 'Avisa se os envios falharem seguidos, se muitos e-mails voltarem ou se a fila acabar.'],
+  verba: ['💰 Verba do Google', 'Avisa quando o gasto lançado no mês chegar a 90% e a 100% da verba definida no Tráfego pago.']
+};
+const cfgVigia = () => ({ ...VIGIA_PADRAO, ...(S.ajustes.vigia || {}) });
+const estVigia = () => S.ajustes.vigia_estado || {};
+async function recarregarVigia() {
+  if (DEMO) return;
+  const { data } = await sb.from('ajustes').select('chave,valor').in('chave', ['vigia', 'vigia_estado']);
+  (data || []).forEach(r => { S.ajustes[r.chave] = r.valor || {}; });
+}
+function telaVigia() {
+  if (!S._vigiaCarregado && !DEMO) { S._vigiaCarregado = true; recarregarVigia().then(render).catch(() => { }); }
+  const c = cfgVigia(), e = estVigia(), checks = e.checks || {}, hist = e.historico || [];
+  const cor = { ok: ['t-good', 'OK'], warn: ['t-warn', 'Atenção'], crit: ['t-crit', 'Problema'] };
+  const quando = iso => iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+  const nCrit = Object.values(checks).filter(x => x.nivel === 'crit').length, nWarn = Object.values(checks).filter(x => x.nivel === 'warn').length;
+  const resumo = !e.ultima ? 'O vigia ainda não rodou. Clique em "Verificar agora".' : nCrit ? `🔴 ${nCrit} problema(s) agora` : nWarn ? `🟡 ${nWarn} ponto(s) de atenção` : '🟢 Tudo funcionando';
+  return `<div class="topo"><h1>Vigia da captação</h1><div class="acoes">
+    <button class="btn sec" data-acao="testeAvisoVigia" title="Manda uma mensagem de teste no seu WhatsApp">📲 Testar aviso</button>
+    <button class="btn sec" data-acao="regrasVigia">⚙ Regras</button>
+    <button class="btn ${c.ativo ? 'sec' : 'ouro'}" data-acao="ligarVigia">${c.ativo ? '⏸ Desligar' : '▶ Ligar vigia'}</button>
+    <button class="btn" data-acao="verificarVigia">↻ Verificar agora</button></div></div>
+  <div class="card larga" style="margin-bottom:14px"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <div><b style="font-size:1.1rem">${resumo}</b><div class="desc" style="margin:4px 0 0">${c.ativo ? 'Confere tudo a cada 30 minutos' : '<b>Vigia desligado</b>: nada é verificado'} · última verificação: ${quando(e.ultima)} · avisos no seu WhatsApp ${descDias(c.aviso_dias)}, das ${c.aviso_ini}h às ${c.aviso_fim}h (fora disso, o aviso espera). Se o WhatsApp da empresa cair, o aviso vai por e-mail.</div></div></div></div>
+  <div class="grade">${Object.entries(VIGIA_ITENS).map(([id, [rot, desc]]) => {
+    const x = checks[id], off = (c.desligadas || []).includes(id), [cl, txt] = off ? ['t-neutro', 'Desligado'] : x ? cor[x.nivel] || cor.ok : ['t-neutro', 'Aguardando'];
+    return `<div class="card"><div class="linha" style="justify-content:space-between"><h2 style="margin:0">${rot}</h2><span class="tag ${cl}">${txt}</span></div>
+      <div style="margin:8px 0 4px">${off ? '<span class="desc">Esta verificação está desligada nas regras.</span>' : x ? esc(x.msg || '') : '<span class="desc">Ainda não verificado.</span>'}</div>
+      <div class="desc" style="margin:0">${esc(desc)}${x && x.nivel !== 'ok' && x.desde ? ` · desde ${quando(x.desde)}` : ''}${x && x.avisado_em && x.nivel !== 'ok' ? ' · ✔ avisado no WhatsApp' : x && x.pendente && x.nivel !== 'ok' ? ' · aviso aguardando o horário' : ''}</div></div>`;
+  }).join('')}</div>
+  <div class="card larga" style="margin-top:14px"><h2>Histórico de avisos</h2>
+    ${hist.length ? `<div class="tabela"><table><tr><th>Quando</th><th>Verificação</th><th>O que aconteceu</th></tr>${hist.slice(0, 40).map(h => `<tr><td style="white-space:nowrap">${quando(h.em)}</td><td>${esc((VIGIA_ITENS[h.id] || [h.id === 'aviso' ? '📲 Envio do aviso' : h.id])[0])}</td><td><span class="tag ${(cor[h.nivel] || cor.ok)[0]}">${h.nivel === 'ok' ? 'resolvido' : (cor[h.nivel] || cor.ok)[1]}</span> ${esc(h.msg || '')}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Nenhum aviso ainda. Quando algo quebrar, aparece aqui e no seu WhatsApp.</div>'}</div>`;
+}
+async function chamarVigia(corpo) {
+  if (DEMO) { toast('Modo demonstração: o vigia só roda com o Supabase.'); return null; }
+  const { data, error } = await sb.functions.invoke('vigia', { body: corpo });
+  if (error) { let d = {}; try { d = await error.context.json(); } catch { } throw new Error(d.mensagem || (error.context?.status === 404 ? 'publique a função vigia no Supabase' : error.message)); }
+  return data;
+}
+async function verificarVigia() {
+  await seguro(async () => {
+    progresso('🛡 Verificando site, anúncio, WhatsApp, formulário…');
+    try { const r = await chamarVigia({ agora: true }); if (!r) return; await recarregarVigia(); render();
+      toast(r.avisos ? `🛡 ${r.avisos} aviso(s) enviado(s) no seu WhatsApp` : r.resolvidos ? `✅ ${r.resolvidos} problema(s) resolvido(s)` : '🛡 Verificação concluída');
+    } finally { progresso(null); }
+  });
+}
+async function testeAvisoVigia() {
+  await seguro(async () => { const r = await chamarVigia({ agora: true, teste_aviso: true }); if (!r) return; await recarregarVigia(); render();
+    toast(r.envio?.erro ? 'Não consegui mandar: ' + r.envio.erro : r.envio?.canal === 'email' ? '📧 O WhatsApp falhou; o aviso foi por e-mail' : '📲 Mensagem de teste enviada no seu WhatsApp'); });
+}
+async function salvarVigia(patch) { const v = { ...cfgVigia(), ...patch }; await seguro(async () => { await ajustesDb.salvar('vigia', v); S.ajustes.vigia = v; render(); }); }
+async function ligarVigia() { const a = !cfgVigia().ativo; await salvarVigia({ ativo: a }); toast(a ? '🛡 Vigia ligado' : 'Vigia desligado'); }
+async function regrasVigia() {
+  const c = cfgVigia(), off = c.desligadas || [];
+  const v = await abrirForm('⚙ Regras do vigia', [
+    ...Object.entries(VIGIA_ITENS).map(([id, [rot]]) => ({ k: 'v_' + id, rot: 'Vigiar: ' + rot, tipo: 'checkbox' })),
+    { k: 'aviso_ini', rot: 'Avisos no WhatsApp a partir das (hora)', tipo: 'number' }, { k: 'aviso_fim', rot: 'Avisos até as (hora)', tipo: 'number' },
+    ...DIAS_SEMANA.map((d, i) => ({ k: 'ad' + i, rot: 'Avisar ' + d.toLowerCase(), tipo: 'checkbox' })),
+    { k: 'anuncio_ini', rot: 'Anúncio roda a partir das (hora)', tipo: 'number' }, { k: 'anuncio_fim', rot: 'Anúncio roda até as (hora)', tipo: 'number' },
+    ...DIAS_SEMANA.map((d, i) => ({ k: 'an' + i, rot: 'Anúncio ' + d.toLowerCase(), tipo: 'checkbox' })),
+    { k: 'horas_sem_visita', rot: 'Alertar sem visitas do Google por (horas)', tipo: 'number' },
+    { k: 'horas_sem_mensagem', rot: 'Alertar sem mensagens no WhatsApp por (horas)', tipo: 'number' },
+    { k: 'cliques_sem_conversa', rot: 'Alertar com quantos cliques sem conversa (24h)', tipo: 'number' }
+  ], { ...c, ...Object.fromEntries(Object.keys(VIGIA_ITENS).map(id => ['v_' + id, !off.includes(id)])),
+    ...Object.fromEntries(DIAS_SEMANA.map((d, i) => ['ad' + i, c.aviso_dias.map(Number).includes(i)])), ...Object.fromEntries(DIAS_SEMANA.map((d, i) => ['an' + i, c.anuncio_dias.map(Number).includes(i)])) });
+  if (!v) return;
+  const hora = (x, pad) => Math.min(Math.max(0, Math.round(Number(x))), 24) || pad;
+  const dias = pre => DIAS_SEMANA.map((d, i) => v[pre + i] ? i : null).filter(x => x !== null);
+  await salvarVigia({ desligadas: Object.keys(VIGIA_ITENS).filter(id => !v['v_' + id]),
+    aviso_ini: hora(v.aviso_ini, 8), aviso_fim: hora(v.aviso_fim, 21), aviso_dias: dias('ad').length ? dias('ad') : c.aviso_dias,
+    anuncio_ini: hora(v.anuncio_ini, 8), anuncio_fim: hora(v.anuncio_fim, 19), anuncio_dias: dias('an').length ? dias('an') : c.anuncio_dias,
+    horas_sem_visita: Math.max(1, Number(v.horas_sem_visita) || 3), horas_sem_mensagem: Math.max(2, Number(v.horas_sem_mensagem) || 24), cliques_sem_conversa: Math.max(1, Number(v.cliques_sem_conversa) || 3) });
+  toast('Regras do vigia salvas');
+}
 function telaPainel() {
   carregarMapa();
   const m = metricas();
@@ -3585,9 +3669,10 @@ function telaAjustes() {
 }
 
 /* ---------------- menu e busca rápida (Ctrl+K) ---------------- */
-const GRUPOS_NAV = [['Operação', ['painel', 'agenda', 'leads', 'prospeccao', 'listas', 'whatsapp', 'calculos', 'clientes']], ['Crescimento', ['mapa', 'trafego']], ['Gestão', ['financeiro', 'configuracoes']]];
+const GRUPOS_NAV = [['Operação', ['painel', 'agenda', 'leads', 'prospeccao', 'listas', 'whatsapp', 'calculos', 'clientes']], ['Crescimento', ['mapa', 'trafego', 'vigia']], ['Gestão', ['financeiro', 'configuracoes']]];
 const ic = d => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
 const ICONES = {
+  vigia: ic('<path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.3 7.5 9.5 4.3-1.2 7.5-4.9 7.5-9.5V6z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>'),
   painel: ic('<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>'),
   agenda: ic('<rect x="3" y="4.5" width="18" height="16.5" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M7.5 13.5h3M13.5 13.5h3M7.5 17h3"/>'),
   mapa: ic('<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>'),
@@ -3654,7 +3739,7 @@ document.addEventListener('keydown', e => {
 });
 
 /* ---------------- shell, rotas e eventos ---------------- */
-const ROTAS = { painel: ['Painel', telaPainel], mapa: ['Mapa do Brasil', telaMapa], leads: ['Leads · CRM', telaLeads], agenda: ['Agenda', telaAgenda], prospeccao: ['Prospecção', telaProspeccao], listas: ['Listas de empresas', telaListas], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro], configuracoes: ['Configurações', telaConfiguracoes], trafego: ['Tráfego pago', telaTrafego] };
+const ROTAS = { painel: ['Painel', telaPainel], vigia: ['Vigia da captação', telaVigia], mapa: ['Mapa do Brasil', telaMapa], leads: ['Leads · CRM', telaLeads], agenda: ['Agenda', telaAgenda], prospeccao: ['Prospecção', telaProspeccao], listas: ['Listas de empresas', telaListas], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro], configuracoes: ['Configurações', telaConfiguracoes], trafego: ['Tráfego pago', telaTrafego] };
 const rota = () => { const r = location.hash.slice(1); return ROTAS[r] && (r !== 'whatsapp' || WA_PAINEL()) ? r : 'painel'; };
 const CAMPOS_FOCO = ['busca', 'buscaLeads', 'buscaWa', 'waTexto', 'buscaProsp', 'buscaLista', 'buscaJornada'];
 
@@ -3674,7 +3759,7 @@ function render() {
   const msgsAntes = $('#waMsgs'), noFim = !msgsAntes || msgsAntes.scrollHeight - msgsAntes.scrollTop - msgsAntes.clientHeight < 60;
   const pill = n => n ? `<span class="pill">${n}</span>` : '';
   const sel = (S._ultimaRota !== r); S._ultimaRota = r;
-  const contador = k => k === 'leads' ? pill(pendentes) : k === 'whatsapp' ? pill(naoLidas) : k === 'calculos' ? pill(atras) : k === 'prospeccao' ? pill(filaProsp().filter(p => p.tentativas > 0).length) : k === 'agenda' ? pill(itensAgenda().filter(i => i.dia < hoje()).length) : '';
+  const contador = k => k === 'leads' ? pill(pendentes) : k === 'whatsapp' ? pill(naoLidas) : k === 'calculos' ? pill(atras) : k === 'vigia' ? pill(Object.values((S.ajustes.vigia_estado || {}).checks || {}).filter(c => c.nivel === 'crit').length) : k === 'prospeccao' ? pill(filaProsp().filter(p => p.tentativas > 0).length) : k === 'agenda' ? pill(itensAgenda().filter(i => i.dia < hoje()).length) : '';
   const itemNav = k => `<a href="#${k}" class="${k === r ? 'on' : ''}" ${k === r ? 'aria-current="page"' : ''}>${ICONES[k] || ''}<span class="rot">${ROTAS[k][0]}</span>${contador(k)}</a>`;
   const grupos = GRUPOS_NAV.map(([g, ks]) => { const vis = ks.filter(k => ROTAS[k] && (k !== 'whatsapp' || WA_PAINEL())); return vis.length ? `<div class="grupo">${g}</div>${vis.map(itemNav).join('')}` : ''; }).join('');
   $('#raiz').innerHTML = `<div class="app"><nav>
@@ -3746,7 +3831,7 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), diagnosticoWa, ligarRoboEmail, configRoboEmail, verRoboEmail, apresentacaoEmail: () => apresentacaoEmail(), buscarEmailsProsp: () => buscarEmailsProsp(), atualizarJornada: () => carregarJornada(true), mostrarRobos: () => { S.mostrarRobos = !S.mostrarRobos; render(); }, abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
+    novaDespesa: () => editarDespesa(null), diagnosticoWa, verificarVigia, testeAvisoVigia, regrasVigia, ligarVigia, ligarRoboEmail, configRoboEmail, verRoboEmail, apresentacaoEmail: () => apresentacaoEmail(), buscarEmailsProsp: () => buscarEmailsProsp(), atualizarJornada: () => carregarJornada(true), mostrarRobos: () => { S.mostrarRobos = !S.mostrarRobos; render(); }, abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
     selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
