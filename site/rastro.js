@@ -1,13 +1,14 @@
 // Consentimento de cookies (LGPD) + Modo de Consentimento v2 do Google.
-// Antes do "Aceitar", Google Ads/Analytics funcionam sem cookies (medição anônima) e Meta Pixel/Clarity ficam desligados.
+// Medição do Google Ads/Analytics ligada por padrão (aviso com opção de recusar); "Recusar" desliga tudo.
+// Personalização de anúncios, Meta Pixel e Clarity só depois do "Aceitar".
 (function () {
   window.dataLayer = window.dataLayer || [];
   window.gtag = window.gtag || function () { dataLayer.push(arguments); };
   const ls = { get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { } } };
   const escolha = ls.get('pf_cookies'); // 'sim' | 'nao' | null
-  const v = escolha === 'sim' ? 'granted' : 'denied';
-  gtag('consent', 'default', { ad_storage: v, ad_user_data: v, ad_personalization: v, analytics_storage: v, wait_for_update: 500 });
-  gtag('set', 'ads_data_redaction', escolha !== 'sim');
+  const med = escolha === 'nao' ? 'denied' : 'granted', pers = escolha === 'sim' ? 'granted' : 'denied';
+  gtag('consent', 'default', { ad_storage: med, ad_user_data: med, ad_personalization: pers, analytics_storage: med, wait_for_update: 500 });
+  gtag('set', 'ads_data_redaction', escolha === 'nao');
   gtag('set', 'url_passthrough', true);
   window.PF_CONSENTIU = () => ls.get('pf_cookies') === 'sim';
   if (escolha || /^\/(painel|cliente)\//.test(location.pathname)) return;
@@ -18,7 +19,7 @@
     const cel = matchMedia('(max-width: 860px)').matches, barra = cel && document.querySelector('.barra-mobile');
     b.style.cssText = 'position:fixed;z-index:9998;background:rgba(11,26,61,.97);color:#fff;border:1px solid rgba(226,177,60,.4);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.3);font:12.5px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;align-items:center;gap:10px;' +
       (cel ? `left:8px;right:8px;bottom:${barra ? 84 : 8}px;padding:8px 10px` : 'left:16px;bottom:16px;max-width:430px;padding:10px 12px');
-    b.innerHTML = '<span style="flex:1">🍪 Cookies para medir anúncios. <a href="/privacidade.html" style="color:#fbe7a1">Privacidade</a></span>' +
+    b.innerHTML = '<span style="flex:1">🍪 Usamos cookies para medir nossos anúncios. <a href="/privacidade.html" style="color:#fbe7a1">Privacidade</a></span>' +
       '<button type="button" data-c="sim" style="background:linear-gradient(135deg,#fbe7a1,#e2b13c 45%,#b07a12);color:#1b1203;border:0;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer;font-size:12.5px">Aceitar</button>' +
       '<button type="button" data-c="nao" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:12.5px">Recusar</button>';
     b.addEventListener('click', e => {
@@ -29,6 +30,9 @@
         gtag('set', 'ads_data_redaction', false);
         if (window.fbq) fbq('consent', 'grant');
         window.dispatchEvent(new Event('pf-consentiu'));
+      } else {
+        gtag('consent', 'update', { ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', analytics_storage: 'denied' });
+        gtag('set', 'ads_data_redaction', true);
       }
     });
     document.body.appendChild(b);
