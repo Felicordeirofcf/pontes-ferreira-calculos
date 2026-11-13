@@ -1679,7 +1679,8 @@ const STATUS_PROSP = { a_contatar: 'A contatar', contatado: 'Contatado', respond
 const TAG_PROSP = { a_contatar: 't-neutro', contatado: 't-azul', respondeu: 't-warn', interessado: 't-warn', cliente: 't-good', sem_interesse: 't-neutro', nao_contatar: 't-crit' };
 // abas da lista: quem já foi abordado sai de "A contatar" e vai para "Contatados"
 const ABAS_PROSP = { a_contatar: ['A contatar', ['a_contatar']], contatados: ['Contatados', ['contatado']], responderam: ['Responderam', ['respondeu', 'interessado']],
-  clientes: ['Clientes', ['cliente']], encerrados: ['Encerrados', ['sem_interesse', 'nao_contatar']], sem_tel: ['📞 Sem telefone', null], todos: ['Todos', null] };
+  clientes: ['Clientes', ['cliente']], encerrados: ['Encerrados', ['sem_interesse', 'nao_contatar']], sem_tel: ['📞 Sem telefone', null], com_email: ['✉ Com e-mail', null], todos: ['Todos', null] };
+const comEmail = p => !!p.email && p.status !== 'nao_contatar';
 const FONTES_PROSP = ['Credenciados CAIXA (TST)', 'Google Maps', 'Instagram', 'LinkedIn', 'Site do escritório', 'Jusbrasil', 'Indicação', 'Evento / OAB', 'Outros'];
 const PROSP_PADRAO = {
   meta_dia: 20, dias_follow1: 3, dias_follow2: 7, max_tentativas: 3, remetente: '',
@@ -1738,7 +1739,7 @@ function telaProspeccao() {
     retorno: (a, b) => (a.proximo_contato || '9999').localeCompare(b.proximo_contato || '9999'), nome: (a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'), cidade: (a, b) => cidadeDe(a).localeCompare(cidadeDe(b), 'pt-BR') || (a.nome || '').localeCompare(b.nome || '', 'pt-BR') };
   const aba = ABAS_PROSP[f.aba] ? f.aba : 'a_contatar', grupoAba = ABAS_PROSP[aba][1];
   const semTel = p => !digitos(p.whatsapp) && !['cliente', 'sem_interesse', 'nao_contatar'].includes(p.status);
-  const naAba = p => aba === 'sem_tel' ? semTel(p) : (!grupoAba || grupoAba.includes(p.status || 'a_contatar'));
+  const naAba = p => aba === 'sem_tel' ? semTel(p) : aba === 'com_email' ? comEmail(p) : (!grupoAba || grupoAba.includes(p.status || 'a_contatar'));
   const filtrada = S.prospects.filter(p => naAba(p) && (!q || [p.nome, p.escritorio, p.cidade, p.email, p.whatsapp, p.obs].join(' ').toLowerCase().includes(q))
       && (!f.cidade || cidadeDe(p) === f.cidade) && (!f.fonte || (p.fonte || '(sem origem)') === f.fonte)
       && (!f.tel || (f.tel === 'sem' ? !digitos(p.whatsapp) : tipoTel(p.whatsapp) === f.tel))
@@ -1750,7 +1751,7 @@ function telaProspeccao() {
   const contaPor = fn => { const m = {}; S.prospects.forEach(p => { const k = fn(p); m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR')); };
   const opt = (v, rot, atual) => `<option value="${esc(v)}" ${v === (atual || '') ? 'selected' : ''}>${esc(rot)}</option>`;
   const filtrosAtivos = ['q', 'cidade', 'fonte', 'tel', 'retorno', 'nota'].filter(k => f[k]).length;
-  const contaAba = k => S.prospects.filter(p => k === 'sem_tel' ? !digitos(p.whatsapp) && !['cliente', 'sem_interesse', 'nao_contatar'].includes(p.status) : (!ABAS_PROSP[k][1] || ABAS_PROSP[k][1].includes(p.status || 'a_contatar'))).length;
+  const contaAba = k => S.prospects.filter(p => k === 'sem_tel' ? !digitos(p.whatsapp) && !['cliente', 'sem_interesse', 'nao_contatar'].includes(p.status) : k === 'com_email' ? comEmail(p) : (!ABAS_PROSP[k][1] || ABAS_PROSP[k][1].includes(p.status || 'a_contatar'))).length;
   const numsPag = (() => { const out = []; for (let i = 1; i <= paginas; i++) if (i === 1 || i === paginas || Math.abs(i - pag) <= 2) out.push(i); else if (out[out.length - 1] !== '…') out.push('…'); return out; })();
   const paginacao = paginas > 1 ? `<div class="linha" style="justify-content:space-between;margin-top:12px;flex-wrap:wrap;gap:8px">
       <span class="desc">Mostrando ${(pag - 1) * POR_PAG + 1}–${Math.min(pag * POR_PAG, filtrada.length)} de ${filtrada.length}</span>
@@ -1789,7 +1790,7 @@ function telaProspeccao() {
       <select class="f" data-filtro-prosp="nota">${opt('', 'Qualquer avaliação', f.nota)}${opt('top', '⭐ Nota 4+ e 5+ avaliações', f.nota)}${opt('com', 'Com nota no Google', f.nota)}${opt('sem', 'Sem nota', f.nota)}</select>
       <select class="f" data-filtro-prosp="ordem">${opt('', aba === 'contatados' ? 'Ordem: retorno mais próximo' : aba === 'a_contatar' || aba === 'todos' ? 'Ordem: prioridade (nota Google)' : 'Ordem: último contato', f.ordem)}${aba === 'a_contatar' || aba === 'todos' ? '' : opt('prioridade', 'Ordem: prioridade (nota Google)', f.ordem)}${opt('recentes', 'Ordem: último contato', f.ordem)}${opt('novos', 'Ordem: adicionados por último', f.ordem)}${opt('retorno', 'Ordem: retorno mais próximo', f.ordem)}${opt('nome', 'Ordem: nome A–Z', f.ordem)}${opt('cidade', 'Ordem: cidade', f.ordem)}</select></div>
       ${lista.length ? `<div class="tabela"><table><tr><th>Contato</th><th>Cidade</th><th>Telefone</th><th>Links</th><th>Status</th><th>Último contato</th><th>Retorno</th><th></th></tr>
-      ${lista.map(p => `<tr><td><b class="link" data-prosp="${p.id}">${esc(p.nome)}</b> ${seloNota(p)}${p.escritorio && p.escritorio !== p.nome ? `<div class="desc" style="margin:0">${esc(p.escritorio)}</div>` : ''}</td>
+      ${lista.map(p => `<tr><td><b class="link" data-prosp="${p.id}">${esc(p.nome)}</b> ${seloNota(p)}${p.escritorio && p.escritorio !== p.nome ? `<div class="desc" style="margin:0">${esc(p.escritorio)}</div>` : ''}${p.email ? `<div class="desc" style="margin:0">✉ ${esc(p.email)}</div>` : ''}</td>
         <td>${esc(p.cidade || '—')}</td>
         <td style="white-space:nowrap">${digitos(p.whatsapp) ? celTelefone(p) : `<button class="btn mini ouro" data-localizar="${p.id}" title="Procurar o telefone deste escritório no Google Maps">🔍 Localizar</button>`}</td>
         <td style="white-space:nowrap">${linkExt(p.site, '🌐')}${linkExt(linkInsta(p.instagram), '📸')}${linkExt(p.linkedin, '💼')}${linkExt(p.maps, '📍')}</td>
@@ -2196,9 +2197,11 @@ async function addAchados() {
   if (comSite.length) buscarEmailsProsp(comSite, true); // em segundo plano: e-mail publicado no site de cada escritório
 }
 // ✉ procura o e-mail de contato no site de cada escritório (o Google Maps não informa e-mail)
-const semEmailComSite = () => S.prospects.filter(p => p.site && !p.email && contatavel(p)).length;
+const emailsTentados = () => { try { return new Set(JSON.parse(localStorage.getItem('pf_emails_tentados') || '[]')); } catch { return new Set(); } };
+const semEmailComSite = () => { const t = emailsTentados(); return S.prospects.filter(p => p.site && !p.email && contatavel(p) && !t.has(p.id)).length; };
 async function buscarEmailsProsp(lista, silencioso) {
-  lista = (lista || S.prospects.filter(p => p.site && !p.email && contatavel(p))).filter(p => p.site && !p.email);
+  const tentados = emailsTentados();
+  lista = (lista || S.prospects.filter(p => p.site && !p.email && contatavel(p) && !tentados.has(p.id))).filter(p => p.site && !p.email);
   if (!lista.length) { if (!silencioso) toast('Nenhum contato com site e sem e-mail.'); return 0; }
   if (DEMO) { if (!silencioso) toast('Modo demonstração: a busca de e-mails só funciona com o Supabase.'); return 0; }
   let achou = 0, feitos = 0;
@@ -2213,10 +2216,11 @@ async function buscarEmailsProsp(lista, silencioso) {
         if (e) { await atualizar('prospects', p.id, { email: e }).catch(() => { }); achou++; }
       }
     } catch (e) { console.warn('emails', e); }
-    feitos += lote.length;
+    feitos += lote.length; lote.forEach(p => tentados.add(p.id));
+    try { localStorage.setItem('pf_emails_tentados', JSON.stringify([...tentados].slice(-3000))); } catch { }
   }
   progresso(null); render();
-  if (!silencioso || achou) toast(`✉ ${achou} e-mail(s) encontrado(s) em ${lista.length} site(s)${achou < lista.length ? '. Os outros sites não publicam e-mail.' : ''}`);
+  if (!silencioso || achou) toast(`✉ ${achou} e-mail(s) encontrado(s) em ${lista.length} site(s)${achou < lista.length ? '. Os outros sites não publicam e-mail.' : ''}${achou ? ' Veja na aba "✉ Com e-mail".' : ''}`);
   return achou;
 }
 
