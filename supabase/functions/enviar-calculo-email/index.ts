@@ -229,9 +229,9 @@ async function roboEmail(teste: boolean) {
   if (urgente) await db.from('ajustes').upsert({ chave: 'robo_email_log', publico: false, valor: { lista: log.slice(0, 400) } });
   if (!teste && !urgente && (!dias.includes(sem) || hora < ini || hora >= fim)) return { ok: false, motivo: `fora do horário (${dias.map(x => NOMES_DIA[x]).join(', ')}, ${ini}h–${fim}h)`, erro_imap: erroImap || undefined };
   const hoje = log.filter((x: any) => x.dia === dia && x.ok && !x.voltou).length;
-  if (hoje >= porDia) return { ok: false, motivo: `limite do dia atingido (${hoje}/${porDia})` };
+  if (hoje >= porDia) return { ok: false, motivo: `limite do dia atingido (${hoje}/${porDia})`, erro_imap: erroImap || undefined, voltaram };
   const ult = log.find((x: any) => x.ok && !x.voltou);
-  if (!teste && !urgente && ult && Date.now() - new Date(ult.em).getTime() < intervalo * 60e3) return { ok: false, motivo: `aguardando o intervalo de ${intervalo} min` };
+  if (!teste && !urgente && ult && Date.now() - new Date(ult.em).getTime() < intervalo * 60e3) return { ok: false, motivo: `aguardando o intervalo de ${intervalo} min`, erro_imap: erroImap || undefined, voltaram };
   const { data: lista } = await db.from('prospects').select('*').eq('status', 'a_contatar').not('email', 'is', null).limit(500);
   const jaFoi = new Set(log.map((x: any) => x.id + '|' + String(x.email || '').toLowerCase())); // o mesmo contato pode receber de novo num e-mail diferente
   const nota = (p: any) => { const m = String(p.obs || '').match(/★\s*([\d.,]+)\s*\((\d+)/); return m ? Number(m[1].replace(',', '.')) * Math.log10(Number(m[2]) + 1) : 0; };
@@ -246,8 +246,10 @@ async function roboEmail(teste: boolean) {
     if (!user || !pass) throw new Error('Configure SMTP_USER e SMTP_PASS nos Secrets.');
     const smtp = nodemailer.createTransport({ host: Deno.env.get('SMTP_HOST') || 'email-ssl.com.br', port: Number(Deno.env.get('SMTP_PORT') || 465), secure: true, auth: { user, pass } });
     const html = apresentacaoHtml(d);
-    await smtp.sendMail({ from: `"${d.assinatura.replace(/"/g, '')} · Pontes Ferreira Cálculos" <${user}>`, to: reg.email, replyTo: user,
-      subject: 'Proposta de parceria – cálculos trabalhistas no PJe-Calc em até 48h', html, text: html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ') });
+    const msg = { from: `"${d.assinatura.replace(/"/g, '')} · Pontes Ferreira Cálculos" <${user}>`, to: reg.email, replyTo: user,
+      subject: 'Proposta de parceria – cálculos trabalhistas no PJe-Calc em até 48h', html, text: html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ') };
+    await smtp.sendMail(msg);
+    await guardarEmEnviados(msg).catch(e => { reg.aviso = 'enviado, mas não guardou a cópia em Enviados: ' + String(e?.message || e).slice(0, 100); console.error('enviados', e); });
     const pr = await lerAjuste('prospeccao'), dias = Number(pr.dias_follow1) || 3;
     const prox = new Date(agoraBR.getTime() + dias * 864e5).toISOString().slice(0, 10);
     await db.from('prospects').update({ status: 'contatado', tentativas: 1, ultimo_contato: reg.em, proximo_contato: prox }).eq('id', p.id);
@@ -255,6 +257,20 @@ async function roboEmail(teste: boolean) {
   } catch (e) { reg.erro = String((e as Error)?.message || e).slice(0, 160); console.error('robo-email', reg.email, e); }
   await db.from('ajustes').upsert({ chave: 'robo_email_log', publico: false, valor: { lista: [reg, ...log].slice(0, 400) } });
   return { ok: reg.ok, enviado: reg.ok ? reg.email : null, erro: reg.erro || null, hoje: hoje + (reg.ok ? 1 : 0), restante_fila: fila.length - 1, voltaram, erro_imap: erroImap || undefined };
+}
+// guarda uma cópia do e-mail na pasta Enviados do webmail (o envio direto pelo servidor não guarda sozinho)
+async function guardarEmEnviados(msg: any) {
+  const user = Deno.env.get('SMTP_USER'), pass = Deno.env.get('SMTP_PASS');
+  if (!user || !pass) return;
+  const bruto = await new Promise<Uint8Array>((ok, falha) => nodemailer.createTransport({ streamTransport: true, buffer: true, newline: 'windows' })
+    .sendMail({ ...msg, date: new Date() }, (e: any, info: any) => e ? falha(e) : ok(info.message)));
+  const cli = new ImapFlow({ host: Deno.env.get('IMAP_HOST') || Deno.env.get('SMTP_HOST') || 'email-ssl.com.br', port: Number(Deno.env.get('IMAP_PORT') || 993), secure: true, auth: { user, pass }, logger: false });
+  await cli.connect();
+  try {
+    const pastas = await cli.list();
+    const enviados = pastas.find((f: any) => f.specialUse === '\\Sent') || pastas.find((f: any) => /^(INBOX[./])?(enviad|sent)/i.test(f.path));
+    await cli.append(enviados ? enviados.path : 'INBOX.enviadas', bruto, ['\\Seen']);
+  } finally { await cli.logout().catch(() => { }); }
 }
 // lê na caixa de entrada os avisos de "e-mail não entregue" ainda não lidos e devolve os endereços que falharam de vez
 async function lerDevolucoes(): Promise<string[]> {
