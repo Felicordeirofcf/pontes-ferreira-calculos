@@ -32,7 +32,7 @@ const TEMPERATURAS = { quente: '🔥 Quente', morno: '🌤 Morno', frio: '❄ Fr
 const TIPOS_ATIV = { nota: '📝 Nota', ligacao: '📞 Ligação', whatsapp: '💬 WhatsApp', email: '✉ E-mail', reuniao: '🤝 Reunião', status: '🔄 Status' };
 const RESPOSTAS_RAPIDAS = [ // [rótulo, chave em VARIACOES (mensagens.js)]
   ['Apresentação', '__apresentacao__'], ['Saudação', 'saudacao'], ['📲 Pedir para salvar nosso contato', 'salvar_contato'], ['🙏 Obrigado por salvar o contato', 'obrigado_contato'], ['Nossos serviços', 'servicos'], ['Pedir dados do cadastro', 'pedir_cadastro'], ['Pedir o processo', 'pedir_processo'], ['Orçamento', 'orcamento'],
-  ['Vários autores', 'varios_autores'], ['Em análise', 'em_analise'], ['Data de entrega', 'data_entrega'], ['Confirmação', 'confirmacao'], ['Pronto + pagamento', 'pronto_pagamento'], ['Envio após pagamento', 'envio_pago'], ['Entrega', 'entrega'], ['Cobrança', 'cobranca'], ['Follow-up', 'followup']
+  ['Vários autores', 'varios_autores'], ['Em análise', 'em_analise'], ['Data de entrega', 'data_entrega'], ['Confirmação', 'confirmacao'], ['Pronto + pagamento', 'pronto_pagamento'], ['Envio após pagamento', 'envio_pago'], ['Entrega', 'entrega'], ['🔗 Link do portal (acompanhar)', '__portal__'], ['Cobrança', 'cobranca'], ['Follow-up', 'followup']
 ];
 /* variações: sorteia uma versão diferente da última usada */
 const SEP_VAR = /\n-{3,}\n/;
@@ -1091,7 +1091,7 @@ async function diagnosticoWa() {
 }
 async function removerForaCrm(waId) { const v = { lista: ((S.ajustes.wa_fora_crm || {}).lista || []).filter(x => x.wa_id !== waId) }; await ajustesDb.salvar('wa_fora_crm', v); S.ajustes.wa_fora_crm = v; }
 async function configRespostas() {
-  const chaves = RESPOSTAS_RAPIDAS.filter(([, k]) => k !== '__apresentacao__');
+  const chaves = RESPOSTAS_RAPIDAS.filter(([, k]) => !k.startsWith('__'));
   const v = await abrirForm('⚙ Respostas rápidas (variações)', [
     { k: '__pagamento', rot: 'Dados para pagamento: entram no lugar de {pagamento} em "Pronto + pagamento" (ex.: Pix CNPJ 51.362.258/0001-79 · Banco … ag. … c/c … · favorecido Pontes Ferreira Cálculos)', tipo: 'textarea', full: true },
     ...chaves.map(([rot, k], n) => ({ k, rot: `${rot} (${listaVariacoes(k).length} versões)${n === 0 ? ' · separe as versões com uma linha ---; marcadores {nome}, {valor}, {prazo}. A Apresentação é editada em Prospecção > ⚙ Mensagens' : ''}`, tipo: 'textarea', full: true }))
@@ -1265,6 +1265,7 @@ function preencherRapida(i) {
     const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
     return;
   }
+  if (chave === '__portal__') return rapidaPortal(c, l, nome);
   const lista = listaVariacoes(chave), modelo = lista[sortearVariacao('rap_' + chave, lista.length)];
   const txt = saudar(nome ? modelo : tirarNome(modelo)).replace(/\{nome\}/g, () => nome).replace(/\{valor\}/g, ((calc && calc.valor_cobrado) || (l && l.valor_orcado) || (primeiroCalculo(l) ? PRECO_PRIMEIRO : PRECO_BASE)).toLocaleString('pt-BR', { minimumFractionDigits: 2 }))
     .replace(/(?:até|para|em) \{prazo\}/g, m => calc && calc.prazo_entrega ? m.replace('{prazo}', dataBR(calc.prazo_entrega)) : 'em até 48h') // sem data: "até {prazo}" vira "em até 48h"
@@ -3093,6 +3094,19 @@ function faixaCadastro(c) {
 }
 
 /* ---------------- Painel do cliente (link pessoal) ---------------- */
+// resposta rápida "🔗 Link do portal": acha o cliente da conversa, cria o link se ainda não existir e monta a mensagem
+async function rapidaPortal(c, l, nome) {
+  const cliId = (l && l.cliente_id) || c.cliente_id || (calcsDaConversa(c)[0] || {}).cliente_id
+    || (S.clientes.find(x => x.whatsapp && digitos(x.whatsapp).slice(-9) === digitos(c.wa_id).slice(-9)) || {}).id;
+  let cli = cliId && cliente(cliId);
+  if (!cli) return toast('Este contato ainda não é cliente: converta o lead em cálculo primeiro (o portal é criado para o cliente).');
+  await seguro(async () => {
+    if (!cli.portal_token) cli = await atualizar('clientes', cli.id, { portal_token: novoToken() });
+    const n = nome || (cli.nome || '').split(' ')[0];
+    S.rascunhos[c.wa_id] = `${saudacaoAgora()}${n ? ', ' + n : ''}! Para sua comodidade, você pode acompanhar seus cálculos pelo nosso portal: lá aparecem o andamento, o prazo de entrega, os arquivos prontos para baixar (.PJC e relatório em PDF) e o que está em aberto.\n\n🔗 ${linkPortal(cli)}\n\nO link é pessoal, não precisa de senha. Guarde-o para consultar quando quiser. Qualquer dúvida, é só chamar aqui. 🙂`;
+    render(); const t = $('#waTexto'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
+  });
+}
 const novoToken = () => [...crypto.getRandomValues(new Uint8Array(24))].map(b => b.toString(16).padStart(2, '0')).join('');
 const linkPortal = c => `https://pontesferreiracalculos.com/cliente/?t=${c.portal_token}`;
 async function abrirPortal(id, renovar) {
