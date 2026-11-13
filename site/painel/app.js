@@ -1106,7 +1106,12 @@ async function configRespostas() {
 /* conexão com a Evolution API (QR code) */
 async function chamarConexao(acao, extra = {}) {
   const { data, error } = await sb.functions.invoke('whatsapp-conexao', { body: { acao, ...extra } });
-  if (error) { let det = {}; try { det = await error.context.json(); } catch { } throw new Error(det.mensagem || error.message); }
+  if (error) {
+    let det = {}; try { det = await error.context.json(); } catch { }
+    const st = error.context?.status;
+    throw new Error(det.mensagem || (det.erro === 'acao_invalida' ? 'a função whatsapp-conexao publicada é a versão antiga (não conhece "' + acao + '"). Publique de novo com o código atual do GitHub.'
+      : det.erro === 'nao_autorizado' ? 'login expirado: saia e entre de novo no painel.' : (det.erro || error.message) + (st ? ' (código ' + st + ')' : '')));
+  }
   return data;
 }
 async function atualizarEstadoWa(silencioso) {
