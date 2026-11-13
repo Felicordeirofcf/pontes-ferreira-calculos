@@ -2206,10 +2206,10 @@ const logRoboEmail = () => (S.ajustes.robo_email_log || {}).lista || [];
 const filaRoboEmail = () => { const ja = new Set(logRoboEmail().map(x => x.id)); return S.prospects.filter(p => (p.status || 'a_contatar') === 'a_contatar' && !p.tentativas && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(p.email || '').trim()) && !ja.has(p.id)); };
 function cartaoRoboEmail() {
   const c = cfgRoboEmail(), log = logRoboEmail(), dia = isoLocal(new Date()), hojeOk = log.filter(x => x.dia === dia && x.ok).length, fila = filaRoboEmail().length;
-  const agora = new Date(), util = agora.getDay() > 0 && agora.getDay() < 6 && agora.getHours() >= 9 && agora.getHours() < 18;
+  const agora = new Date(), util = agora.getDay() > 0 && agora.getDay() < 6 && agora.getHours() >= 9 && agora.getHours() < 22;
   const estado = !c.ativo ? '<span class="tag t-neutro">Desligado</span>' : !fila ? '<span class="tag t-warn">Ligado · fila vazia</span>' : hojeOk >= c.por_dia ? '<span class="tag t-good">Ligado · limite do dia atingido</span>' : util ? '<span class="tag t-good">Ligado · enviando</span>' : '<span class="tag t-azul">Ligado · volta seg–sex às 9h</span>';
   return `<div class="card larga" style="margin:14px 0"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <div><b>🤖 Robô de e-mail</b> ${estado}<div class="desc" style="margin:4px 0 0">Manda a apresentação por e-mail, sozinho, para quem está em "A contatar" e tem e-mail: 1 a cada ${c.intervalo_min} min, até ${c.por_dia} por dia, de segunda a sexta das 9h às 18h. Hoje: <b>${hojeOk}/${c.por_dia}</b> · na fila: <b>${fila}</b>${log[0] ? ` · último: ${esc(log[0].nome || log[0].email)} ${log[0].ok ? '✓' : '✗'}` : ''}</div></div>
+    <div><b>🤖 Robô de e-mail</b> ${estado}<div class="desc" style="margin:4px 0 0">Manda a apresentação por e-mail, sozinho, para quem está em "A contatar" e tem e-mail: 1 a cada ${c.intervalo_min} min, até ${c.por_dia} por dia, de segunda a sexta das 9h às 22h. Hoje: <b>${hojeOk}/${c.por_dia}</b> · na fila: <b>${fila}</b>${log[0] ? ` · último: ${esc(log[0].nome || log[0].email)} ${log[0].ok ? '✓' : '✗'}` : ''}</div></div>
     <div class="linha" style="gap:6px"><button class="btn ${c.ativo ? 'sec' : 'ouro'}" data-acao="ligarRoboEmail">${c.ativo ? '⏸ Desligar' : '▶ Ligar robô'}</button><button class="btn sec" data-acao="configRoboEmail">⚙ Ajustar</button><button class="btn sec" data-acao="verRoboEmail">📜 Envios</button></div></div></div>`;
 }
 async function salvarRoboEmail(patch) {
@@ -2220,7 +2220,7 @@ async function ligarRoboEmail() {
   const c = cfgRoboEmail();
   if (c.ativo) return salvarRoboEmail({ ativo: false }).then(() => toast('Robô de e-mail desligado'));
   const fila = filaRoboEmail().length;
-  if (!confirm(`Ligar o robô? Ele vai mandar a apresentação por e-mail, sozinho, para ${fila} contato(s) em "A contatar" com e-mail: 1 a cada ${c.intervalo_min} min, até ${c.por_dia} por dia, seg–sex 9h–18h. Cada envio marca o contato como contatado e agenda o retorno.`)) return;
+  if (!confirm(`Ligar o robô? Ele vai mandar a apresentação por e-mail, sozinho, para ${fila} contato(s) em "A contatar" com e-mail: 1 a cada ${c.intervalo_min} min, até ${c.por_dia} por dia, seg–sex 9h–22h. Cada envio marca o contato como contatado e agenda o retorno.`)) return;
   await salvarRoboEmail({ ativo: true }); toast('🤖 Robô de e-mail ligado' + (fila ? '' : ': a fila está vazia, use ✉ Buscar e-mails'));
 }
 async function configRoboEmail() {
