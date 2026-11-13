@@ -14,10 +14,13 @@
   const mostrar = () => {
     const b = document.createElement('div');
     b.id = 'pfCookies'; b.setAttribute('role', 'dialog'); b.setAttribute('aria-label', 'Aviso de cookies');
-    b.style.cssText = 'position:fixed;left:12px;right:84px;bottom:12px;max-width:560px;z-index:9998;background:#0b1a3d;color:#fff;border:1px solid rgba(226,177,60,.45);border-radius:14px;padding:14px 16px;box-shadow:0 12px 34px rgba(0,0,0,.35);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif';
-    b.innerHTML = 'Usamos cookies para medir nossos anúncios e melhorar o site. Os dados do seu processo nunca são usados para isso. <a href="/privacidade.html" style="color:#fbe7a1">Política de Privacidade</a>' +
-      '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button type="button" data-c="sim" style="background:linear-gradient(135deg,#fbe7a1,#e2b13c 45%,#b07a12);color:#1b1203;border:0;border-radius:9px;padding:8px 16px;font-weight:700;cursor:pointer">Aceitar</button>' +
-      '<button type="button" data-c="nao" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:9px;padding:8px 16px;cursor:pointer">Recusar</button></div>';
+    // compacto: uma linha, sem cobrir os botões (no celular fica acima da barra fixa do rodapé)
+    const cel = matchMedia('(max-width: 860px)').matches, barra = cel && document.querySelector('.barra-mobile');
+    b.style.cssText = 'position:fixed;z-index:9998;background:rgba(11,26,61,.97);color:#fff;border:1px solid rgba(226,177,60,.4);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.3);font:12.5px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;align-items:center;gap:10px;' +
+      (cel ? `left:8px;right:8px;bottom:${barra ? 84 : 8}px;padding:8px 10px` : 'left:16px;bottom:16px;max-width:430px;padding:10px 12px');
+    b.innerHTML = '<span style="flex:1">🍪 Cookies para medir anúncios. <a href="/privacidade.html" style="color:#fbe7a1">Privacidade</a></span>' +
+      '<button type="button" data-c="sim" style="background:linear-gradient(135deg,#fbe7a1,#e2b13c 45%,#b07a12);color:#1b1203;border:0;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer;font-size:12.5px">Aceitar</button>' +
+      '<button type="button" data-c="nao" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:12.5px">Recusar</button>';
     b.addEventListener('click', e => {
       const c = e.target.getAttribute && e.target.getAttribute('data-c'); if (!c) return;
       ls.set('pf_cookies', c); b.remove();
