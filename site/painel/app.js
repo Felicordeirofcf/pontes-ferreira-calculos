@@ -929,7 +929,7 @@ function emailDoCalculo(calc, c) {
 }
 // ✉ Apresentação por e-mail: o escritório pediu proposta por e-mail → manda a apresentação com o visual da marca
 async function apresentacaoEmail(opc = {}) {
-  const c = convAtiva();
+  const c = opc.semConversa ? null : convAtiva();
   const textoConv = c ? (S.wa_mensagens[c.wa_id] || []).filter(m => m.direcao === 'in').map(m => m.texto || '').join(' ') : '';
   const emailConv = ((textoConv.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || []).pop() || '').replace(/\.+$/, ''); // o último e-mail que o contato mandou
   const nomeEmail = (emailConv.split('@')[0] || '').replace(/[^a-zà-ú]/gi, ' ').trim().split(/\s+/)[0] || '';
@@ -941,17 +941,33 @@ async function apresentacaoEmail(opc = {}) {
     { k: 'assinatura', rot: 'Assina', full: true }
   ], { para: opc.para || emailConv || (c && emailDoCalculo(null, c)) || '', tratamento: opc.tratamento || (nomeEmail ? 'Prezado Dr. ' + nomeEmail[0].toUpperCase() + nomeEmail.slice(1).toLowerCase() : 'Prezado(a) Dr(a).'),
     abertura: opc.abertura ?? (c ? 'Obrigado pelo retorno no WhatsApp. Conforme orientado, seguimos por e-mail.' : ''), assunto: 'Proposta de parceria – cálculos trabalhistas no PJe-Calc em até 48h', assinatura: S.ajustes?.assinatura_email || 'Amanda Pontes' }, { ok: '✉ Enviar e-mail' });
-  if (!v) return;
+  if (!v) return null;
   const para = (v.para || '').trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) return toast('E-mail inválido: ' + para);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) { toast('E-mail inválido: ' + para); return null; }
+  let ok = false;
   await seguro(async () => {
-    if (DEMO) return toast('Modo demonstração: apresentação para ' + para + ' simulada.');
+    if (DEMO) { ok = true; return toast('Modo demonstração: apresentação para ' + para + ' simulada.'); }
     const { error } = await sb.functions.invoke('enviar-calculo-email', { body: { tipo: 'apresentacao', para, tratamento: v.tratamento, abertura: v.abertura, assunto: v.assunto, assinatura: v.assinatura } });
     if (error) { let d = {}; try { d = await error.context.json(); } catch { } throw new Error(d.mensagem || error.message); }
-    toast('✉ Apresentação enviada para ' + para + ' (você recebe uma cópia oculta)');
-    const l = c && leadDaConversa(c);
+    ok = true; toast('✉ Apresentação enviada para ' + para + ' (você recebe uma cópia oculta)');
+    const l = !opc.semConversa && c && leadDaConversa(c);
     if (l) await registrar(l.id, 'email', 'Apresentação enviada por e-mail para ' + para);
   });
+  return ok ? para : null;
+}
+// prospecção: a mesma apresentação, saudando o escritório; conta como abordagem e guarda o e-mail no contato
+async function apresentacaoProsp(id) {
+  const p = S.prospects.find(x => x.id === id); if (!p) return;
+  const nome = String(p.nome || '').trim(), dr = /^(dr|dra)\.?\s/i.test(nome);
+  const para = await apresentacaoEmail({ semConversa: true, para: p.email || '',
+    tratamento: dr ? (/^dra/i.test(nome) ? 'Prezada ' : 'Prezado ') + nome.split(/\s+/).slice(0, 2).join(' ') : 'Prezados(as) Drs.',
+    abertura: `Gostaríamos de apresentar nossos serviços ao escritório${p.escritorio || (!dr && nome) ? ' ' + (p.escritorio || nome) : ''}.` });
+  if (!para) return false;
+  await seguro(async () => {
+    if (!p.email) { const n = await atualizar('prospects', p.id, { email: para }); Object.assign(p, n || { email: para }); }
+    await marcarContatado(p); render();
+  });
+  return true;
 }
 async function enviarCalculoEmail(calcId, para) {
   if (DEMO) { toast('Modo demonstração: e-mail para ' + para + ' simulado.'); return; }
@@ -1793,7 +1809,7 @@ function celTelefone(p) {
   if (p.whatsapp && p.status !== 'nao_contatar') wa = contatavel(p)
     ? `<button class="wa-bolha" data-wa-prosp="${p.id}" title="Enviar a mensagem do ${ROT_ETAPA[etapaProsp(p)]} no WhatsApp">${WA_SVG}</button>`
     : waBotao(p.whatsapp, { classe: 'wa-bolha conversa', nome: p.nome, lead_id: p.lead_id, rotulo: WA_SVG, title: 'Abrir a conversa (sem mensagem pronta)' });
-  const mail = p.email && p.status !== 'nao_contatar' ? `<button class="mail-bolha" data-mail-prosp="${p.id}" title="Enviar por e-mail: ${esc(p.email)}">✉</button>` : '';
+  const mail = p.status !== 'nao_contatar' ? `<button class="mail-bolha" data-mail-prosp="${p.id}" title="${p.email ? 'Enviar a apresentação por e-mail: ' + esc(p.email) : 'Enviar a apresentação por e-mail (informe o e-mail)'}">✉</button>` : '';
   return `<div class="tel-cel">${tel}${wa}${mail}</div>`;
 }
 /* envia direto da lista, com a mensagem da etapa, e registra a abordagem */
@@ -1844,7 +1860,7 @@ function abrirAbordagem(id) {
     <div class="linha" style="margin-top:6px;justify-content:space-between"><span class="desc" id="abVar">versão ${S.varAbordagem.i + 1} de ${S.varAbordagem.n}</span><button class="btn mini sec" data-ab="variar">🔀 Outra versão</button></div>
     <div class="linha" style="margin-top:10px">
       ${p.whatsapp ? `<button class="btn ouro" data-ab="wa">📲 Enviar no WhatsApp</button>` : ''}
-      ${p.email ? `<button class="btn sec" data-ab="email">✉ Enviar por e-mail</button>` : ''}
+      <button class="btn sec" data-ab="apresentacao" title="E-mail com o visual da marca: serviços, como funciona e 1º cálculo por R$ 200">✉ Apresentação por e-mail</button>
       <button class="btn sec" data-ab="pular">Pular ⏭</button></div>
     <div class="linha" style="margin-top:10px;border-top:1px solid var(--grid);padding-top:10px">
       <span class="desc">Já teve retorno?</span>
@@ -1868,6 +1884,7 @@ async function acaoAbordagem(a) {
   const c = cfgProsp(), txt = ($('#abTexto')?.value || '').trim(), agora = new Date().toISOString();
   await seguro(async () => {
     if (a === 'wa' || a === 'email') { await registrarAbordagem(p, a, txt); if (a === 'wa' && painelWaOk()) { $('#abordagem')?.remove(); abordagemId = null; return; } return proximoDaFila(p.id); }
+    if (a === 'apresentacao') { const id = p.id; return (await apresentacaoProsp(id)) && abordagemId === id ? proximoDaFila(id) : undefined; }
     if (a === 'variar') { const v = S.varAbordagem; $('#abTexto').value = textoProsp(p, v.etapa, v.i + 1); $('#abVar').textContent = `versão ${S.varAbordagem.i + 1} de ${S.varAbordagem.n}`; return; }
     if (a === 'pular') return proximoDaFila(p.id);
     if (a === 'fechar') return fecharAbordagem();
@@ -3578,7 +3595,7 @@ document.addEventListener('click', e => {
   if (d.acaoMonitor) return executarAcaoMonitor(d.acaoMonitor, d.wa);
   if (d.waAbrir) { e.stopPropagation(); return abrirNoPainel(d.waAbrir, d.waNome, d.waTxt, { lead_id: d.waLeadId, cliente_id: d.waClienteId }); }
   if (d.waProsp) return enviarDiretoProsp(d.waProsp, 'wa');
-  if (d.mailProsp) return enviarDiretoProsp(d.mailProsp, 'email');
+  if (d.mailProsp) return apresentacaoProsp(d.mailProsp);
   if (d.ufMapa !== undefined) { S.ufMapa = d.ufMapa || null; if (rota() !== 'mapa') location.hash = 'mapa'; return render(); }
   if (d.metricaMapa) { S.metricaMapa = d.metricaMapa; localSet('pf_metrica_mapa', d.metricaMapa); return render(); }
   if (d.prospectarUf) return prospectarUF(d.prospectarUf);
