@@ -231,7 +231,7 @@ async function roboEmail(teste: boolean) {
   const hoje = log.filter((x: any) => x.dia === dia && x.ok && !x.voltou).length;
   if (hoje >= porDia) return { ok: false, motivo: `limite do dia atingido (${hoje}/${porDia})`, erro_imap: erroImap || undefined, voltaram };
   const ult = log.find((x: any) => x.ok && !x.voltou);
-  if (!teste && !urgente && ult && Date.now() - new Date(ult.em).getTime() < intervalo * 60e3) return { ok: false, motivo: `aguardando o intervalo de ${intervalo} min`, erro_imap: erroImap || undefined, voltaram };
+  if (!teste && !urgente && ult && Date.now() - new Date(ult.em).getTime() < intervalo * 60e3 - 90e3) return { ok: false, motivo: `aguardando o intervalo de ${intervalo} min`, erro_imap: erroImap || undefined, voltaram };
   const { data: lista } = await db.from('prospects').select('*').eq('status', 'a_contatar').not('email', 'is', null).limit(500);
   const jaFoi = new Set(log.map((x: any) => x.id + '|' + String(x.email || '').toLowerCase())); // o mesmo contato pode receber de novo num e-mail diferente
   const nota = (p: any) => { const m = String(p.obs || '').match(/★\s*([\d.,]+)\s*\((\d+)/); return m ? Number(m[1].replace(',', '.')) * Math.log10(Number(m[2]) + 1) : 0; };
