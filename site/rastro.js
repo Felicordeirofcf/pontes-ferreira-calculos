@@ -41,7 +41,9 @@
 // Anônimo: sem IP, sem cookies; uma sessão = uma aba aberta.
 (function () {
   const C = window.PF_CONFIG || {};
-  if (!C.SUPABASE_URL || !C.SUPABASE_ANON_KEY || /^(localhost|127\.)/.test(location.hostname)) { window.PF_EVENTO = () => { }; window.PF_GEO = Promise.resolve({}); return; }
+  // robôs (Google Ads conferindo a página, Googlebot, Bing, navegadores automáticos) não contam como visita
+  const robo = navigator.webdriver || /bot|crawl|spider|slurp|headless|lighthouse|pagespeed|adsbot|mediapartners|google-inspectiontool|preview|facebookexternalhit|vercel/i.test(navigator.userAgent || '');
+  if (robo || !C.SUPABASE_URL || !C.SUPABASE_ANON_KEY || /^(localhost|127\.)/.test(location.hostname)) { window.PF_EVENTO = () => { }; window.PF_GEO = Promise.resolve({}); return; }
   const ss = { get: k => { try { return sessionStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { sessionStorage.setItem(k, v); } catch (e) { } } };
   let sessao = ss.get('pf_sessao');
   if (!sessao) { sessao = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)); ss.set('pf_sessao', sessao); }

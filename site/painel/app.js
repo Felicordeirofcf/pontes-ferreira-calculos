@@ -2630,8 +2630,11 @@ function sessoesJornada() {
     if (e.tipo === 'pedido') s.pedido = true;
   }
   const porRef = new Map(S.leads.filter(l => l.ref).map(l => [String(l.ref).toUpperCase(), l])), porSes = new Map(S.leads.filter(l => l.sessao).map(l => [l.sessao, l]));
+  const semCodigo = S.leads.filter(l => !l.ref && !l.sessao);
+  // lead sem código (feito antes do rastreador): liga pelo horário do envio do formulário (até 5 min)
+  const pelaHora = s => { const p = s.eventos.find(e => e.tipo === 'pedido'); if (!p) return null; const t = new Date(p.created_at).getTime(); return semCodigo.find(l => Math.abs(new Date(l.created_at).getTime() - t) < 5 * 60e3) || null; };
   return [...m.values()].map(s => {
-    const l = porSes.get(s.id) || porRef.get(s.ref) || null;
+    const l = porSes.get(s.id) || porRef.get(s.ref) || pelaHora(s) || null;
     const dur = Math.max(s.tempo, Math.round((new Date(s.fim) - new Date(s.inicio)) / 1000));
     return { ...s, lead: l, dur, engajou: dur >= 10 || s.rol >= 25 || s.cliques.length > 0, leu: s.rol >= 50, clicou: s.wa || s.form || s.pedido, contato: !!l, pedidoSemLead: s.pedido && !l, orcado: !!l && ['orcamento', 'fechado'].includes(l.status), fechou: !!l && l.status === 'fechado' };
   }).sort((a, b) => b.inicio.localeCompare(a.inicio));
@@ -2650,7 +2653,10 @@ function trafegoJornada() {
   const J = S.jornada || {}, todasComTeste = sessoesJornada();
   // testes não entram no diagnóstico: campanha "teste", lead com "teste" no nome/origem/obs, ou marcado como teste aqui
   const ehTeste = s => /teste/i.test(s.campanha || '') || (s.lead && /teste/i.test([s.lead.nome, s.lead.origem, s.lead.obs, s.lead.motivo_perda].join(' '))) || (S.ajustes.jornada_testes || []).includes(s.ref);
-  const todas = todasComTeste.filter(s => !ehTeste(s)), nTestes = todasComTeste.length - todas.length;
+  // provável robô: chegou sem origem, não rolou, não clicou e não ficou (robôs do Google conferindo a página, buscadores, testes automáticos)
+  const ehRobo = s => s.fonte === 'Direto / sem origem' && !s.engajou && !s.clicou && !s.lead;
+  const semTeste = todasComTeste.filter(s => !ehTeste(s)), nTestes = todasComTeste.length - semTeste.length;
+  const todas = S.mostrarRobos ? semTeste : semTeste.filter(s => !ehRobo(s)), nRobos = semTeste.length - todas.length;
   const f = S.filtroJornada || '', ses = f ? todas.filter(s => s.fonte === f) : todas;
   const conta = k => k === 'todas' ? ses.length : ses.filter(s => s[k]).length;
   const passos = PASSOS_JORNADA.map(([k, rot, dica]) => ({ k, rot, dica, n: conta(k) }));
@@ -2670,7 +2676,7 @@ function trafegoJornada() {
   const fontes = [...new Set(todas.map(s => s.fonte))];
   return `
   <div class="card larga" style="margin-bottom:14px"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <div><h2 style="margin:0">🧭 Jornada do cliente</h2><div class="desc">Cada visitante recebe um código (ex.: PF7K2QA) que vai na mensagem do WhatsApp. Assim o painel liga a conversa ao caminho dele no site e mostra onde as pessoas desistem. ${PERIODOS[S.periodo]}.${nTestes ? ` <b>${nTestes} visita(s) de teste fora da conta.</b>` : ''}</div></div>
+    <div><h2 style="margin:0">🧭 Jornada do cliente</h2><div class="desc">Cada visitante recebe um código (ex.: PF7K2QA) que vai na mensagem do WhatsApp. Assim o painel liga a conversa ao caminho dele no site e mostra onde as pessoas desistem. ${PERIODOS[S.periodo]}.${nTestes ? ` <b>${nTestes} visita(s) de teste fora da conta.</b>` : ''}${nRobos ? ` <b>${nRobos} acesso(s) sem origem e sem nenhuma interação (provavelmente robôs) fora da conta.</b> <button class="btn mini sec" data-acao="mostrarRobos">mostrar</button>` : S.mostrarRobos ? ' <button class="btn mini sec" data-acao="mostrarRobos">esconder robôs</button>' : ''}</div></div>
     <div class="linha"><select class="f" id="filtroJornada"><option value="">Todas as origens</option>${fontes.map(x => `<option ${x === f ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select><button class="btn sec" data-acao="atualizarJornada">↻</button></div></div>
     ${J.erro ? `<div class="demo" style="margin-top:10px"><span>⚠ ${esc(J.erro)}</span></div>` : ''}
     ${todas.filter(s => s.pedidoSemLead).length ? `<div class="demo" style="margin-top:10px"><span>⚠ ${todas.filter(s => s.pedidoSemLead).length} visitante(s) enviaram o formulário e nenhum lead apareceu no painel (${todas.filter(s => s.pedidoSemLead).map(s => s.ref).join(', ')}). Se não foram testes, me avise: pode ser falha no envio.</span></div>` : ''}${J.carregando && !todas.length ? '<div class="demo" style="margin-top:10px"><span>Carregando a jornada…</span></div>' : ''}</div>
@@ -3532,7 +3538,7 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), atualizarJornada: () => carregarJornada(true), abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
+    novaDespesa: () => editarDespesa(null), atualizarJornada: () => carregarJornada(true), mostrarRobos: () => { S.mostrarRobos = !S.mostrarRobos; render(); }, abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
     selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
