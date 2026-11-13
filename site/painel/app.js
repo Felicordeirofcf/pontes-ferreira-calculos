@@ -2647,7 +2647,10 @@ const PASSOS_JORNADA = [
 ];
 function trafegoJornada() {
   carregarJornada();
-  const J = S.jornada || {}, todas = sessoesJornada();
+  const J = S.jornada || {}, todasComTeste = sessoesJornada();
+  // testes não entram no diagnóstico: campanha "teste", lead com "teste" no nome/origem/obs, ou marcado como teste aqui
+  const ehTeste = s => /teste/i.test(s.campanha || '') || (s.lead && /teste/i.test([s.lead.nome, s.lead.origem, s.lead.obs, s.lead.motivo_perda].join(' '))) || (S.ajustes.jornada_testes || []).includes(s.ref);
+  const todas = todasComTeste.filter(s => !ehTeste(s)), nTestes = todasComTeste.length - todas.length;
   const f = S.filtroJornada || '', ses = f ? todas.filter(s => s.fonte === f) : todas;
   const conta = k => k === 'todas' ? ses.length : ses.filter(s => s[k]).length;
   const passos = PASSOS_JORNADA.map(([k, rot, dica]) => ({ k, rot, dica, n: conta(k) }));
@@ -2667,7 +2670,7 @@ function trafegoJornada() {
   const fontes = [...new Set(todas.map(s => s.fonte))];
   return `
   <div class="card larga" style="margin-bottom:14px"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <div><h2 style="margin:0">🧭 Jornada do cliente</h2><div class="desc">Cada visitante recebe um código (ex.: PF7K2QA) que vai na mensagem do WhatsApp. Assim o painel liga a conversa ao caminho dele no site e mostra onde as pessoas desistem. ${PERIODOS[S.periodo]}.</div></div>
+    <div><h2 style="margin:0">🧭 Jornada do cliente</h2><div class="desc">Cada visitante recebe um código (ex.: PF7K2QA) que vai na mensagem do WhatsApp. Assim o painel liga a conversa ao caminho dele no site e mostra onde as pessoas desistem. ${PERIODOS[S.periodo]}.${nTestes ? ` <b>${nTestes} visita(s) de teste fora da conta.</b>` : ''}</div></div>
     <div class="linha"><select class="f" id="filtroJornada"><option value="">Todas as origens</option>${fontes.map(x => `<option ${x === f ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select><button class="btn sec" data-acao="atualizarJornada">↻</button></div></div>
     ${J.erro ? `<div class="demo" style="margin-top:10px"><span>⚠ ${esc(J.erro)}</span></div>` : ''}${J.carregando && !todas.length ? '<div class="demo" style="margin-top:10px"><span>Carregando a jornada…</span></div>' : ''}</div>
   <div class="grade">
@@ -2687,7 +2690,7 @@ function trafegoJornada() {
       ${ses.length ? `<div class="tabela"><table><tr><th>Código</th><th>Quando</th><th>Origem / palavra-chave</th><th>Aparelho</th><th>Entrou em</th><th class="n">Tempo</th><th class="n">Rolou</th><th>Cliques</th><th>Até onde foi</th></tr>
       ${ses.slice(0, 60).map(s => { const [c, t] = etapa(s); return `<tr class="clic" data-jornada="${esc(s.ref)}"><td><code>${esc(s.ref)}</code></td><td style="white-space:nowrap">${esc(new Date(s.inicio).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}</td>
         <td>${esc(s.fonte)}${s.termo ? `<div class="desc">"${esc(s.termo)}"</div>` : ''}</td><td>${s.disp === 'celular' ? '📱' : '💻'}</td><td class="desc">${esc(s.entrada)}</td><td class="n">${s.dur}s</td><td class="n">${s.rol}%</td>
-        <td class="desc" style="max-width:220px">${esc(s.cliques.slice(0, 3).join(' · ')) || '—'}</td><td><span class="tag ${c}">${t}</span>${s.lead ? `<div class="desc">${esc(s.lead.nome || '')}</div>` : ''}</td></tr>`; }).join('')}</table></div><div class="desc" style="margin-top:6px">Clique numa linha para ver o caminho completo do visitante, passo a passo.</div>` : '<div class="vazio">Sem visitantes no período.</div>'}</div>
+        <td class="desc" style="max-width:220px">${esc(s.cliques.slice(0, 3).join(' · ')) || '—'}</td><td><span class="tag ${c}">${t}</span>${s.lead ? `<div class="desc">${esc(s.lead.nome || '')}</div>` : ''}${s.contato ? ` <button class="btn mini sec" data-jornada-teste="${esc(s.ref)}" title="Foi um teste seu: tirar do diagnóstico">é teste</button>` : ''}</td></tr>`; }).join('')}</table></div><div class="desc" style="margin-top:6px">Clique numa linha para ver o caminho completo do visitante, passo a passo.</div>` : '<div class="vazio">Sem visitantes no período.</div>'}</div>
   </div>`;
 }
 
@@ -3473,7 +3476,7 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-jornada],[data-localizar-lista],[data-msg-lista],[data-mover-lista],[data-filtro-lista],[data-localizar],[data-usar-local],[data-aba-prosp],[data-pag-prosp],[data-cidade-prosp],[data-filtro-wa],[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-jornada-teste],[data-jornada],[data-localizar-lista],[data-msg-lista],[data-mover-lista],[data-filtro-lista],[data-localizar],[data-usar-local],[data-aba-prosp],[data-pag-prosp],[data-cidade-prosp],[data-filtro-wa],[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
   if (d.filtroWa) { S.filtroWa = d.filtroWa; return render(); }
@@ -3494,6 +3497,7 @@ document.addEventListener('click', e => {
   if (d.ufMapa !== undefined) { S.ufMapa = d.ufMapa || null; if (rota() !== 'mapa') location.hash = 'mapa'; return render(); }
   if (d.metricaMapa) { S.metricaMapa = d.metricaMapa; localSet('pf_metrica_mapa', d.metricaMapa); return render(); }
   if (d.prospectarUf) return prospectarUF(d.prospectarUf);
+  if (d.jornadaTeste) { e.stopPropagation(); const lista = [...new Set([...(S.ajustes.jornada_testes || []), d.jornadaTeste])]; return seguro(async () => { await ajustesDb.salvar('jornada_testes', lista); S.ajustes.jornada_testes = lista; toast(d.jornadaTeste + ' marcado como teste'); render(); }); }
   if (d.jornada) { S.buscaJornada = d.jornada; render(); return document.querySelector('#buscaJornada')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
   if (d.localizar) return localizarTelefone(d.localizar);
   if (d.localizarLista) return localizarTelefone(d.localizarLista, 'lista');
