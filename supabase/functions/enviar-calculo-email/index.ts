@@ -4,6 +4,8 @@
 // Com tipo "apresentacao": envia a apresentação do serviço para um escritório (prospecção).
 // Com tipo "robo": robô de prospecção por e-mail, chamado pelo agendador (pg_cron) a cada 15 min.
 //   Manda 1 apresentação por chamada para o próximo contato "A contatar" com e-mail, respeitando o limite diário,
+//   Antes de enviar, lê na caixa de entrada (IMAP) os avisos de e-mail que voltou: o endereço que falhou sai do contato,
+//   entra o próximo e-mail achado no site (se houver), e o próximo envio sai na hora, sem esperar intervalo nem horário.
 //   o intervalo mínimo, os dias e o horário (de Brasília) escolhidos no painel. Liga/desliga, horário e limites no painel (Prospecção > 🤖 Robô de e-mail).
 // Só o dono logado no painel pode usar. Deixe "Verify JWT" LIGADO.
 // Secrets: os mesmos da função aviso-lead (SMTP_USER, SMTP_PASS, opcionais SMTP_HOST, SMTP_PORT).
@@ -11,6 +13,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import nodemailer from 'npm:nodemailer@6.9.16';
+import { ImapFlow } from 'npm:imapflow@1.0.164';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const resp = (obj: unknown, status = 200) => new Response(JSON.stringify(obj), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
@@ -217,21 +220,27 @@ async function roboEmail(teste: boolean) {
   const agoraBR = new Date(Date.now() - 3 * 3600e3), dia = agoraBR.toISOString().slice(0, 10), hora = agoraBR.getUTCHours(), sem = agoraBR.getUTCDay();
   const ini = Math.min(Math.max(0, Number(cfg.hora_inicio) || 0), 23), fim = Math.min(Math.max(ini + 1, Number(cfg.hora_fim) || 24), 24);
   const dias = Array.isArray(cfg.dias) && cfg.dias.length ? cfg.dias.map(Number) : ROBO_PADRAO.dias;
-  if (!teste && (!dias.includes(sem) || hora < ini || hora >= fim)) return { ok: false, motivo: `fora do horário (${dias.map(x => NOMES_DIA[x]).join(', ')}, ${ini}h–${fim}h)` };
   const log = (await lerAjuste('robo_email_log')).lista || [];
-  const hoje = log.filter((x: any) => x.dia === dia && x.ok).length;
+  // e-mails que voltaram: tira o endereço do contato, tenta o próximo e-mail dele e libera um envio imediato
+  let voltaram: string[] = [], erroImap = '';
+  try { voltaram = await lerDevolucoes(); } catch (e) { erroImap = String((e as Error)?.message || e).slice(0, 160); console.error('imap', e); }
+  for (const em of voltaram) await tratarDevolucao(em, log);
+  const urgente = voltaram.length > 0;
+  if (urgente) await db.from('ajustes').upsert({ chave: 'robo_email_log', publico: false, valor: { lista: log.slice(0, 400) } });
+  if (!teste && !urgente && (!dias.includes(sem) || hora < ini || hora >= fim)) return { ok: false, motivo: `fora do horário (${dias.map(x => NOMES_DIA[x]).join(', ')}, ${ini}h–${fim}h)`, erro_imap: erroImap || undefined };
+  const hoje = log.filter((x: any) => x.dia === dia && x.ok && !x.voltou).length;
   if (hoje >= porDia) return { ok: false, motivo: `limite do dia atingido (${hoje}/${porDia})` };
-  const ult = log.find((x: any) => x.ok);
-  if (!teste && ult && Date.now() - new Date(ult.em).getTime() < intervalo * 60e3) return { ok: false, motivo: `aguardando o intervalo de ${intervalo} min` };
-  const { data: lista } = await db.from('prospects').select('id,nome,escritorio,email,obs,tentativas,status').eq('status', 'a_contatar').not('email', 'is', null).limit(500);
-  const jaFoi = new Set(log.map((x: any) => x.id));
+  const ult = log.find((x: any) => x.ok && !x.voltou);
+  if (!teste && !urgente && ult && Date.now() - new Date(ult.em).getTime() < intervalo * 60e3) return { ok: false, motivo: `aguardando o intervalo de ${intervalo} min` };
+  const { data: lista } = await db.from('prospects').select('*').eq('status', 'a_contatar').not('email', 'is', null).limit(500);
+  const jaFoi = new Set(log.map((x: any) => x.id + '|' + String(x.email || '').toLowerCase())); // o mesmo contato pode receber de novo num e-mail diferente
   const nota = (p: any) => { const m = String(p.obs || '').match(/★\s*([\d.,]+)\s*\((\d+)/); return m ? Number(m[1].replace(',', '.')) * Math.log10(Number(m[2]) + 1) : 0; };
-  const fila = (lista || []).filter((p: any) => !p.tentativas && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(p.email).trim()) && !jaFoi.has(p.id)).sort((a: any, b: any) => nota(b) - nota(a));
-  if (!fila.length) return { ok: false, motivo: 'fila vazia: nenhum contato "A contatar" com e-mail' };
+  const fila = (lista || []).filter((p: any) => !p.tentativas && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(p.email).trim()) && !jaFoi.has(p.id + '|' + String(p.email).trim().toLowerCase())).sort((a: any, b: any) => nota(b) - nota(a));
+  if (!fila.length) return { ok: false, motivo: 'fila vazia: nenhum contato "A contatar" com e-mail', voltaram };
   const p = fila[0], nome = String(p.nome || '').trim(), dr = /^(dr|dra)\.?\s/i.test(nome), esc2 = p.escritorio || (!dr ? nome : '');
   const d = { tratamento: dr ? (/^dra/i.test(nome) ? 'Prezada ' : 'Prezado ') + nome.split(/\s+/).slice(0, 2).join(' ') : 'Prezados(as) Drs.',
     abertura: `Gostaríamos de apresentar nossos serviços ao escritório${esc2 ? ' ' + esc2 : ''}.`, assinatura: String(cfg.assinatura || 'Amanda Pontes').slice(0, 80) };
-  const reg: any = { em: new Date().toISOString(), dia, id: p.id, nome: nome.slice(0, 80), email: String(p.email).trim(), ok: false };
+  const reg: any = { em: new Date().toISOString(), dia, id: p.id, nome: nome.slice(0, 80), email: String(p.email).trim(), ok: false, ...(urgente ? { reposicao: true } : {}) };
   try {
     const user = Deno.env.get('SMTP_USER'), pass = Deno.env.get('SMTP_PASS');
     if (!user || !pass) throw new Error('Configure SMTP_USER e SMTP_PASS nos Secrets.');
@@ -245,6 +254,45 @@ async function roboEmail(teste: boolean) {
     reg.ok = true;
   } catch (e) { reg.erro = String((e as Error)?.message || e).slice(0, 160); console.error('robo-email', reg.email, e); }
   await db.from('ajustes').upsert({ chave: 'robo_email_log', publico: false, valor: { lista: [reg, ...log].slice(0, 400) } });
-  return { ok: reg.ok, enviado: reg.ok ? reg.email : null, erro: reg.erro || null, hoje: hoje + (reg.ok ? 1 : 0), restante_fila: fila.length - 1 };
+  return { ok: reg.ok, enviado: reg.ok ? reg.email : null, erro: reg.erro || null, hoje: hoje + (reg.ok ? 1 : 0), restante_fila: fila.length - 1, voltaram, erro_imap: erroImap || undefined };
+}
+// lê na caixa de entrada os avisos de "e-mail não entregue" ainda não lidos e devolve os endereços que falharam de vez
+async function lerDevolucoes(): Promise<string[]> {
+  const user = Deno.env.get('SMTP_USER'), pass = Deno.env.get('SMTP_PASS');
+  if (!user || !pass) return [];
+  const cli = new ImapFlow({ host: Deno.env.get('IMAP_HOST') || Deno.env.get('SMTP_HOST') || 'email-ssl.com.br', port: Number(Deno.env.get('IMAP_PORT') || 993), secure: true, auth: { user, pass }, logger: false });
+  const achados = new Set<string>();
+  await cli.connect();
+  const trava = await cli.getMailboxLock('INBOX');
+  try {
+    const desde = new Date(Date.now() - 10 * 864e5);
+    const uids = await cli.search({ seen: false, since: desde, or: [{ from: 'postmaster' }, { from: 'mailer-daemon' }, { subject: 'Delivery' }, { subject: 'Undeliver' }, { subject: 'não entregue' }, { subject: 'Returned mail' }, { subject: 'Falha na entrega' }] }, { uid: true });
+    const lidas: number[] = [];
+    if (uids && uids.length) for await (const m of cli.fetch(uids.slice(-50), { uid: true, source: { maxLength: 300000 } }, { uid: true })) {
+      const txt = (m.source ? new TextDecoder().decode(m.source) : '');
+      if (!/Action:\s*failed|Status:\s*5\.\d+\.\d+|\b55\d[ -]5\.\d|permanent|permanente|does not exist|não existe|user unknown|mailbox unavailable|relay access denied/i.test(txt)) continue; // 4.x = só atrasou, ignora
+      const ems = [...txt.matchAll(/(?:Final|Original)-Recipient:\s*rfc822;\s*<?([^\s<>;]+@[^\s<>;]+)>?/gi)].map(x => x[1].toLowerCase());
+      if (!ems.length) (txt.match(/<([^\s<>@]+@[^\s<>@]+\.[a-z]{2,})>:/gi) || []).forEach(x => ems.push(x.replace(/[<>:]/g, '').toLowerCase()));
+      ems.filter(e => e !== user.toLowerCase()).forEach(e => achados.add(e.replace(/\.$/, '')));
+      lidas.push(m.uid);
+    }
+    if (lidas.length) await cli.messageFlagsAdd(lidas, ['\\Seen'], { uid: true });
+  } finally { trava.release(); await cli.logout().catch(() => { }); }
+  return [...achados];
+}
+async function tratarDevolucao(email: string, log: any[]) {
+  const agora = new Date().toISOString();
+  log.filter(x => String(x.email || '').toLowerCase() === email && !x.voltou).forEach(x => { x.voltou = true; x.voltou_em = agora; });
+  const { data: ps } = await db.from('prospects').select('*').ilike('email', email);
+  for (const p of ps || []) {
+    const alt = (Array.isArray(p.emails_alt) ? p.emails_alt : []).map((x: string) => String(x).toLowerCase()).filter((x: string) => x && x !== email);
+    const nota = `E-mail ${email} voltou (não existe).`;
+    const voltarFila = (p.tentativas || 0) <= 1 && ['contatado', 'a_contatar'].includes(p.status); // só foi o e-mail: não houve contato de verdade
+    const patch: any = { email: alt[0] || null, obs: [String(p.obs || ''), nota].filter(Boolean).join(' ').slice(0, 1000), ...(voltarFila ? { status: 'a_contatar', tentativas: 0, proximo_contato: null } : {}) };
+    if ('emails_alt' in p) patch.emails_alt = alt.slice(1);
+    await db.from('prospects').update(patch).eq('id', p.id);
+    log.unshift({ em: agora, dia: new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10), id: p.id, nome: String(p.nome || '').slice(0, 80), email, ok: false, devolucao: true,
+      erro: alt[0] ? `voltou: não existe. Próximo e-mail: ${alt[0]}` : 'voltou: não existe. Sem outro e-mail: siga pelo WhatsApp' });
+  }
 }
 

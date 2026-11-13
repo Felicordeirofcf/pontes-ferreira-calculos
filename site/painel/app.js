@@ -2205,16 +2205,32 @@ const DIAS_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta'
 const descDias = d => { d = [...d].map(Number).sort(); const s = d.join(','); return s === '1,2,3,4,5' ? 'de segunda a sexta' : s === '0,1,2,3,4,5,6' ? 'todos os dias' : s === '1,2,3,4,5,6' ? 'de segunda a sábado' : d.map(x => DIAS_SEMANA[x].slice(0, 3).toLowerCase()).join(', '); };
 const cfgRoboEmail = () => ({ ...ROBO_EMAIL_PADRAO, ...(S.ajustes.robo_email || {}) });
 const logRoboEmail = () => (S.ajustes.robo_email_log || {}).lista || [];
-const filaRoboEmail = () => { const ja = new Set(logRoboEmail().map(x => x.id)); return S.prospects.filter(p => (p.status || 'a_contatar') === 'a_contatar' && !p.tentativas && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(p.email || '').trim()) && !ja.has(p.id)); };
+const filaRoboEmail = () => { const ja = new Set(logRoboEmail().map(x => x.id + '|' + String(x.email || '').toLowerCase())); return S.prospects.filter(p => (p.status || 'a_contatar') === 'a_contatar' && !p.tentativas && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(p.email || '').trim()) && !ja.has(p.id + '|' + String(p.email).trim().toLowerCase())); };
 function cartaoRoboEmail() {
-  const c = cfgRoboEmail(), log = logRoboEmail(), dia = isoLocal(new Date()), hojeOk = log.filter(x => x.dia === dia && x.ok).length, fila = filaRoboEmail().length;
+  const c = cfgRoboEmail(), log = logRoboEmail(), dia = isoLocal(new Date()), hojeOk = log.filter(x => x.dia === dia && x.ok && !x.voltou).length, voltaramHoje = log.filter(x => x.dia === dia && x.devolucao).length, fila = filaRoboEmail().length;
   const agora = new Date(), util = c.dias.map(Number).includes(agora.getDay()) && agora.getHours() >= c.hora_inicio && agora.getHours() < c.hora_fim;
   const quando = `${descDias(c.dias)}, das ${c.hora_inicio}h às ${c.hora_fim}h`;
   const estado = !c.ativo ? '<span class="tag t-neutro">Desligado</span>' : !fila ? '<span class="tag t-warn">Ligado · fila vazia</span>' : hojeOk >= c.por_dia ? '<span class="tag t-good">Ligado · limite do dia atingido</span>' : util ? '<span class="tag t-good">Ligado · enviando</span>' : `<span class="tag t-azul">Ligado · fora do horário (volta ${c.hora_inicio}h)</span>`;
-  return `<div class="card larga" style="margin:14px 0"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <div><b>🤖 Robô de e-mail</b> ${estado}<div class="desc" style="margin:4px 0 0">Manda a apresentação por e-mail, sozinho, para quem está em "A contatar" e tem e-mail: 1 a cada ${c.intervalo_min} min, até ${c.por_dia} por dia, ${quando}. Hoje: <b>${hojeOk}/${c.por_dia}</b> · na fila: <b>${fila}</b>${log[0] ? ` · último: ${esc(log[0].nome || log[0].email)} ${log[0].ok ? '✓' : '✗'}` : ''}</div></div>
+  return `<div class="card larga" id="cartaoRobo" style="margin:14px 0"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <div><b>🤖 Robô de e-mail</b> ${estado}<div class="desc" style="margin:4px 0 0">Manda a apresentação por e-mail, sozinho, para quem está em "A contatar" e tem e-mail: 1 a cada ${c.intervalo_min} min, até ${c.por_dia} por dia, ${quando}. Hoje: <b>${hojeOk}/${c.por_dia}</b>${voltaramHoje ? ` · ↩ ${voltaramHoje} voltaram (repostos na hora)` : ''} · na fila: <b>${fila}</b>${log[0] ? ` · último: ${esc(log[0].nome || log[0].email)} ${log[0].ok ? '✓' : '✗'}` : ''}</div></div>
     <div class="linha" style="gap:6px"><button class="btn ${c.ativo ? 'sec' : 'ouro'}" data-acao="ligarRoboEmail">${c.ativo ? '⏸ Desligar' : '▶ Ligar robô'}</button><button class="btn sec" data-acao="configRoboEmail">⚙ Regras</button><button class="btn sec" data-acao="verRoboEmail">📜 Envios</button></div></div></div>`;
 }
+// atualiza sozinho o cartão do robô (envios do dia, fila, último envio) enquanto a Prospecção está aberta
+async function atualizarCartaoRobo() {
+  if (DEMO || document.hidden || rota() !== 'prospeccao' || !cfgRoboEmail().ativo) return;
+  const antes = JSON.stringify(logRoboEmail()[0] || null);
+  try { const { data } = await sb.from('ajustes').select('valor').eq('chave', 'robo_email_log').maybeSingle(); S.ajustes.robo_email_log = data?.valor || {}; } catch { return; }
+  const el = $('#cartaoRobo');
+  if (el && JSON.stringify(logRoboEmail()[0] || null) !== antes) {
+    S.prospects = await db.list('prospects').catch(() => S.prospects); // o contato enviado sai de "A contatar"
+    const digitando = document.querySelector('.modal-fundo') || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+    if (digitando) $('#cartaoRobo').outerHTML = cartaoRoboEmail(); else render(); // digitando: só o cartão, para não atrapalhar
+    const novo = logRoboEmail()[0];
+    if (novo && novo.ok && !novo.voltou) toast(`🤖 E-mail enviado para ${novo.nome || novo.email}`);
+    else if (novo && novo.devolucao) toast(`↩ E-mail de ${novo.nome || novo.email} voltou: ${novo.erro || ''}`);
+  }
+}
+setInterval(atualizarCartaoRobo, 30000);
 async function salvarRoboEmail(patch) {
   const v = { ...cfgRoboEmail(), ...patch };
   await seguro(async () => { await ajustesDb.salvar('robo_email', v); S.ajustes.robo_email = v; render(); });
@@ -2248,7 +2264,7 @@ async function verRoboEmail() {
   const log = logRoboEmail().slice(0, 60);
   const f = document.createElement('div'); f.className = 'modal-fundo';
   f.innerHTML = `<div class="modal" style="width:min(760px,100%)"><h2>📜 Envios do robô de e-mail</h2>
-    ${log.length ? `<div class="tabela"><table><tr><th>Quando</th><th>Escritório</th><th>E-mail</th><th>Resultado</th></tr>${log.map(x => `<tr><td style="white-space:nowrap">${esc(new Date(x.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}</td><td>${esc(x.nome || '')}</td><td>${esc(x.email || '')}</td><td>${x.ok ? '<span class="tag t-good">enviado</span>' : `<span class="tag t-crit" title="${esc(x.erro || '')}">erro</span> <span class="desc">${esc((x.erro || '').slice(0, 60))}</span>`}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Nenhum envio ainda.</div>'}
+    ${log.length ? `<div class="tabela"><table><tr><th>Quando</th><th>Escritório</th><th>E-mail</th><th>Resultado</th></tr>${log.map(x => `<tr><td style="white-space:nowrap">${esc(new Date(x.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}</td><td>${esc(x.nome || '')}</td><td>${esc(x.email || '')}</td><td>${x.devolucao ? `<span class="tag t-warn">↩ voltou</span> <span class="desc">${esc(x.erro || '')}</span>` : x.ok && x.voltou ? '<span class="tag t-crit">enviado, mas voltou</span>' : x.ok ? `<span class="tag t-good">enviado</span>${x.reposicao ? ' <span class="desc">(reposição imediata)</span>' : ''}` : `<span class="tag t-crit" title="${esc(x.erro || '')}">erro</span> <span class="desc">${esc((x.erro || '').slice(0, 60))}</span>`}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Nenhum envio ainda.</div>'}
     <div class="rodape"><button class="btn sec" data-r="agora" title="Manda 1 e-mail agora, mesmo fora do horário (respeita o limite do dia)">Enviar 1 agora</button><button class="btn sec" data-r="fechar">Fechar</button></div></div>`;
   document.body.appendChild(f);
   f.addEventListener('click', e => { if (e.target === f) f.remove(); });
@@ -2276,8 +2292,11 @@ async function buscarEmailsProsp(lista, silencioso) {
       const { data, error } = await sb.functions.invoke('buscar-escritorios', { body: { acao: 'emails', sites: lote.map(p => p.site) } });
       if (error) throw error;
       for (const p of lote) {
-        const e = ((data.emails || {})[p.site] || [])[0];
-        if (e) { await atualizar('prospects', p.id, { email: e }).catch(() => { }); achou++; }
+        const todos = (data.emails || {})[p.site] || [], e = todos[0];
+        if (e) {
+          await atualizar('prospects', p.id, { email: e }).catch(() => { }); achou++;
+          if (todos.length > 1) await atualizar('prospects', p.id, { emails_alt: todos.slice(1) }).catch(() => { }); // reservas, se o 1º voltar (precisa da coluna emails_alt)
+        }
       }
     } catch (e) { console.warn('emails', e); }
     feitos += lote.length; lote.forEach(p => tentados.add(p.id));

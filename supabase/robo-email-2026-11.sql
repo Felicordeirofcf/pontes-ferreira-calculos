@@ -3,6 +3,8 @@
 -- das 9h às 22h de Brasília, se o robô estiver LIGADO no painel, respeitando o limite diário e o intervalo.
 -- A chave abaixo é a chave pública (anon) do site, a mesma que está em site/config.js.
 -- Rode uma vez no Supabase: SQL Editor > New query > cole tudo > Run.
+-- e-mails reserva achados no site do escritório: se o 1º voltar, o robô tenta o próximo
+alter table prospects add column if not exists emails_alt text[];
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
 select cron.unschedule('pf-robo-email') where exists (select 1 from cron.job where jobname = 'pf-robo-email');
