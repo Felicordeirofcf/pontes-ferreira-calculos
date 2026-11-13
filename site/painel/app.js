@@ -1776,6 +1776,7 @@ function telaProspeccao() {
     ${kpi('Responderam', respostas, `taxa ${abordados ? pct(respostas / abordados) : '—'} dos abordados`)}
     ${kpi('Viraram clientes', cont('cliente'), `${cont('interessado')} interessados`)}
   </div>
+  ${cartaoRoboEmail()}
   <div class="grade">
     ${cardBuscaAuto(termo, cidade, qBusca, busca)}
     <div class="card larga"><div class="linha" style="justify-content:space-between"><h2>Lista</h2>
@@ -2198,6 +2199,58 @@ async function addAchados() {
 }
 // ✉ procura o e-mail de contato no site de cada escritório (o Google Maps não informa e-mail)
 const emailsTentados = () => { try { return new Set(JSON.parse(localStorage.getItem('pf_emails_tentados') || '[]')); } catch { return new Set(); } };
+/* 🤖 Robô de e-mail: manda a apresentação sozinho para quem está "A contatar" e tem e-mail (o servidor faz o envio) */
+const ROBO_EMAIL_PADRAO = { ativo: false, por_dia: 20, intervalo_min: 20, assinatura: 'Amanda Pontes' };
+const cfgRoboEmail = () => ({ ...ROBO_EMAIL_PADRAO, ...(S.ajustes.robo_email || {}) });
+const logRoboEmail = () => (S.ajustes.robo_email_log || {}).lista || [];
+const filaRoboEmail = () => { const ja = new Set(logRoboEmail().map(x => x.id)); return S.prospects.filter(p => (p.status || 'a_contatar') === 'a_contatar' && !p.tentativas && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(p.email || '').trim()) && !ja.has(p.id)); };
+function cartaoRoboEmail() {
+  const c = cfgRoboEmail(), log = logRoboEmail(), dia = isoLocal(new Date()), hojeOk = log.filter(x => x.dia === dia && x.ok).length, fila = filaRoboEmail().length;
+  const agora = new Date(), util = agora.getDay() > 0 && agora.getDay() < 6 && agora.getHours() >= 9 && agora.getHours() < 18;
+  const estado = !c.ativo ? '<span class="tag t-neutro">Desligado</span>' : !fila ? '<span class="tag t-warn">Ligado · fila vazia</span>' : hojeOk >= c.por_dia ? '<span class="tag t-good">Ligado · limite do dia atingido</span>' : util ? '<span class="tag t-good">Ligado · enviando</span>' : '<span class="tag t-azul">Ligado · volta seg–sex às 9h</span>';
+  return `<div class="card larga" style="margin:14px 0"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <div><b>🤖 Robô de e-mail</b> ${estado}<div class="desc" style="margin:4px 0 0">Manda a apresentação por e-mail, sozinho, para quem está em "A contatar" e tem e-mail: 1 a cada ${c.intervalo_min} min, até ${c.por_dia} por dia, de segunda a sexta das 9h às 18h. Hoje: <b>${hojeOk}/${c.por_dia}</b> · na fila: <b>${fila}</b>${log[0] ? ` · último: ${esc(log[0].nome || log[0].email)} ${log[0].ok ? '✓' : '✗'}` : ''}</div></div>
+    <div class="linha" style="gap:6px"><button class="btn ${c.ativo ? 'sec' : 'ouro'}" data-acao="ligarRoboEmail">${c.ativo ? '⏸ Desligar' : '▶ Ligar robô'}</button><button class="btn sec" data-acao="configRoboEmail">⚙ Ajustar</button><button class="btn sec" data-acao="verRoboEmail">📜 Envios</button></div></div></div>`;
+}
+async function salvarRoboEmail(patch) {
+  const v = { ...cfgRoboEmail(), ...patch };
+  await seguro(async () => { await ajustesDb.salvar('robo_email', v); S.ajustes.robo_email = v; render(); });
+}
+async function ligarRoboEmail() {
+  const c = cfgRoboEmail();
+  if (c.ativo) return salvarRoboEmail({ ativo: false }).then(() => toast('Robô de e-mail desligado'));
+  const fila = filaRoboEmail().length;
+  if (!confirm(`Ligar o robô? Ele vai mandar a apresentação por e-mail, sozinho, para ${fila} contato(s) em "A contatar" com e-mail: 1 a cada ${c.intervalo_min} min, até ${c.por_dia} por dia, seg–sex 9h–18h. Cada envio marca o contato como contatado e agenda o retorno.`)) return;
+  await salvarRoboEmail({ ativo: true }); toast('🤖 Robô de e-mail ligado' + (fila ? '' : ': a fila está vazia, use ✉ Buscar e-mails'));
+}
+async function configRoboEmail() {
+  const v = await abrirForm('⚙ Robô de e-mail', [
+    { k: 'por_dia', rot: 'Máximo de e-mails por dia (até 40)', tipo: 'number' },
+    { k: 'intervalo_min', rot: 'Intervalo entre e-mails (minutos, mínimo 10)', tipo: 'number' },
+    { k: 'assinatura', rot: 'Quem assina', full: true }
+  ], cfgRoboEmail());
+  if (!v) return;
+  await salvarRoboEmail({ por_dia: Math.min(Math.max(1, Number(v.por_dia) || 20), 40), intervalo_min: Math.max(10, Number(v.intervalo_min) || 20), assinatura: v.assinatura || 'Amanda Pontes' });
+}
+async function verRoboEmail() {
+  if (!DEMO) { try { const { data } = await sb.from('ajustes').select('valor').eq('chave', 'robo_email_log').maybeSingle(); S.ajustes.robo_email_log = data?.valor || {}; } catch { } }
+  const log = logRoboEmail().slice(0, 60);
+  const f = document.createElement('div'); f.className = 'modal-fundo';
+  f.innerHTML = `<div class="modal" style="width:min(760px,100%)"><h2>📜 Envios do robô de e-mail</h2>
+    ${log.length ? `<div class="tabela"><table><tr><th>Quando</th><th>Escritório</th><th>E-mail</th><th>Resultado</th></tr>${log.map(x => `<tr><td style="white-space:nowrap">${esc(new Date(x.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}</td><td>${esc(x.nome || '')}</td><td>${esc(x.email || '')}</td><td>${x.ok ? '<span class="tag t-good">enviado</span>' : `<span class="tag t-crit" title="${esc(x.erro || '')}">erro</span> <span class="desc">${esc((x.erro || '').slice(0, 60))}</span>`}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Nenhum envio ainda.</div>'}
+    <div class="rodape"><button class="btn sec" data-r="agora" title="Manda 1 e-mail agora, mesmo fora do horário (respeita o limite do dia)">Enviar 1 agora</button><button class="btn sec" data-r="fechar">Fechar</button></div></div>`;
+  document.body.appendChild(f);
+  f.addEventListener('click', e => { if (e.target === f) f.remove(); });
+  f.querySelector('[data-r=fechar]').onclick = () => f.remove();
+  f.querySelector('[data-r=agora]').onclick = () => seguro(async () => {
+    if (DEMO) return toast('Modo demonstração: o robô só envia com o Supabase.');
+    if (!cfgRoboEmail().ativo) return toast('Ligue o robô primeiro.');
+    const { data, error } = await sb.functions.invoke('enviar-calculo-email', { body: { tipo: 'robo', teste: true } });
+    if (error) { let d = {}; try { d = await error.context.json(); } catch { } throw new Error(d.mensagem || error.message); }
+    toast(data.ok ? `✉ Enviado para ${data.enviado} (hoje: ${data.hoje})` : data.erro ? 'Erro: ' + data.erro : 'Não enviou: ' + data.motivo);
+    f.remove(); S.prospects = await db.list('prospects').catch(() => S.prospects); verRoboEmail(); render();
+  });
+}
 const semEmailComSite = () => { const t = emailsTentados(); return S.prospects.filter(p => p.site && !p.email && contatavel(p) && !t.has(p.id)).length; };
 async function buscarEmailsProsp(lista, silencioso) {
   const tentados = emailsTentados();
@@ -3663,7 +3716,7 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), diagnosticoWa, apresentacaoEmail: () => apresentacaoEmail(), buscarEmailsProsp: () => buscarEmailsProsp(), atualizarJornada: () => carregarJornada(true), mostrarRobos: () => { S.mostrarRobos = !S.mostrarRobos; render(); }, abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
+    novaDespesa: () => editarDespesa(null), diagnosticoWa, ligarRoboEmail, configRoboEmail, verRoboEmail, apresentacaoEmail: () => apresentacaoEmail(), buscarEmailsProsp: () => buscarEmailsProsp(), atualizarJornada: () => carregarJornada(true), mostrarRobos: () => { S.mostrarRobos = !S.mostrarRobos; render(); }, abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
     selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),

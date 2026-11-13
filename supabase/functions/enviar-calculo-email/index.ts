@@ -2,6 +2,9 @@
 // Supabase Edge Function: enviar-calculo-email
 // Envia ao cliente, por e-mail, os arquivos do cálculo (PDF e .PJC guardados em "Entregas" do cálculo).
 // Com tipo "apresentacao": envia a apresentação do serviço para um escritório (prospecção).
+// Com tipo "robo": robô de prospecção por e-mail, chamado pelo agendador (pg_cron) a cada 15 min em horário comercial.
+//   Manda 1 apresentação por chamada para o próximo contato "A contatar" com e-mail, respeitando o limite diário,
+//   o intervalo mínimo e o horário (seg–sex, 9h–18h de Brasília). Liga/desliga e limites no painel (Prospecção > 🤖 Robô de e-mail).
 // Só o dono logado no painel pode usar. Deixe "Verify JWT" LIGADO.
 // Secrets: os mesmos da função aviso-lead (SMTP_USER, SMTP_PASS, opcionais SMTP_HOST, SMTP_PORT).
 // Arquivos grandes (mais de 15 MB no total) vão como links de download válidos por 7 dias, em vez de anexo.
@@ -18,8 +21,11 @@ const LIMITE_ANEXOS = 15 * 1048576;
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   try {
+    const corpo = await req.clone().json().catch(() => ({}));
     const usuario = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: req.headers.get('Authorization') || '' } } });
     const { data: dono } = await usuario.rpc('is_dono');
+    // o agendador chama sem login; "enviar agora" (fora do horário) só o dono logado
+    if (corpo.tipo === 'robo') return resp(await roboEmail(!!corpo.teste && dono === true));
     if (dono !== true) return resp({ erro: 'nao_autorizado' }, 401);
 
     const b = await req.json().catch(() => ({}));
@@ -199,3 +205,43 @@ function apresentacaoHtml(d: any) {
   </td></tr>
 </table></td></tr></table></body></html>`;
 }
+
+// ---------- robô de prospecção por e-mail ----------
+const ROBO_PADRAO = { ativo: false, por_dia: 20, intervalo_min: 20, assinatura: 'Amanda Pontes' };
+async function lerAjuste(chave: string) { const { data } = await db.from('ajustes').select('valor').eq('chave', chave).maybeSingle(); return data?.valor || {}; }
+async function roboEmail(teste: boolean) {
+  const cfg = { ...ROBO_PADRAO, ...(await lerAjuste('robo_email')) };
+  const porDia = Math.min(Math.max(1, Number(cfg.por_dia) || 20), 40), intervalo = Math.max(10, Number(cfg.intervalo_min) || 20);
+  if (!cfg.ativo) return { ok: false, motivo: 'robô desligado' };
+  const agoraBR = new Date(Date.now() - 3 * 3600e3), dia = agoraBR.toISOString().slice(0, 10), hora = agoraBR.getUTCHours(), sem = agoraBR.getUTCDay();
+  if (!teste && (sem === 0 || sem === 6 || hora < 9 || hora >= 18)) return { ok: false, motivo: 'fora do horário (seg–sex, 9h–18h)' };
+  const log = (await lerAjuste('robo_email_log')).lista || [];
+  const hoje = log.filter((x: any) => x.dia === dia && x.ok).length;
+  if (hoje >= porDia) return { ok: false, motivo: `limite do dia atingido (${hoje}/${porDia})` };
+  const ult = log.find((x: any) => x.ok);
+  if (!teste && ult && Date.now() - new Date(ult.em).getTime() < intervalo * 60e3) return { ok: false, motivo: `aguardando o intervalo de ${intervalo} min` };
+  const { data: lista } = await db.from('prospects').select('id,nome,escritorio,email,obs,tentativas,status').eq('status', 'a_contatar').not('email', 'is', null).limit(500);
+  const jaFoi = new Set(log.map((x: any) => x.id));
+  const nota = (p: any) => { const m = String(p.obs || '').match(/★\s*([\d.,]+)\s*\((\d+)/); return m ? Number(m[1].replace(',', '.')) * Math.log10(Number(m[2]) + 1) : 0; };
+  const fila = (lista || []).filter((p: any) => !p.tentativas && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(p.email).trim()) && !jaFoi.has(p.id)).sort((a: any, b: any) => nota(b) - nota(a));
+  if (!fila.length) return { ok: false, motivo: 'fila vazia: nenhum contato "A contatar" com e-mail' };
+  const p = fila[0], nome = String(p.nome || '').trim(), dr = /^(dr|dra)\.?\s/i.test(nome), esc2 = p.escritorio || (!dr ? nome : '');
+  const d = { tratamento: dr ? (/^dra/i.test(nome) ? 'Prezada ' : 'Prezado ') + nome.split(/\s+/).slice(0, 2).join(' ') : 'Prezados(as) Drs.',
+    abertura: `Gostaríamos de apresentar nossos serviços ao escritório${esc2 ? ' ' + esc2 : ''}.`, assinatura: String(cfg.assinatura || 'Amanda Pontes').slice(0, 80) };
+  const reg: any = { em: new Date().toISOString(), dia, id: p.id, nome: nome.slice(0, 80), email: String(p.email).trim(), ok: false };
+  try {
+    const user = Deno.env.get('SMTP_USER'), pass = Deno.env.get('SMTP_PASS');
+    if (!user || !pass) throw new Error('Configure SMTP_USER e SMTP_PASS nos Secrets.');
+    const smtp = nodemailer.createTransport({ host: Deno.env.get('SMTP_HOST') || 'email-ssl.com.br', port: Number(Deno.env.get('SMTP_PORT') || 465), secure: true, auth: { user, pass } });
+    const html = apresentacaoHtml(d);
+    await smtp.sendMail({ from: `"${d.assinatura.replace(/"/g, '')} · Pontes Ferreira Cálculos" <${user}>`, to: reg.email, replyTo: user,
+      subject: 'Proposta de parceria – cálculos trabalhistas no PJe-Calc em até 48h', html, text: html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ') });
+    const pr = await lerAjuste('prospeccao'), dias = Number(pr.dias_follow1) || 3;
+    const prox = new Date(agoraBR.getTime() + dias * 864e5).toISOString().slice(0, 10);
+    await db.from('prospects').update({ status: 'contatado', tentativas: 1, ultimo_contato: reg.em, proximo_contato: prox }).eq('id', p.id);
+    reg.ok = true;
+  } catch (e) { reg.erro = String((e as Error)?.message || e).slice(0, 160); console.error('robo-email', reg.email, e); }
+  await db.from('ajustes').upsert({ chave: 'robo_email_log', publico: false, valor: { lista: [reg, ...log].slice(0, 400) } });
+  return { ok: reg.ok, enviado: reg.ok ? reg.email : null, erro: reg.erro || null, hoje: hoje + (reg.ok ? 1 : 0), restante_fila: fila.length - 1 };
+}
+
