@@ -95,6 +95,11 @@ SERVICOS = [
               ('Como pago?', 'Combinamos no orçamento. O valor é fechado antes de começar.')]),
 ]
 
+# cidades que pedem artigo: "no Rio de Janeiro", "do Recife"
+COM_ARTIGO = {'Rio de Janeiro', 'Recife'}
+def em(n): return ('no ' if n in COM_ARTIGO else 'em ') + n
+def de(n): return ('do ' if n in COM_ARTIGO else 'de ') + n
+
 CIDADES = [  # cidade, UF, região do TRT, slug, municípios próximos atendidos
     ('São Paulo', 'SP', 2, 'sao-paulo', 'Guarulhos, Osasco, Santo André, São Bernardo do Campo e Santos'),
     ('Rio de Janeiro', 'RJ', 1, 'rio-de-janeiro', 'Niterói, Duque de Caxias, Nova Iguaçu, São Gonçalo e Petrópolis'),
@@ -172,8 +177,8 @@ def form_link(slug):
 
 def rodape():
     serv = ''.join(f'<a href="/{s["slug"]}/">{e(s["curto"])}</a>' for s in SERVICOS)
-    cid = ''.join(f'<a href="/calculo-trabalhista/{c[3]}/">Cálculo trabalhista em {e(c[0])}</a>' for c in CIDADES[:8])
-    cid2 = ''.join(f'<a href="/calculo-trabalhista/{c[3]}/">Cálculo trabalhista em {e(c[0])}</a>' for c in CIDADES[8:])
+    cid = ''.join(f'<a href="/calculo-trabalhista/{c[3]}/">Cálculo trabalhista {e(em(c[0]))}</a>' for c in CIDADES[:8])
+    cid2 = ''.join(f'<a href="/calculo-trabalhista/{c[3]}/">Cálculo trabalhista {e(em(c[0]))}</a>' for c in CIDADES[8:])
     return f'''<footer><div class="wrap"><div class="cols">
 <div><h4>Serviços</h4>{serv}</div><div><h4>Cidades</h4>{cid}</div><div><h4>&nbsp;</h4>{cid2}<a href="/atendimento-todo-brasil/">Todos os TRTs do Brasil</a></div>
 <div><h4>Pontes Ferreira</h4><a href="/">Página inicial</a><a href="/portfolio.html">Apresentação para escritórios</a><a href="/privacidade.html">Política de Privacidade</a><a href="{wa_link('Olá! Quero um orçamento de cálculo trabalhista.')}">WhatsApp (21) 98770-8652</a></div></div>
@@ -265,27 +270,27 @@ def gerar_cidade(c):
     sede, area = TRT[reg]
     faq = [
         (f'Vocês fazem cálculos para processos do TRT da {reg}ª Região?', f'Sim. Atendemos processos do TRT da {reg}ª Região ({area}) e de todos os outros regionais. O trabalho é 100% online, pelo PJe.'),
-        (f'Preciso ir ao escritório em {nome}?', 'Não. Você informa o número do processo pelo site ou WhatsApp e recebe tudo por e-mail e WhatsApp, sem reunião presencial.'),
+        (f'Preciso ir ao escritório {em(nome)}?', 'Não. Você informa o número do processo pelo site ou WhatsApp e recebe tudo por e-mail e WhatsApp, sem reunião presencial.'),
         ('Quanto custa um cálculo trabalhista?', 'O 1º cálculo sai por R$ 200; depois, a partir de R$ 250 por cálculo de um autor. Mais de um autor ou casos complexos são orçados antes, com valor fechado.'),
         ('Em quanto tempo recebo?', 'Até 48h na maioria dos casos. Com prazo vencendo, consulte o atendimento urgente em 24h.'),
     ]
     corpo = f'''<div class="eyebrow">{e(nome)} · {uf} · TRT da {reg}ª Região</div>
-<h1>Cálculo trabalhista em <em>{e(nome)}</em> no PJe-Calc, entregue em até 48h</h1>
-<p>Advogados e escritórios de {e(nome)} enviam o processo online e recebem o cálculo pronto no PJe-Calc: liquidação, impugnação, cálculo da inicial e atualização, com o arquivo .PJC, o relatório em PDF e o resumo do que foi deferido.</p>
-<div class="ctas"><a class="btn" href="{form_link('cidade_' + slug)}">Enviar processo para orçamento</a><a class="btn ghost" href="{wa_link(f'Olá! Sou de {nome} e quero um orçamento de cálculo trabalhista.')}" target="_blank" rel="noopener">Falar no WhatsApp</a></div>
+<h1>Cálculo trabalhista {em(nome).split(' ')[0]} <em>{e(nome)}</em> no PJe-Calc, entregue em até 48h</h1>
+<p>Advogados e escritórios {e(de(nome))} enviam o processo online e recebem o cálculo pronto no PJe-Calc: liquidação, impugnação, cálculo da inicial e atualização, com o arquivo .PJC, o relatório em PDF e o resumo do que foi deferido.</p>
+<div class="ctas"><a class="btn" href="{form_link('cidade_' + slug)}">Enviar processo para orçamento</a><a class="btn ghost" href="{wa_link(f'Olá! Sou {de(nome)} e quero um orçamento de cálculo trabalhista.')}" target="_blank" rel="noopener">Falar no WhatsApp</a></div>
 <div class="fatos"><div><b>TRT-{reg}</b>{e(area)}</div><div><b>R$ 200</b>seu 1º cálculo</div><div><b>48h</b>prazo padrão</div></div>
 </div></div>
-<section><div class="wrap duas"><div><div class="eyebrow">Para escritórios de {e(nome)}</div><h2>Cálculos para processos do TRT da {reg}ª Região</h2>
-<p style="margin-bottom:14px;color:var(--ink-2)">O TRT da {reg}ª Região tem sede em {e(sede)} e abrange {e(area)}. Fazemos cálculos para processos das Varas do Trabalho de {e(nome)} e região, incluindo {e(prox)}.</p>
+<section><div class="wrap duas"><div><div class="eyebrow">Para escritórios {e(de(nome))}</div><h2>Cálculos para processos do TRT da {reg}ª Região</h2>
+<p style="margin-bottom:14px;color:var(--ink-2)">O TRT da {reg}ª Região tem sede {e(em(sede))} e abrange {e(area)}. Fazemos cálculos para processos das Varas do Trabalho {e(de(nome))} e região, incluindo {e(prox)}.</p>
 <ul class="lista">{''.join(f'<li><a href="/{s["slug"]}/">{e(s["curto"])}</a></li>' for s in SERVICOS[:4])}<li>Processos em qualquer fase: conhecimento, liquidação e execução</li></ul></div>
 <div class="box"><h3>Outras cidades atendidas</h3><div class="links" style="grid-template-columns:1fr 1fr">{''.join(f'<a href="/calculo-trabalhista/{o[3]}/">{e(o[0])}</a>' for o in CIDADES if o[3] != slug)}</div>
 <p style="margin-top:12px;font-size:.95rem"><a href="/atendimento-todo-brasil/">Ver todos os TRTs →</a></p></div></div></section>
 {COMO}
 <div style="display:none"><div><div>'''
-    html_ = pagina(f'calculo-trabalhista/{slug}', f'Cálculo trabalhista em {nome}/{uf} · TRT-{reg}',
-                   f'Cálculo trabalhista em {nome} no PJe-Calc para advogados: liquidação, impugnação e inicial. TRT da {reg}ª Região. 1º cálculo por R$ 200, entrega em até 48h.',
+    html_ = pagina(f'calculo-trabalhista/{slug}', f'Cálculo trabalhista {em(nome)}/{uf} · TRT-{reg}',
+                   f'Cálculo trabalhista {em(nome)} no PJe-Calc para advogados: liquidação, impugnação e inicial. TRT da {reg}ª Região. 1º cálculo por R$ 200, entrega em até 48h.',
                    [('Início', '/'), ('Atendemos todo o Brasil', '/atendimento-todo-brasil/'), (f'{nome} ({uf})', f'/calculo-trabalhista/{slug}/')],
-                   corpo, faq, f'Olá! Sou de {nome} e quero um orçamento de cálculo trabalhista.')
+                   corpo, faq, f'Olá! Sou {de(nome)} e quero um orçamento de cálculo trabalhista.')
     return html_.replace('<div style="display:none"><div><div>\n</div></div>', '')
 
 
