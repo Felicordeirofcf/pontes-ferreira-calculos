@@ -507,8 +507,10 @@
     });
   }
 
+  // código do visitante na mensagem: liga a conversa do WhatsApp ao caminho dele no site (painel > Tráfego pago > Jornada)
+  const comCodigo = t => window.PF_REF && !/c[oó]d\. PF/i.test(t) ? t + ' (cód. ' + PF_REF + ')' : t;
   function abrirWhats(texto){
-    window.open('https://wa.me/'+WHATSAPP+'?text='+encodeURIComponent(texto),'_blank');
+    window.open('https://wa.me/'+WHATSAPP+'?text='+encodeURIComponent(comCodigo(texto)),'_blank');
   }
 
   document.querySelectorAll('.js-wa').forEach(a=>{
@@ -621,17 +623,20 @@
           origem: origemCampanha(), utm_source: ler('utm_source')||null, utm_campaign: ler('utm_campaign')||null,
           utm_medium: ler('utm_medium')||null, utm_content: ler('utm_content')||null, utm_term: ler('utm_term')||null,
           gclid: ler('gclid')||null, fbclid: ler('fbclid')||null,
+          ref: window.PF_REF || null, sessao: ler('pf_sessao') || null,
         };
         const geo = await (window.PF_GEO||Promise.resolve({})).then(g => ({ uf: g.uf || null, cidade: g.cidade || null })).catch(() => ({}));
         let ins = await SB.from('leads').insert({ ...dadosLead, ...geo });
-        if(ins.error && /column|coluna|schema cache/i.test(ins.error.message||'')) ins = await SB.from('leads').insert(dadosLead); // banco ainda sem as colunas uf/cidade
+        if(ins.error && /column|coluna|schema cache/i.test(ins.error.message||'')) { const { ref, sessao, ...semRef } = dadosLead; ins = await SB.from('leads').insert(semRef); } // banco ainda sem as colunas novas
         if(ins.error) throw ins.error;
       } else if(CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY && modo!=='pdf'){
         // biblioteca do Supabase não carregou (CDN fora do ar/bloqueada): grava o pedido direto pela API
-        const r = await fetch(CFG.SUPABASE_URL+'/rest/v1/leads', { method:'POST', headers:{ apikey:CFG.SUPABASE_ANON_KEY, Authorization:'Bearer '+CFG.SUPABASE_ANON_KEY, 'Content-Type':'application/json', Prefer:'return=minimal' },
-          body: JSON.stringify({ nome: $('nome').value.trim(), whatsapp: $('tel').value.trim(), tipo: $('tipo').value, prazo: $('prazo').value, modo, numero_processo: numero.value,
+        const corpoLead = { nome: $('nome').value.trim(), whatsapp: $('tel').value.trim(), tipo: $('tipo').value, prazo: $('prazo').value, modo, numero_processo: numero.value,
             origem: origemCampanha(), utm_source: ler('utm_source')||null, utm_campaign: ler('utm_campaign')||null, utm_medium: ler('utm_medium')||null,
-            utm_content: ler('utm_content')||null, utm_term: ler('utm_term')||null, gclid: ler('gclid')||null, fbclid: ler('fbclid')||null }) });
+            utm_content: ler('utm_content')||null, utm_term: ler('utm_term')||null, gclid: ler('gclid')||null, fbclid: ler('fbclid')||null, ref: window.PF_REF || null };
+        const postLead = c => fetch(CFG.SUPABASE_URL+'/rest/v1/leads', { method:'POST', headers:{ apikey:CFG.SUPABASE_ANON_KEY, Authorization:'Bearer '+CFG.SUPABASE_ANON_KEY, 'Content-Type':'application/json', Prefer:'return=minimal' }, body: JSON.stringify(c) });
+        let r = await postLead(corpoLead);
+        if(r.status === 400){ delete corpoLead.ref; r = await postLead(corpoLead); } // banco ainda sem a coluna do código
         if(!r.ok) throw new Error(r.status);
       } else throw new Error('sem backend');
       conversao(modo==='pdf'?'form_pdf':'form_numero', urgente ? 2 : 1); // só conta o pedido que foi salvo

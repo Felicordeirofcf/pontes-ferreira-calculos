@@ -2186,7 +2186,7 @@ async function configProsp() {
 
 /* ---------------- Tráfego pago ---------------- */
 const SITE_URL = 'https://pontesferreiracalculos.com/';
-const ABAS_TRAFEGO = { ativacao: '1. Ativação', resultados: '2. Resultados', google: '📊 Google Ads', monitor: '🔔 Monitoramento', campanhas: '3. Campanhas prontas', links: '4. Links UTM', offline: '5. Conversões offline' };
+const ABAS_TRAFEGO = { ativacao: '1. Ativação', resultados: '2. Resultados', jornada: '🧭 Jornada', google: '📊 Google Ads', monitor: '🔔 Monitoramento', campanhas: '3. Campanhas prontas', links: '4. Links UTM', offline: '5. Conversões offline' };
 const VALIDA_RAST = {
   ga4_id: [v => /^G-[A-Z0-9]{6,14}$/.test(v), 'Formato: G-XXXXXXXXXX'],
   gads_id: [v => /^AW-\d{8,12}$/.test(v), 'Formato: AW-1234567890'],
@@ -2584,13 +2584,120 @@ async function alternarRegraMon(id, ligada) {
   await seguro(async () => { await ajustesDb.salvar('monitor_ads', novo); S.ajustes.monitor_ads = novo; render(); });
 }
 
+/* ---------------- Tráfego pago > 🧭 Jornada: caminho de cada visitante até virar cliente ---------------- */
+async function carregarJornada(forcar) {
+  const ini = inicioPeriodo();
+  if (DEMO) { if (!S.jornada) S.jornada = { ini, lista: demoJornada() }; return; }
+  if (S.jornada && S.jornada.ini === ini && !forcar && Date.now() - S.jornada.em < 180000) return;
+  S.jornada = { ini, em: Date.now(), lista: S.jornada?.ini === ini ? S.jornada.lista : [], carregando: true };
+  try {
+    let lista = [];
+    for (let de = 0; de < 50000; de += 1000) {
+      const { data, error } = await sb.from('eventos').select('*').gte('created_at', ini + 'T00:00:00-03:00').order('created_at', { ascending: true }).range(de, de + 999);
+      if (error) throw error; lista = lista.concat(data); if (data.length < 1000) break;
+    }
+    S.jornada = { ini, em: Date.now(), lista }; render();
+  } catch (e) { console.warn('jornada', e); S.jornada = { ini, em: Date.now(), lista: [], erro: e.message }; render(); }
+}
+function demoJornada() { // exemplo para o modo demonstração
+  const ev = [], agora = Date.now(), fontes = [['google', 'google_pesquisa_calculo', 'calculista trabalhista'], ['google', 'google_pesquisa_calculo', 'liquidação de sentença trabalhista'], ['organico', 'cidade_niteroi', ''], ['prospeccao', 'prospeccao_1a1', ''], ['', '', '']];
+  for (let i = 0; i < 60; i++) {
+    const [src, camp, term] = fontes[i % 5], ses = 'demo' + i, t0 = agora - (i * 3 + 1) * 3600e3, cel = i % 3 !== 0, ref = 'PF' + String(10000 + i * 37).slice(-5);
+    const base = { sessao: ses, ref, utm_source: src || null, utm_campaign: camp || null, utm_term: term || null, dispositivo: cel ? 'celular' : 'computador', uf: ['RJ', 'SP', 'MG'][i % 3], cidade: ['Rio de Janeiro', 'São Paulo', 'Belo Horizonte'][i % 3], pagina: i % 4 ? '/' : '/calculo-trabalhista/niteroi/' };
+    ev.push({ ...base, tipo: 'visita', created_at: new Date(t0).toISOString() });
+    const seg = [4, 8, 35, 70, 140][i % 5];
+    if (seg > 5) ev.push({ ...base, tipo: 'rolagem', alvo: '25%', created_at: new Date(t0 + 5e3).toISOString() });
+    if (seg > 30) ev.push({ ...base, tipo: 'rolagem', alvo: '50%', created_at: new Date(t0 + 20e3).toISOString() });
+    if (seg > 60 && i % 2) ev.push({ ...base, tipo: 'whatsapp', alvo: cel ? 'barra_mobile' : 'flutuante', secao: 'hero', created_at: new Date(t0 + 50e3).toISOString() });
+    if (seg > 100) ev.push({ ...base, tipo: 'form_inicio', alvo: 'numero', created_at: new Date(t0 + 80e3).toISOString() });
+    if (seg > 100 && i % 3 === 0) ev.push({ ...base, tipo: 'pedido', alvo: 'formulario_numero', created_at: new Date(t0 + 120e3).toISOString() });
+    ev.push({ ...base, tipo: 'tempo', alvo: seg + 's', secao: (seg > 30 ? 60 : 20) + '%', created_at: new Date(t0 + seg * 1e3).toISOString() });
+  }
+  return ev;
+}
+const FONTE_ROT = s => { const u = String(s || '').toLowerCase(); return /google|cpc/.test(u) ? 'Google Ads' : /meta|facebook|instagram/.test(u) ? 'Meta Ads' : /prospec/.test(u) ? 'Prospecção' : /organico|seo|site/.test(u) ? 'Google orgânico / SEO' : u ? u : 'Direto / sem origem'; };
+function sessoesJornada() {
+  const ev = S.jornada?.lista || [], m = new Map();
+  for (const e of ev) {
+    let s = m.get(e.sessao);
+    if (!s) m.set(e.sessao, s = { id: e.sessao, ref: e.ref || ('PF' + String(e.sessao || '').replace(/[^a-z0-9]/gi, '').slice(0, 5).toUpperCase()), inicio: e.created_at, fim: e.created_at, fonte: FONTE_ROT(e.utm_source), campanha: e.utm_campaign || '', termo: e.utm_term || '', disp: e.dispositivo || '?', local: [e.cidade, e.uf].filter(Boolean).join('/'), entrada: e.pagina || '/', paginas: new Set(), cliques: [], rol: 0, tempo: 0, wa: false, form: false, pedido: false, eventos: [] });
+    s.fim = e.created_at; s.eventos.push(e); if (e.pagina) s.paginas.add(e.pagina);
+    if (e.tipo === 'rolagem') s.rol = Math.max(s.rol, parseInt(e.alvo) || 0);
+    if (e.tipo === 'tempo') { s.tempo = Math.max(s.tempo, parseInt(e.alvo) || 0); s.rol = Math.max(s.rol, parseInt(e.secao) || 0); }
+    if (e.tipo === 'clique') s.cliques.push(e.alvo);
+    if (e.tipo === 'whatsapp') { s.wa = true; s.cliques.push('💬 ' + (e.alvo || 'WhatsApp')); }
+    if (e.tipo === 'form_inicio') s.form = true;
+    if (e.tipo === 'pedido') s.pedido = true;
+  }
+  const porRef = new Map(S.leads.filter(l => l.ref).map(l => [String(l.ref).toUpperCase(), l])), porSes = new Map(S.leads.filter(l => l.sessao).map(l => [l.sessao, l]));
+  return [...m.values()].map(s => {
+    const l = porSes.get(s.id) || porRef.get(s.ref) || null;
+    const dur = Math.max(s.tempo, Math.round((new Date(s.fim) - new Date(s.inicio)) / 1000));
+    return { ...s, lead: l, dur, engajou: dur >= 10 || s.rol >= 25 || s.cliques.length > 0, leu: s.rol >= 50, clicou: s.wa || s.form || s.pedido, contato: s.pedido || !!l, orcado: !!l && ['orcamento', 'fechado'].includes(l.status), fechou: !!l && l.status === 'fechado' };
+  }).sort((a, b) => b.inicio.localeCompare(a.inicio));
+}
+const PASSOS_JORNADA = [
+  ['todas', 'Visitaram o site', null],
+  ['engajou', 'Ficaram (10s+ ou rolaram)', 'Saem em menos de 10 segundos: o anúncio promete uma coisa e a página mostra outra, ou a página demora. Confira se o título repete o que a pessoa pesquisou (o site já ajusta pelo anúncio) e se as palavras-chave são de quem contrata, não de leigo.'],
+  ['leu', 'Leram até a metade', 'Ficam, mas não descem: a primeira tela não convenceu. Reforce a dor ("prazo de liquidação correndo?"), a oferta (1º cálculo R$ 200) e uma prova (exemplo de relatório, avaliações).'],
+  ['clicou', 'Clicaram para falar', 'Leem e não clicam: falta confiança ou um motivo para agir agora. Mostre exemplo de relatório, avaliações no Google, e deixe o botão do WhatsApp sempre à vista (já está na barra do celular).'],
+  ['contato', 'Mandaram mensagem ou pedido', 'Clicam no WhatsApp e a mensagem não chega: ou a pessoa desistiu no WhatsApp, ou o recebimento falhou. Confira o 📥 Fora do CRM e o log da função; a mensagem pronta já leva o código do visitante para ligar a conversa a ele.'],
+  ['orcado', 'Receberam orçamento', 'Chegam contatos e não recebem orçamento: responda em até 15 minutos (o painel avisa) e use o botão 💰 Orçamento.'],
+  ['fechou', 'Viraram cliente', 'Recebem orçamento e não fecham: confira o motivo das perdas, faça follow-up em 24h e 3 dias e lembre a oferta do 1º cálculo.']
+];
+function trafegoJornada() {
+  carregarJornada();
+  const J = S.jornada || {}, todas = sessoesJornada();
+  const f = S.filtroJornada || '', ses = f ? todas.filter(s => s.fonte === f) : todas;
+  const conta = k => k === 'todas' ? ses.length : ses.filter(s => s[k]).length;
+  const passos = PASSOS_JORNADA.map(([k, rot, dica]) => ({ k, rot, dica, n: conta(k) }));
+  // maior vazamento: passo com a pior taxa de passagem (com volume mínimo)
+  let pior = null;
+  passos.forEach((p, i) => { if (!i) return; const ant = passos[i - 1].n; if (ant >= 3) { const taxa = p.n / ant; if (!pior || taxa < pior.taxa) pior = { ...p, taxa, ant }; } });
+  const grupos = (fn) => { const g = {}; ses.forEach(s => { const k = fn(s) || '—'; (g[k] = g[k] || []).push(s); }); return Object.entries(g).map(([k, l]) => ({ k, n: l.length, eng: l.filter(s => s.engajou).length, cli: l.filter(s => s.clicou).length, con: l.filter(s => s.contato).length, fec: l.filter(s => s.fechou).length, dur: Math.round(l.reduce((t, s) => t + s.dur, 0) / l.length) })).sort((a, b) => b.n - a.n); };
+  const tabela = (tit, linhas, desc) => `<div class="card"><h2>${tit}</h2>${desc ? `<div class="desc">${desc}</div>` : ''}${linhas.length ? `<div class="tabela"><table><tr><th></th><th class="n">Visitas</th><th class="n">Ficaram</th><th class="n">Clicaram</th><th class="n">Contatos</th><th class="n">Clientes</th><th class="n">Tempo médio</th></tr>
+    ${linhas.slice(0, 10).map(r => `<tr><td>${esc(r.k)}</td><td class="n">${r.n}</td><td class="n">${pct(r.eng / r.n)}</td><td class="n">${pct(r.cli / r.n)}</td><td class="n">${r.con}</td><td class="n">${r.fec}</td><td class="n">${r.dur}s</td></tr>`).join('')}</table></div>` : '<div class="vazio">Sem dados</div>'}</div>`;
+  // caminho de quem fez contato: o que eles têm em comum
+  const conv = ses.filter(s => s.contato), moda = (l, fn) => { const c = {}; l.forEach(s => { const k = fn(s); if (k) c[k] = (c[k] || 0) + 1; }); const t = Object.entries(c).sort((a, b) => b[1] - a[1])[0]; return t ? `${t[0]} (${t[1]} de ${l.length})` : '—'; };
+  const busca = (S.buscaJornada || '').trim().toUpperCase(), achada = busca && todas.find(s => s.ref === busca || (s.lead && String(s.lead.nome || '').toUpperCase().includes(busca)));
+  const linhaTempo = s => s.eventos.map(e => { const h = new Date(e.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const txt = { visita: `📄 Abriu ${e.pagina}`, rolagem: `↓ Rolou ${e.alvo}`, clique: `👆 Clicou "${e.alvo}"${e.secao ? ' (' + e.secao + ')' : ''}`, whatsapp: `💬 Clicou no WhatsApp (${e.alvo || ''})`, form_inicio: `✍ Começou o formulário (${e.alvo})`, pedido: `✅ Enviou o pedido`, tempo: `⏱ Saiu depois de ${e.alvo} (rolou ${e.secao})` }[e.tipo] || e.tipo;
+    return `<div class="linha" style="gap:10px;padding:4px 0;border-bottom:1px solid var(--grid)"><span class="desc" style="width:70px">${h}</span><span>${esc(txt)}</span></div>`; }).join('');
+  const etapa = s => s.fechou ? ['t-good', '✅ Cliente'] : s.orcado ? ['t-good', 'Orçamento'] : s.contato ? ['t-good', 'Contato'] : s.clicou ? ['t-warn', 'Clicou e não chegou'] : s.leu ? ['t-azul', 'Leu'] : s.engajou ? ['t-neutro', 'Ficou'] : ['t-crit', 'Saiu rápido'];
+  const fontes = [...new Set(todas.map(s => s.fonte))];
+  return `
+  <div class="card larga" style="margin-bottom:14px"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <div><h2 style="margin:0">🧭 Jornada do cliente</h2><div class="desc">Cada visitante recebe um código (ex.: PF7K2QA) que vai na mensagem do WhatsApp. Assim o painel liga a conversa ao caminho dele no site e mostra onde as pessoas desistem. ${PERIODOS[S.periodo]}.</div></div>
+    <div class="linha"><select class="f" id="filtroJornada"><option value="">Todas as origens</option>${fontes.map(x => `<option ${x === f ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select><button class="btn sec" data-acao="atualizarJornada">↻</button></div></div>
+    ${J.erro ? `<div class="demo" style="margin-top:10px"><span>⚠ ${esc(J.erro)}</span></div>` : ''}${J.carregando && !todas.length ? '<div class="demo" style="margin-top:10px"><span>Carregando a jornada…</span></div>' : ''}</div>
+  <div class="grade">
+    <div class="card"><h2>Funil passo a passo</h2><div class="desc">Visitantes únicos. Passe o mouse para ver a taxa de cada passagem.</div>
+      ${barrasH(passos.map((p, i) => ({ rot: p.rot, valor: p.n, tip: `${p.rot}: ${p.n}${i ? ` · ${pct(p.n / Math.max(passos[i - 1].n, 1))} do passo anterior` : ''}` })))}</div>
+    <div class="card"><h2>🎯 Onde estamos perdendo</h2>
+      ${!ses.length ? '<div class="vazio">Ainda sem visitas no período.</div>' : pior ? `<div style="margin:6px 0 10px"><span class="tag t-crit">Maior vazamento</span> <b>${esc(passos[passos.findIndex(p => p.k === pior.k) - 1].rot)} → ${esc(pior.rot)}</b>: só <b>${pct(pior.taxa)}</b> passam (${pior.n} de ${pior.ant}).</div><div>👉 ${esc(pior.dica)}</div>` : '<div class="desc">Poucos dados ainda: com pelo menos 3 pessoas em cada passo o painel aponta o maior vazamento.</div>'}
+      <h3 class="sub" style="margin-top:14px">O caminho de quem chegou a fazer contato</h3>
+      ${conv.length ? `<div class="desc" style="line-height:1.8">Origem mais comum: <b>${esc(moda(conv, s => s.fonte))}</b><br>Palavra-chave: <b>${esc(moda(conv, s => s.termo))}</b><br>Página de entrada: <b>${esc(moda(conv, s => s.entrada))}</b><br>Aparelho: <b>${esc(moda(conv, s => s.disp))}</b><br>Tempo médio até o contato: <b>${Math.round(conv.reduce((t, s) => t + s.dur, 0) / conv.length)}s</b></div>` : '<div class="desc">Ninguém fez contato no período ainda. Assim que acontecer, o painel mostra o caminho que funcionou para repetir.</div>'}</div>
+    ${tabela('Por origem', grupos(s => s.fonte))}
+    ${tabela('Por palavra-chave do anúncio', grupos(s => s.termo || null).filter(r => r.k !== '—'), 'Só visitas que vieram de anúncio com palavra-chave')}
+    ${tabela('Por aparelho', grupos(s => s.disp))}
+    ${tabela('Por página de entrada', grupos(s => s.entrada))}
+    <div class="card larga"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h2 style="margin:0">Visitantes</h2>
+      <input class="f" id="buscaJornada" placeholder="Código (PF…) ou nome do lead" value="${esc(S.buscaJornada || '')}" style="width:240px"></div>
+      ${achada ? `<div class="card" style="margin:10px 0;background:#f8fafc"><h3 style="margin:0 0 6px">${esc(achada.ref)} · ${esc(achada.fonte)}${achada.termo ? ' · "' + esc(achada.termo) + '"' : ''} · ${esc(achada.disp)}${achada.local ? ' · ' + esc(achada.local) : ''}${achada.lead ? ` · lead: <b>${esc(achada.lead.nome || '')}</b> (${esc(STATUS_LEAD[achada.lead.status] || achada.lead.status)})` : ''}</h3>${linhaTempo(achada)}</div>` : busca ? '<div class="desc">Nenhum visitante com esse código no período.</div>' : ''}
+      ${ses.length ? `<div class="tabela"><table><tr><th>Código</th><th>Quando</th><th>Origem / palavra-chave</th><th>Aparelho</th><th>Entrou em</th><th class="n">Tempo</th><th class="n">Rolou</th><th>Cliques</th><th>Até onde foi</th></tr>
+      ${ses.slice(0, 60).map(s => { const [c, t] = etapa(s); return `<tr class="clic" data-jornada="${esc(s.ref)}"><td><code>${esc(s.ref)}</code></td><td style="white-space:nowrap">${esc(new Date(s.inicio).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}</td>
+        <td>${esc(s.fonte)}${s.termo ? `<div class="desc">"${esc(s.termo)}"</div>` : ''}</td><td>${s.disp === 'celular' ? '📱' : '💻'}</td><td class="desc">${esc(s.entrada)}</td><td class="n">${s.dur}s</td><td class="n">${s.rol}%</td>
+        <td class="desc" style="max-width:220px">${esc(s.cliques.slice(0, 3).join(' · ')) || '—'}</td><td><span class="tag ${c}">${t}</span>${s.lead ? `<div class="desc">${esc(s.lead.nome || '')}</div>` : ''}</td></tr>`; }).join('')}</table></div><div class="desc" style="margin-top:6px">Clique numa linha para ver o caminho completo do visitante, passo a passo.</div>` : '<div class="vazio">Sem visitantes no período.</div>'}</div>
+  </div>`;
+}
+
 function telaTrafego() {
   COPIAS = [];
   const aba = ABAS_TRAFEGO[S.abaTrafego] ? S.abaTrafego : 'ativacao';
   const r = rast();
   const status = r.ativo && (r.ga4_id || r.gads_id || r.meta_pixel_id) ? '<span class="tag t-good">● Rastreamento ligado</span>' : '<span class="tag t-neutro">○ Rastreamento desligado</span>';
-  const corpo = { ativacao: trafegoAtivacao, resultados: trafegoResultados, google: trafegoGoogle, monitor: trafegoMonitor, campanhas: trafegoCampanhas, links: trafegoLinks, offline: trafegoOffline }[aba]();
-  return `<div class="topo"><h1>Tráfego pago</h1><div class="acoes">${status}${aba === 'resultados' || aba === 'google' ? seletorPeriodo() : ''}<button class="btn" data-acao="novoGasto">+ Lançar gasto</button></div></div>
+  const corpo = { ativacao: trafegoAtivacao, resultados: trafegoResultados, jornada: trafegoJornada, google: trafegoGoogle, monitor: trafegoMonitor, campanhas: trafegoCampanhas, links: trafegoLinks, offline: trafegoOffline }[aba]();
+  return `<div class="topo"><h1>Tráfego pago</h1><div class="acoes">${status}${aba === 'resultados' || aba === 'google' || aba === 'jornada' ? seletorPeriodo() : ''}<button class="btn" data-acao="novoGasto">+ Lançar gasto</button></div></div>
   <div class="seg" style="margin-bottom:16px;flex-wrap:wrap">${Object.entries(ABAS_TRAFEGO).map(([k, v]) => `<button class="${k === aba ? 'on' : ''}" data-aba-trafego="${k}">${v}</button>`).join('')}</div>${corpo}`;
 }
 
@@ -3331,7 +3438,7 @@ document.addEventListener('keydown', e => {
 /* ---------------- shell, rotas e eventos ---------------- */
 const ROTAS = { painel: ['Painel', telaPainel], mapa: ['Mapa do Brasil', telaMapa], leads: ['Leads · CRM', telaLeads], agenda: ['Agenda', telaAgenda], prospeccao: ['Prospecção', telaProspeccao], listas: ['Listas de empresas', telaListas], whatsapp: ['WhatsApp', telaWhatsapp], calculos: ['Cálculos', telaCalculos], clientes: ['Clientes', telaClientes], financeiro: ['Financeiro', telaFinanceiro], configuracoes: ['Configurações', telaConfiguracoes], trafego: ['Tráfego pago', telaTrafego] };
 const rota = () => { const r = location.hash.slice(1); return ROTAS[r] && (r !== 'whatsapp' || WA_PAINEL()) ? r : 'painel'; };
-const CAMPOS_FOCO = ['busca', 'buscaLeads', 'buscaWa', 'waTexto', 'buscaProsp', 'buscaLista'];
+const CAMPOS_FOCO = ['busca', 'buscaLeads', 'buscaWa', 'waTexto', 'buscaProsp', 'buscaLista', 'buscaJornada'];
 
 // caixa de mensagem do WhatsApp cresce até mostrar o texto inteiro (máx. metade da tela)
 function ajustarCaixaWa() {
@@ -3366,7 +3473,7 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-localizar-lista],[data-msg-lista],[data-mover-lista],[data-filtro-lista],[data-localizar],[data-usar-local],[data-aba-prosp],[data-pag-prosp],[data-cidade-prosp],[data-filtro-wa],[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-jornada],[data-localizar-lista],[data-msg-lista],[data-mover-lista],[data-filtro-lista],[data-localizar],[data-usar-local],[data-aba-prosp],[data-pag-prosp],[data-cidade-prosp],[data-filtro-wa],[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
   if (d.filtroWa) { S.filtroWa = d.filtroWa; return render(); }
@@ -3387,6 +3494,7 @@ document.addEventListener('click', e => {
   if (d.ufMapa !== undefined) { S.ufMapa = d.ufMapa || null; if (rota() !== 'mapa') location.hash = 'mapa'; return render(); }
   if (d.metricaMapa) { S.metricaMapa = d.metricaMapa; localSet('pf_metrica_mapa', d.metricaMapa); return render(); }
   if (d.prospectarUf) return prospectarUF(d.prospectarUf);
+  if (d.jornada) { S.buscaJornada = d.jornada; render(); return document.querySelector('#buscaJornada')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
   if (d.localizar) return localizarTelefone(d.localizar);
   if (d.localizarLista) return localizarTelefone(d.localizarLista, 'lista');
   if (d.msgLista) return mensagemLista(d.msgLista);
@@ -3419,7 +3527,7 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
+    novaDespesa: () => editarDespesa(null), atualizarJornada: () => carregarJornada(true), abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
     selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
@@ -3439,6 +3547,7 @@ document.addEventListener('change', e => {
   const id = e.target.id;
   if (e.target.dataset.feito) { const k = e.target.dataset.feito; return seguro(async () => { await salvarTrafego({ feito: { ...(traf().feito || {}), [k]: e.target.checked } }); render(); }); }
   if (e.target.id === 'f_arquivos') { S.arqEnvio = [...e.target.files]; return; }
+  if (id === 'filtroJornada') { S.filtroJornada = e.target.value; return render(); }
   if (id === 'listaSel') { S.listaSel = e.target.value; S.filtroLista = ''; return render(); }
   if (e.target.dataset && e.target.dataset.statusLista) return seguro(async () => { await salvarItemLista(e.target.dataset.statusLista, { status: e.target.value }); render(); });
   if (e.target.dataset && e.target.dataset.achado && S.achados) { const sel = S.achados.sel; e.target.checked ? sel.add(e.target.dataset.achado) : sel.delete(e.target.dataset.achado); return render(); }
@@ -3475,6 +3584,7 @@ document.addEventListener('input', e => {
   if (e.target.dataset.utm && e.target.tagName === 'INPUT') { S.utm[e.target.dataset.utm] = e.target.value; const u = urlUtm(); $('#utmUrl').textContent = u; $('#utmAbrir').href = u; }
   if (id === 'buscaProsp') { S.filtroProsp.q = e.target.value; S.filtroProsp.pag = 1; render(); }
   if (id === 'buscaLista') { S.buscaLista = e.target.value; render(); }
+  if (id === 'buscaJornada') { S.buscaJornada = e.target.value; render(); }
   if (e.target.dataset.buscaProsp) S.buscaProsp[e.target.dataset.buscaProsp] = e.target.value;
   if (id === 'busca') { S.busca = e.target.value; render(); }
   if (id === 'buscaLeads') { S.filtroLeads.q = e.target.value; render(); }

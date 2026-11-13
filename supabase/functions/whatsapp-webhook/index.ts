@@ -373,7 +373,7 @@ async function contatoConhecido(waId: string) {
   return null;
 }
 // número desconhecido com cara de cliente: entra no painel (e o robô pode atender)
-const INTENCAO = /c[aá]lculo|calcul|or[cç]amento|processo|liquida[cç]|impugna|pje|pjc|senten[cç]a|ac[oó]rd[aã]o|perit|advoga|escrit[oó]rio|trabalhista|reclamante|reclamada|vim pelo site|pelo site|vi o an[uú]ncio|an[uú]ncio|pontes ferreira|quanto custa|valor do c|honor[aá]rio|tabela de pre/i;
+const INTENCAO = /c[oó]d\.? ?pf[0-9a-z]{5}|c[aá]lculo|calcul|or[cç]amento|processo|liquida[cç]|impugna|pje|pjc|senten[cç]a|ac[oó]rd[aã]o|perit|advoga|escrit[oó]rio|trabalhista|reclamante|reclamada|vim pelo site|pelo site|vi o an[uú]ncio|an[uú]ncio|pontes ferreira|quanto custa|valor do c|honor[aá]rio|tabela de pre/i;
 function temIntencao(texto: string, tipo: string, arquivo_nome: string | null, m: any) {
   if (m?.message?.extendedTextMessage?.contextInfo?.externalAdReply || m?.contextInfo?.externalAdReply || m?.referral) return true; // veio de anúncio
   if (tipo === 'document' && /\.pdf$/i.test(arquivo_nome || '')) return true;
@@ -496,16 +496,32 @@ async function processarMsgEvolution(m: any) {
   const nome = m.pushName || '';
   const conv = await conversaDe(waId, nome, null, false);
   // quem responde e ainda não é lead nem cliente vira lead (origem Prospecção, se veio da lista)
+  // código do visitante na mensagem ("cód. PF7K2QA"): pega a origem real (anúncio, palavra-chave) do caminho no site
+  const codigo = (String(texto).match(/c[oó]d\.?\s*(PF[0-9A-Z]{5})/i)?.[1] || '').toUpperCase();
+  let origemCod: any = null;
+  if (codigo) {
+    const { data: ev } = await db.from('eventos').select('sessao,utm_source,utm_medium,utm_campaign,utm_term,utm_content,uf,cidade').eq('ref', codigo).order('created_at', { ascending: true }).limit(1);
+    const e0 = ev?.[0];
+    if (e0) {
+      const src = String(e0.utm_source || '').toLowerCase();
+      origemCod = { ref: codigo, sessao: e0.sessao, uf: e0.uf || null, cidade: e0.cidade || null, utm_source: e0.utm_source || 'site', utm_medium: e0.utm_medium || null, utm_campaign: e0.utm_campaign || null, utm_term: e0.utm_term || null, utm_content: e0.utm_content || null,
+        origem: /google|cpc/.test(src) ? 'Google Ads' : /meta|facebook|instagram/.test(src) ? 'Meta Ads' : /prospec/.test(src) ? 'Prospecção' : 'Site orgânico' };
+    } else origemCod = { ref: codigo };
+  }
+  if (codigo && conv.lead_id) await db.from('leads').update({ ref: codigo }).eq('id', conv.lead_id).is('ref', null).then(() => { }, () => { });
   if (!conv.lead_id && !conv.cliente_id) {
     const prosp = await prospectDoNumero(waId);
-    const { data: lead } = await db.from('leads').insert({
+    const novoLead: any = {
       nome: prosp?.nome || nome || waId, whatsapp: waId, modo: 'whatsapp', status: 'novo',
       ...(prosp ? { origem: 'Prospecção', utm_source: 'prospeccao', utm_medium: 'whatsapp', utm_campaign: 'prospeccao_1a1', cidade: prosp.cidade || null }
         : /vim pelo site|pelo site/i.test(texto) ? origemDoSite(texto)
         : /an[uú]ncio/i.test(texto) ? { origem: 'Meta Ads', utm_source: 'meta', utm_medium: 'ctwa', utm_campaign: 'meta_topo_reels' }
         : { origem: 'WhatsApp direto' }),
+      ...(origemCod && origemCod.origem && !prosp ? origemCod : origemCod ? { ref: origemCod.ref } : {}),
       numero_processo: roboCnj(texto) || null
-    }).select().single();
+    };
+    let { data: lead, error: eLead } = await db.from('leads').insert(novoLead).select().single();
+    if (eLead && /ref|sessao|column/i.test(eLead.message || '')) { delete novoLead.ref; delete novoLead.sessao; ({ data: lead } = await db.from('leads').insert(novoLead).select().single()); } // banco sem as colunas novas
     if (lead) { await db.from('wa_conversas').update({ lead_id: lead.id }).eq('id', conv.id); conv.lead_id = lead.id; if (prosp) await db.from('prospects').update({ lead_id: lead.id }).eq('id', prosp.id); }
   }
   await gravarEntrada(conv, waId, nome, { timestamp: ts / 1000 }, { tipo, texto, arquivo_path, arquivo_nome, wamid: k.id, ts });

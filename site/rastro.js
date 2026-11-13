@@ -45,6 +45,9 @@
   const ss = { get: k => { try { return sessionStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { sessionStorage.setItem(k, v); } catch (e) { } } };
   let sessao = ss.get('pf_sessao');
   if (!sessao) { sessao = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)); ss.set('pf_sessao', sessao); }
+  // código curto do visitante (vai na mensagem do WhatsApp e liga a conversa ao caminho dele no site)
+  const codRef = 'PF' + sessao.replace(/[^a-z0-9]/gi, '').slice(0, 5).toUpperCase();
+  window.PF_REF = codRef;
 
   // origem: utm da URL (ou link curto ?r= do portfólio), guardada para a sessão
   const q = new URLSearchParams(location.search);
@@ -65,17 +68,23 @@
   const dispositivo = matchMedia('(max-width: 760px)').matches ? 'celular' : 'computador';
   const corta = (s, n) => s == null ? null : String(s).slice(0, n);
 
+  let semRef = false; // banco ainda sem a coluna "ref": manda sem ela
   function evento(tipo, extra) {
-    geo.then(g => fetch(C.SUPABASE_URL + '/rest/v1/eventos', {
+    const enviar = (corpo) => fetch(C.SUPABASE_URL + '/rest/v1/eventos', {
       method: 'POST', keepalive: true,
       headers: { apikey: C.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + C.SUPABASE_ANON_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-      body: JSON.stringify({
+      body: JSON.stringify(corpo)
+    });
+    geo.then(g => {
+      const corpo = {
         sessao, tipo, pagina: corta(location.pathname, 120), pais: corta(g.pais, 4) || null, uf: corta(g.uf, 4) || null, cidade: corta(g.cidade, 80) || null,
         utm_source: corta(ss.get('utm_source'), 80), utm_medium: corta(ss.get('utm_medium'), 80), utm_campaign: corta(ss.get('utm_campaign'), 120),
         utm_term: corta(ss.get('utm_term'), 120), utm_content: corta(ss.get('utm_content'), 120), referrer: ref, dispositivo,
         alvo: corta(extra && extra.alvo, 80), secao: corta(extra && extra.secao, 60)
-      })
-    }).catch(() => { }));
+      };
+      if (!semRef) corpo.ref = codRef;
+      return enviar(corpo).then(r => { if ((r.status === 400 || r.status === 401) && corpo.ref && ['tempo', 'form_inicio'].indexOf(tipo) < 0) { semRef = true; delete corpo.ref; return enviar(corpo); } });
+    }).catch(() => { });
   }
   window.PF_EVENTO = evento;
   window.PF_GEO = geo;
@@ -110,7 +119,7 @@
         const u = new URL(a.href), camp = ss.get('utm_campaign') || ss.get('utm_source');
         const t = u.searchParams.get('text') || '';
         // monta o link com %20 (searchParams usaria "+", que o WhatsApp pode mostrar como "+")
-        if (camp && !/pelo site/i.test(t)) a.href = u.origin + u.pathname + '?text=' + encodeURIComponent((t ? t + ' ' : '') + '(Vim pelo site (' + camp + '))');
+        if (!/c[oó]d\. PF/i.test(t)) a.href = u.origin + u.pathname + '?text=' + encodeURIComponent((t ? t + ' ' : '') + (camp && !/pelo site/i.test(t) ? '(Vim pelo site (' + camp + ') · cód. ' + codRef + ')' : '(cód. ' + codRef + ')'));
       } catch (er) { }
       if (ss.get('pf_conv_wa')) return; // 1 conversão por visita
       ss.set('pf_conv_wa', '1');
@@ -135,10 +144,20 @@
     evento(wa ? 'whatsapp' : 'clique', { alvo: alvo || '(sem texto)', secao });
   }, true);
 
+  // tempo na página e até onde rolou (enviado quando a pessoa sai ou troca de aba)
+  const inicio = Date.now(); let maxRol = 0, tempoEnviado = false;
+  const mandarTempo = () => { if (tempoEnviado) return; tempoEnviado = true; evento('tempo', { alvo: Math.round((Date.now() - inicio) / 1000) + 's', secao: maxRol + '%' }); };
+  addEventListener('pagehide', mandarTempo);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') mandarTempo(); });
+  // começou a preencher o formulário (para medir quem desiste no meio)
+  let formIni = false;
+  document.addEventListener('focusin', e => { const f = e.target.closest && e.target.closest('form'); if (f && !formIni) { formIni = true; evento('form_inicio', { alvo: (e.target.id || e.target.name || 'campo').slice(0, 40), secao: f.id || 'form' }); } });
+
   // até onde a pessoa rolou a página (25/50/75/100%)
   const marcas = [25, 50, 75, 100], vistas = new Set();
   addEventListener('scroll', () => {
     const t = document.documentElement, pct = (scrollY + innerHeight) / Math.max(t.scrollHeight, 1) * 100;
+    maxRol = Math.max(maxRol, Math.min(100, Math.round(pct)));
     marcas.forEach(m => { if (pct >= m - 1 && !vistas.has(m)) { vistas.add(m); evento('rolagem', { alvo: m + '%' }); } });
   }, { passive: true });
 })();
