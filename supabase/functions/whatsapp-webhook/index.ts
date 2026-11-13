@@ -420,7 +420,8 @@ async function salvarDiag() {
   if (!DIAG.length) return;
   const { data } = await db.from('ajustes').select('valor').eq('chave', 'wa_diag').maybeSingle();
   const lista = [...DIAG.splice(0), ...((data?.valor?.lista) || [])].slice(0, 40);
-  await db.from('ajustes').upsert({ chave: 'wa_diag', publico: false, valor: { lista } });
+  const { error } = await db.from('ajustes').upsert({ chave: 'wa_diag', publico: false, valor: { lista } });
+  if (error) console.error('diag: não gravou', error.message);
 }
 async function processarEvolution(b: any) {
   try { await processarEvolutionInterno(b); } finally { await salvarDiag().catch(e => console.error('diag', e)); }
@@ -444,9 +445,10 @@ async function processarEvolutionInterno(b: any) {
       await db.from('wa_mensagens').update({ status: novo }).eq('id', m.id);
     }
     console.log(`evolution: ${ups.length} atualização(ões) de status (tiques)`);
+    DIAG.unshift({ em: new Date().toISOString(), tipo: 'tiques', res: `tiques: ${ups.length} atualização(ões) de status` });
     return;
   }
-  if (ev !== 'messages.upsert') return;
+  if (ev !== 'messages.upsert') { DIAG.unshift({ em: new Date().toISOString(), tipo: 'outro', res: 'evento ignorado: ' + (ev || '(sem nome)') }); return; }
   const d = b.data || {};
   const lista = Array.isArray(d) ? d : Array.isArray(d.messages) ? d.messages : [d];
   for (const m of lista) {
@@ -553,7 +555,11 @@ Deno.serve(async req => {
   const corpo = await req.text();
   // Evolution API: identificada pela senha na URL (?k=...)
   if (url.searchParams.has('k')) {
-    if (!Deno.env.get('EVOLUTION_WEBHOOK_KEY') || url.searchParams.get('k') !== Deno.env.get('EVOLUTION_WEBHOOK_KEY')) return new Response('forbidden', { status: 403 });
+    if (!Deno.env.get('EVOLUTION_WEBHOOK_KEY') || url.searchParams.get('k') !== Deno.env.get('EVOLUTION_WEBHOOK_KEY')) {
+      DIAG.unshift({ em: new Date().toISOString(), tipo: 'erro', res: 'RECUSADO: chegou aviso do WhatsApp com a senha errada (corrija o webhook)' });
+      await salvarDiag().catch(() => { });
+      return new Response('forbidden', { status: 403 });
+    }
     try { await processarEvolution(JSON.parse(corpo)); } catch (e) { console.error('evolution', e); }
     return new Response('ok', { status: 200 });
   }

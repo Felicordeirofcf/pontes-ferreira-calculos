@@ -1076,7 +1076,7 @@ async function diagnosticoWa() {
     : w.chave_ok === false ? 'A senha do webhook não confere com a do Supabase: clique em "Corrigir webhook".'
     : !evs.includes('MESSAGES_UPSERT') ? 'O webhook não está recebendo mensagens (falta MESSAGES_UPSERT): clique em "Corrigir webhook".'
     : !lista.length ? 'Conectado e configurado, mas nenhuma mensagem chegou ao sistema desde a última atualização. Mande uma mensagem de outro celular e abra este diagnóstico de novo.'
-    : !recebidas.length ? 'Chegaram eventos, mas nenhuma mensagem recebida de cliente ainda. Mande uma mensagem de teste de outro celular.'
+    : !recebidas.length ? 'O servidor do WhatsApp está avisando o painel (veja a tabela), mas nenhuma mensagem recebida de cliente chegou. Se você já mandou uma mensagem de outro celular, a sessão do WhatsApp no servidor não está recebendo: desconecte e conecte de novo pelo QR code.'
     : !gravadas.length ? 'Mensagens chegam ao sistema, mas nenhuma foi gravada no painel. Veja o motivo de cada uma abaixo.'
     : `Tudo funcionando: a última mensagem recebida foi gravada ${new Date(ultRec.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}.`;
   $('#diagCorpo').className = '';
@@ -1086,7 +1086,7 @@ async function diagnosticoWa() {
       ${ok(evs.includes('MESSAGES_UPSERT'), 'Recebe mensagens', 'Não recebe mensagens')}</div>
     <div class="linha" style="margin:8px 0 12px"><button class="btn mini ouro" id="diagCorrigir">🔧 Corrigir webhook</button><span class="desc">Reconfigura o webhook com o endereço e a senha certos.</span></div>
     <h3 class="sub">Últimas mensagens que chegaram ao sistema</h3>
-    ${lista.length ? `<div class="tabela"><table><tr><th>Quando</th><th>Tipo</th><th>De/para</th><th>O que aconteceu</th></tr>${lista.slice(0, 25).map(x => `<tr><td style="white-space:nowrap">${esc(new Date(x.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }))}</td><td>${esc(x.tipo)}</td><td>${esc((x.nome ? x.nome + ' · ' : '') + (x.quem || ''))}</td><td><span class="tag ${/gravada|tiques/.test(x.res) ? 't-good' : /ERRO|DESCART/.test(x.res) ? 't-crit' : 't-neutro'}">${esc(x.res)}</span></td></tr>`).join('')}</table></div>` : '<div class="desc">Nenhum registro ainda (os registros começam depois de publicar a versão nova da função whatsapp-webhook).</div>'}`;
+    ${lista.length ? `<div class="tabela"><table><tr><th>Quando</th><th>Tipo</th><th>De/para</th><th>O que aconteceu</th></tr>${lista.slice(0, 25).map(x => `<tr><td style="white-space:nowrap">${esc(new Date(x.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }))}</td><td>${esc(x.tipo)}</td><td>${esc((x.nome ? x.nome + ' · ' : '') + (x.quem || ''))}</td><td><span class="tag ${/gravada|tiques|open/.test(x.res) ? 't-good' : /ERRO|DESCART/.test(x.res) ? 't-crit' : 't-neutro'}">${esc(x.res)}</span></td></tr>`).join('')}</table></div>` : '<div class="desc">Nenhum registro ainda (os registros começam depois de publicar a versão nova da função whatsapp-webhook).</div>'}`;
   $('#diagCorrigir', fundo).onclick = () => seguro(async () => { await chamarConexao('webhook'); toast('Webhook reconfigurado'); fundo.remove(); diagnosticoWa(); });
 }
 async function removerForaCrm(waId) { const v = { lista: ((S.ajustes.wa_fora_crm || {}).lista || []).filter(x => x.wa_id !== waId) }; await ajustesDb.salvar('wa_fora_crm', v); S.ajustes.wa_fora_crm = v; }
