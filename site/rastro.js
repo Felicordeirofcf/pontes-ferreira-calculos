@@ -106,7 +106,8 @@
       try {
         const u = new URL(a.href), camp = ss.get('utm_campaign') || ss.get('utm_source');
         const t = u.searchParams.get('text') || '';
-        if (camp && !/pelo site/i.test(t)) { u.searchParams.set('text', (t ? t + ' ' : '') + '(Vim pelo site (' + camp + '))'); a.href = u.toString(); }
+        // monta o link com %20 (searchParams usaria "+", que o WhatsApp pode mostrar como "+")
+        if (camp && !/pelo site/i.test(t)) a.href = u.origin + u.pathname + '?text=' + encodeURIComponent((t ? t + ' ' : '') + '(Vim pelo site (' + camp + '))');
       } catch (er) { }
       if (ss.get('pf_conv_wa')) return; // 1 conversão por visita
       ss.set('pf_conv_wa', '1');
