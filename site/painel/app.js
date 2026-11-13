@@ -813,7 +813,7 @@ function telaWhatsapp() {
     const fimJanela = aberta && c.ultima_entrada_em ? new Date(new Date(c.ultima_entrada_em).getTime() + 24 * 36e5) : new Date();
     const cliC = c.cliente_id && cliente(c.cliente_id);
     corpo = `<div class="wa-cab"><div class="wa-quem">${avatar(c.nome || c.wa_id, c.wa_id, 'g')}<div><b>${esc(c.nome || fmtTel(c.wa_id))}</b><div class="wa-sub">${fmtTel(c.wa_id)}${cliC ? ' · <span class="tag t-good">Cliente</span>' : l ? ` · <span class="tag t-azul">${esc(STATUS_LEAD[l.status])}</span>` : ''}${l?.temperatura ? ' ' + tagTemp(l) : ''}</div></div></div>
-        <div class="wa-acoes"><button class="btn mini ouro" data-acao="orcamentoRapido" title="Montar a mensagem de orçamento com o valor que você definir">💰 Orçamento</button><button class="btn mini ouro" data-acao="dataEntrega" title="Informar a data de entrega (e gravar como prazo do cálculo)">📅 Data de entrega</button><button class="btn mini ouro" data-acao="prontoPagamento" title="Avisar que o cálculo está pronto e mandar os dados de pagamento">✅ Pronto + pagamento</button><button class="btn mini ouro" data-acao="cobrancaRapida" title="Lembrar o cliente do pagamento em aberto">💸 Cobrança</button><button class="btn mini ouro" data-acao="envioPago" title="Pagamento confirmado: mandar a mensagem com o PDF e o .PJC e marcar como pago/entregue">📦 Envio após pagamento</button><button class="btn mini sec" data-cadastro="${c.wa_id}" title="Preencher o cadastro com os dados da conversa">📋 Cadastro</button>${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini ouro" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(c.wa_id)}" title="Abrir no WhatsApp Web">WhatsApp Web ↗</a></div></div>
+        <div class="wa-acoes"><button class="btn mini ouro" data-acao="orcamentoRapido" title="Montar a mensagem de orçamento com o valor que você definir">💰 Orçamento</button><button class="btn mini ouro" data-acao="dataEntrega" title="Informar a data de entrega (e gravar como prazo do cálculo)">📅 Data de entrega</button><button class="btn mini ouro" data-acao="prontoPagamento" title="Avisar que o cálculo está pronto e mandar os dados de pagamento">✅ Pronto + pagamento</button><button class="btn mini ouro" data-acao="cobrancaRapida" title="Lembrar o cliente do pagamento em aberto">💸 Cobrança</button><button class="btn mini ouro" data-acao="envioPago" title="Pagamento confirmado: mandar a mensagem com o PDF e o .PJC e marcar como pago/entregue">📦 Envio após pagamento</button><button class="btn mini sec" data-acao="apresentacaoEmail" title="Enviar por e-mail a apresentação dos nossos serviços (quando o escritório pede proposta por e-mail)">✉ Apresentação por e-mail</button><button class="btn mini sec" data-cadastro="${c.wa_id}" title="Preencher o cadastro com os dados da conversa">📋 Cadastro</button>${l ? `<button class="btn mini sec" data-ficha="${l.id}">Ficha</button>` : ''}${l && l.status !== 'fechado' ? `<button class="btn mini ouro" data-converter="${l.id}">→ Cálculo</button>` : ''}<a class="btn mini sec" target="${ALVO_WA}" href="${waLink(c.wa_id)}" title="Abrir no WhatsApp Web">WhatsApp Web ↗</a></div></div>
       ${EVOLUTION() ? '' : `<div class="wa-janela ${aberta ? 'ok' : 'fechada'}">${aberta ? `✔ Conversa aberta: pode responder livremente até ${fimJanela.toLocaleDateString('pt-BR') === new Date().toLocaleDateString('pt-BR') ? 'hoje' : 'amanhã'} às ${hora(fimJanela)}.`
         : `⏸ O cliente não escreve há mais de 24h. Pela regra do WhatsApp, só dá para enviar um <b>modelo aprovado</b> para retomar a conversa. <button class="btn mini" data-acao="waModelo">Enviar modelo "${esc(CFG.WA_TEMPLATE || 'retomar_contato')}"</button>`}</div>`}
       ${cfgRobo().ativo ? `<div class="wa-janela ${roboEmSilencio(c) ? 'fechada' : 'ok'}">${roboEmSilencio(c)
@@ -926,6 +926,32 @@ function emailDoCalculo(calc, c) {
   if (cli && cli.email) return cli.email;
   const p = S.prospects.find(x => x.email && digitos(x.whatsapp).slice(-8) === digitos(c && c.wa_id).slice(-8));
   return p ? p.email : '';
+}
+// ✉ Apresentação por e-mail: o escritório pediu proposta por e-mail → manda a apresentação com o visual da marca
+async function apresentacaoEmail(opc = {}) {
+  const c = convAtiva();
+  const textoConv = c ? (S.wa_mensagens[c.wa_id] || []).filter(m => m.direcao === 'in').map(m => m.texto || '').join(' ') : '';
+  const emailConv = ((textoConv.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || []).pop() || '').replace(/\.+$/, ''); // o último e-mail que o contato mandou
+  const nomeEmail = (emailConv.split('@')[0] || '').replace(/[^a-zà-ú]/gi, ' ').trim().split(/\s+/)[0] || '';
+  const v = await abrirForm('✉ Apresentação por e-mail', [
+    { k: 'para', rot: 'E-mail do escritório', ph: 'contato@escritorio.com.br', full: true },
+    { k: 'tratamento', rot: 'Saudação', ph: 'Prezado Dr. Fulano', full: true },
+    { k: 'abertura', rot: 'Primeira frase (contexto)', tipo: 'textarea', full: true },
+    { k: 'assunto', rot: 'Assunto', full: true },
+    { k: 'assinatura', rot: 'Assina', full: true }
+  ], { para: opc.para || emailConv || (c && emailDoCalculo(null, c)) || '', tratamento: opc.tratamento || (nomeEmail ? 'Prezado Dr. ' + nomeEmail[0].toUpperCase() + nomeEmail.slice(1).toLowerCase() : 'Prezado(a) Dr(a).'),
+    abertura: opc.abertura ?? (c ? 'Obrigado pelo retorno no WhatsApp. Conforme orientado, seguimos por e-mail.' : ''), assunto: 'Proposta de parceria – cálculos trabalhistas no PJe-Calc em até 48h', assinatura: S.ajustes?.assinatura_email || 'Amanda Pontes' }, { ok: '✉ Enviar e-mail' });
+  if (!v) return;
+  const para = (v.para || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) return toast('E-mail inválido: ' + para);
+  await seguro(async () => {
+    if (DEMO) return toast('Modo demonstração: apresentação para ' + para + ' simulada.');
+    const { error } = await sb.functions.invoke('enviar-calculo-email', { body: { tipo: 'apresentacao', para, tratamento: v.tratamento, abertura: v.abertura, assunto: v.assunto, assinatura: v.assinatura } });
+    if (error) { let d = {}; try { d = await error.context.json(); } catch { } throw new Error(d.mensagem || error.message); }
+    toast('✉ Apresentação enviada para ' + para + ' (você recebe uma cópia oculta)');
+    const l = c && leadDaConversa(c);
+    if (l) await registrar(l.id, 'email', 'Apresentação enviada por e-mail para ' + para);
+  });
 }
 async function enviarCalculoEmail(calcId, para) {
   if (DEMO) { toast('Modo demonstração: e-mail para ' + para + ' simulado.'); return; }
@@ -3590,7 +3616,7 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), diagnosticoWa, atualizarJornada: () => carregarJornada(true), mostrarRobos: () => { S.mostrarRobos = !S.mostrarRobos; render(); }, abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
+    novaDespesa: () => editarDespesa(null), diagnosticoWa, apresentacaoEmail: () => apresentacaoEmail(), atualizarJornada: () => carregarJornada(true), mostrarRobos: () => { S.mostrarRobos = !S.mostrarRobos; render(); }, abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
     selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),

@@ -1,6 +1,7 @@
 // @ts-nocheck
 // Supabase Edge Function: enviar-calculo-email
 // Envia ao cliente, por e-mail, os arquivos do cálculo (PDF e .PJC guardados em "Entregas" do cálculo).
+// Com tipo "apresentacao": envia a apresentação do serviço para um escritório (prospecção).
 // Só o dono logado no painel pode usar. Deixe "Verify JWT" LIGADO.
 // Secrets: os mesmos da função aviso-lead (SMTP_USER, SMTP_PASS, opcionais SMTP_HOST, SMTP_PORT).
 // Arquivos grandes (mais de 15 MB no total) vão como links de download válidos por 7 dias, em vez de anexo.
@@ -23,7 +24,19 @@ Deno.serve(async req => {
 
     const b = await req.json().catch(() => ({}));
     const para = String(b.para || '').trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) return resp({ erro: 'email_invalido', mensagem: 'E-mail do cliente inválido.' }, 400);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) return resp({ erro: 'email_invalido', mensagem: 'E-mail inválido.' }, 400);
+    const user = Deno.env.get('SMTP_USER'), pass = Deno.env.get('SMTP_PASS');
+    if (!user || !pass) return resp({ erro: 'smtp', mensagem: 'Configure SMTP_USER e SMTP_PASS nos Secrets.' }, 400);
+    const smtp = nodemailer.createTransport({ host: Deno.env.get('SMTP_HOST') || 'email-ssl.com.br', port: Number(Deno.env.get('SMTP_PORT') || 465), secure: true, auth: { user, pass } });
+
+    // apresentação do serviço para um escritório (prospecção): não depende de cálculo
+    if (b.tipo === 'apresentacao') {
+      const d = { tratamento: String(b.tratamento || 'Prezado(a) Dr(a).').slice(0, 80), abertura: String(b.abertura || '').slice(0, 600), assinatura: String(b.assinatura || 'Equipe Pontes Ferreira').slice(0, 80) };
+      const html = apresentacaoHtml(d);
+      await smtp.sendMail({ from: `"${d.assinatura.replace(/"/g, '')} · Pontes Ferreira Cálculos" <${user}>`, to: para, bcc: user, replyTo: user,
+        subject: String(b.assunto || 'Proposta de parceria – cálculos trabalhistas no PJe-Calc em até 48h').slice(0, 200), html, text: html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ') });
+      return resp({ ok: true, para, anexos: 0, links: 0 });
+    }
     const { data: calc, error } = await db.from('calculos').select('*').eq('id', b.calc_id).maybeSingle();
     if (error || !calc) return resp({ erro: 'calculo', mensagem: 'Cálculo não encontrado.' }, 404);
     const arquivos = (calc.arquivos || []).filter((a: any) => a && a.path);
@@ -51,9 +64,6 @@ Deno.serve(async req => {
     const saud = String(b.mensagem || 'Segue em anexo o cálculo do seu processo: relatório em PDF e o arquivo .PJC para importar no PJe-Calc.').slice(0, 2000);
     const portal = cli?.portal_token ? `https://pontesferreiracalculos.com/cliente/?t=${encodeURIComponent(cli.portal_token)}` : '';
     const html = emailHtml({ nome: cli?.nome ? String(cli.nome).split(' ').slice(0, 2).join(' ') : '', saud, calc, partes, porLink, links, nomesArq: baixados.map(x => x.nome), portal });
-    const user = Deno.env.get('SMTP_USER'), pass = Deno.env.get('SMTP_PASS');
-    if (!user || !pass) return resp({ erro: 'smtp', mensagem: 'Configure SMTP_USER e SMTP_PASS nos Secrets.' }, 400);
-    const smtp = nodemailer.createTransport({ host: Deno.env.get('SMTP_HOST') || 'email-ssl.com.br', port: Number(Deno.env.get('SMTP_PORT') || 465), secure: true, auth: { user, pass } });
     await smtp.sendMail({
       from: `"Pontes Ferreira Cálculos" <${user}>`, to: para, bcc: user, replyTo: user, subject: assunto, html,
       text: html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '),
@@ -120,3 +130,72 @@ function emailHtml(d: any) {
 </table></td></tr></table></body></html>`;
 }
 
+// ---------- apresentação do serviço (prospecção de escritórios) ----------
+function apresentacaoHtml(d: any) {
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f1f3f7">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f3f7;padding:24px 10px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:14px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;box-shadow:0 6px 24px rgba(11,26,61,.08)">
+  <tr><td style="background:#0b1a3d;background-image:linear-gradient(135deg,#1a3a7a 0%,#0b1a3d 55%,#060f26 100%);padding:26px 28px">
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td style="padding-right:14px"><img src="https://pontesferreiracalculos.com/img/logo-email.png" width="56" height="56" alt="Pontes Ferreira" style="display:block;border:0"></td>
+      <td><div style="color:#ffffff;font-family:Georgia,'Times New Roman',serif;font-size:20px;letter-spacing:.06em;font-weight:700">PONTES FERREIRA</div>
+          <div style="color:#e3b13c;font-size:11px;letter-spacing:.42em;margin-top:3px">CÁLCULOS JUDICIAIS</div></td></tr></table>
+  </td></tr>
+  <tr><td style="background:#e3b13c;background-image:linear-gradient(90deg,#fbe7a1,#e2b13c 45%,#b07a12);height:4px;font-size:0;line-height:0">&nbsp;</td></tr>
+  <tr><td style="padding:28px 28px 6px">
+    <div style="display:inline-block;background:#fff4d6;color:#7a5408;font-size:12px;font-weight:700;padding:5px 10px;border-radius:20px">🤝 PROPOSTA DE PARCERIA</div>
+    <h1 style="margin:14px 0 10px;font-family:Georgia,'Times New Roman',serif;color:#0b1a3d;font-size:24px;line-height:1.25;font-weight:700">Cálculos trabalhistas no PJe-Calc para o seu escritório, prontos em até 48h</h1>
+    <p style="margin:0 0 10px;color:#33405a;font-size:15px;line-height:1.6">${esc(d.tratamento)},</p>
+    ${d.abertura ? `<p style="margin:0 0 10px;color:#33405a;font-size:15px;line-height:1.6">${esc(d.abertura).replace(/\n/g, '<br>')}</p>` : ''}
+    <p style="margin:0;color:#33405a;font-size:15px;line-height:1.6">Somos a <b>Pontes Ferreira Cálculos Judiciais</b>, especializada em cálculos trabalhistas para advogados e escritórios. O escritório nos envia o número do processo e nós devolvemos o cálculo pronto para protocolar, com o arquivo <b>.PJC</b> para importar no PJe-Calc.</p>
+  </td></tr>
+  <tr><td style="padding:20px 28px 4px">
+    <div style="color:#6b7690;font-size:11px;letter-spacing:.12em;font-weight:700;margin-bottom:8px">O QUE FAZEMOS</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e3e8ef;border-radius:10px;border-collapse:separate;overflow:hidden">
+      <tr><td style="padding:11px 14px;border-bottom:1px solid #eef1f6;font-size:14px;color:#0b1a3d"><b>⚖ Liquidação de sentença</b><br><span style="color:#6b7690;font-size:13px">Conta completa sobre o título executivo, com sentença, acórdão e embargos conferidos.</span></td></tr>
+      <tr><td style="padding:11px 14px;border-bottom:1px solid #eef1f6;font-size:14px;color:#0b1a3d"><b>🔎 Impugnação aos cálculos</b><br><span style="color:#6b7690;font-size:13px">Revisão da conta da parte contrária ou do perito, com os pontos divergentes apontados.</span></td></tr>
+      <tr><td style="padding:11px 14px;border-bottom:1px solid #eef1f6;font-size:14px;color:#0b1a3d"><b>📝 Cálculo para a petição inicial</b><br><span style="color:#6b7690;font-size:13px">Valor de cada pedido com reflexos, para liquidar a inicial (art. 840, §1º, da CLT).</span></td></tr>
+      <tr><td style="padding:11px 14px;font-size:14px;color:#0b1a3d"><b>📈 Atualização de cálculos</b><br><span style="color:#6b7690;font-size:13px">Correção e juros pelos índices vigentes.</span></td></tr>
+    </table>
+  </td></tr>
+  <tr><td style="padding:20px 28px 4px">
+    <div style="color:#6b7690;font-size:11px;letter-spacing:.12em;font-weight:700;margin-bottom:8px">O QUE O ESCRITÓRIO RECEBE</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+      <td width="33%" valign="top" style="padding:0 4px 0 0"><div style="background:#f6f8fc;border-radius:10px;padding:14px 10px;text-align:center"><div style="font-size:22px">🧮</div><div style="color:#0b1a3d;font-size:13px;font-weight:700;margin-top:4px">Arquivo .PJC</div><div style="color:#6b7690;font-size:12px;margin-top:2px">importa direto no PJe-Calc</div></div></td>
+      <td width="33%" valign="top" style="padding:0 2px"><div style="background:#f6f8fc;border-radius:10px;padding:14px 10px;text-align:center"><div style="font-size:22px">📄</div><div style="color:#0b1a3d;font-size:13px;font-weight:700;margin-top:4px">Relatório em PDF</div><div style="color:#6b7690;font-size:12px;margin-top:2px">pronto para juntar aos autos</div></div></td>
+      <td width="33%" valign="top" style="padding:0 0 0 4px"><div style="background:#f6f8fc;border-radius:10px;padding:14px 10px;text-align:center"><div style="font-size:22px">📋</div><div style="color:#0b1a3d;font-size:13px;font-weight:700;margin-top:4px">Resumo do deferido</div><div style="color:#6b7690;font-size:12px;margin-top:2px">o que entrou na conta e por quê</div></div></td>
+    </tr></table>
+  </td></tr>
+  <tr><td style="padding:20px 28px 4px">
+    <div style="color:#6b7690;font-size:11px;letter-spacing:.12em;font-weight:700;margin-bottom:8px">COMO FUNCIONA</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#33405a;line-height:1.5">
+      <tr><td width="34" valign="top" style="padding:5px 0"><div style="width:24px;height:24px;border-radius:12px;background:#0b1a3d;color:#e3b13c;font-weight:700;font-size:13px;text-align:center;line-height:24px">1</div></td><td style="padding:5px 0">O escritório envia o <b>número do processo</b> (ou o PDF dos autos).</td></tr>
+      <tr><td width="34" valign="top" style="padding:5px 0"><div style="width:24px;height:24px;border-radius:12px;background:#0b1a3d;color:#e3b13c;font-weight:700;font-size:13px;text-align:center;line-height:24px">2</div></td><td style="padding:5px 0">Enviamos o <b>orçamento com preço fechado</b> em até 1 hora útil.</td></tr>
+      <tr><td width="34" valign="top" style="padding:5px 0"><div style="width:24px;height:24px;border-radius:12px;background:#0b1a3d;color:#e3b13c;font-weight:700;font-size:13px;text-align:center;line-height:24px">3</div></td><td style="padding:5px 0">Entregamos o cálculo <b>em até 48h</b>, com o .PJC, o PDF e o resumo.</td></tr>
+    </table>
+  </td></tr>
+  <tr><td style="padding:20px 28px 4px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0b1a3d;background-image:linear-gradient(135deg,#1a3a7a 0%,#0b1a3d 70%);border-radius:12px"><tr><td style="padding:18px 20px;text-align:center">
+      <div style="color:#e3b13c;font-size:11px;letter-spacing:.14em;font-weight:700">CONDIÇÃO PARA O PRIMEIRO CÁLCULO</div>
+      <div style="color:#ffffff;font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;margin:6px 0 4px">1º cálculo por R$ 200</div>
+      <div style="color:#c8d1e4;font-size:13px">Para o escritório conhecer o nosso trabalho sem compromisso.</div>
+    </td></tr></table>
+  </td></tr>
+  <tr><td style="padding:18px 28px 4px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13.5px;color:#33405a"><tr>
+      <td width="50%" style="padding:4px 0">✔ Todos os 24 TRTs</td><td width="50%" style="padding:4px 0">✔ Preço fechado antes de começar</td></tr><tr>
+      <td style="padding:4px 0">✔ 1ª revisão sem custo</td><td style="padding:4px 0">✔ Leitura integral do processo</td></tr></table>
+  </td></tr>
+  <tr><td style="padding:16px 28px 4px"><p style="margin:0;color:#33405a;font-size:15px;line-height:1.6">Se fizer sentido para o escritório, basta responder este e-mail com o número de um processo que enviamos o orçamento. Também podemos atender demandas recorrentes, com prioridade na fila e condições para volume.</p></td></tr>
+  <tr><td align="center" style="padding:22px 28px 8px">
+    <a href="https://wa.me/5521987708652" style="display:inline-block;background:#1f8a5b;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 20px;border-radius:10px;margin:0 4px 8px">💬 WhatsApp (21) 98770-8652</a>
+    <a href="https://pontesferreiracalculos.com/?utm_source=email&amp;utm_medium=prospeccao&amp;utm_campaign=apresentacao" style="display:inline-block;background:#e3b13c;background-image:linear-gradient(135deg,#fbe7a1,#e2b13c 45%,#b07a12);color:#1b1203;text-decoration:none;font-weight:700;font-size:14px;padding:12px 20px;border-radius:10px;margin:0 4px 8px">Conhecer o site</a>
+  </td></tr>
+  <tr><td style="padding:8px 28px 24px"><p style="margin:0;color:#33405a;font-size:15px;line-height:1.6">Atenciosamente,<br><b>${esc(d.assinatura)}</b><br><span style="color:#6b7690;font-size:13px">Pontes Ferreira Cálculos Judiciais</span></p></td></tr>
+  <tr><td style="background:#0b1a3d;padding:18px 28px;text-align:center;color:#aab4c8;font-size:12px;line-height:1.6">
+    <b style="color:#ffffff">Pontes Ferreira Cálculos Judiciais</b><br>CNPJ 51.362.258/0001-79 · <a href="https://pontesferreiracalculos.com" style="color:#e3b13c;text-decoration:none">pontesferreiracalculos.com</a><br>
+    <span style="color:#7f8aa3">Se preferir não receber nossos contatos, é só responder este e-mail pedindo.</span>
+  </td></tr>
+</table></td></tr></table></body></html>`;
+}
