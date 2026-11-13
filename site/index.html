@@ -158,6 +158,11 @@
     .oferta-hero{font-size:.86rem;margin-bottom:14px}
     .hero .eyebrow{font-size:.68rem}
     .hero .ctas .btn{flex:1 1 100%;justify-content:center;text-align:center}
+    /* no celular o caminho natural é o WhatsApp: ele vem primeiro, em verde; o formulário fica logo abaixo */
+    .hero .ctas .js-wa{order:-1;background:#25d366;border-color:#25d366;color:#fff;font-weight:800}
+    .hero .ctas .js-wa::before{content:"💬 "}
+    .hero .eyebrow{letter-spacing:.06em}
+    header .wrap > .btn.js-wa{display:none!important} /* a barra fixa do rodapé já tem os dois botões */
     .trust{margin-top:20px;gap:14px 22px}
     header .btn.wa-top{display:inline-flex;padding:8px 12px;font-size:.85rem}
     .wa-float{display:none}
