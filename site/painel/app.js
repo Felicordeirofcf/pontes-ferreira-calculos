@@ -957,7 +957,8 @@ async function apresentacaoEmail(opc = {}) {
 }
 // prospecção: a mesma apresentação, saudando o escritório; conta como abordagem e guarda o e-mail no contato
 async function apresentacaoProsp(id) {
-  const p = S.prospects.find(x => x.id === id); if (!p) return;
+  let p = S.prospects.find(x => x.id === id); if (!p) return;
+  if (!p.email && p.site && !DEMO) { toast('Procurando o e-mail no site do escritório…'); await buscarEmailsProsp([p], true); p = S.prospects.find(x => x.id === id) || p; }
   const nome = String(p.nome || '').trim(), dr = /^(dr|dra)\.?\s/i.test(nome);
   const para = await apresentacaoEmail({ semConversa: true, para: p.email || '',
     tratamento: dr ? (/^dra/i.test(nome) ? 'Prezada ' : 'Prezado ') + nome.split(/\s+/).slice(0, 2).join(' ') : 'Prezados(as) Drs.',
@@ -1777,7 +1778,7 @@ function telaProspeccao() {
   <div class="grade">
     ${cardBuscaAuto(termo, cidade, qBusca, busca)}
     <div class="card larga"><div class="linha" style="justify-content:space-between"><h2>Lista</h2>
-      <div class="linha"><span class="desc">${filtrada.length} de ${contaAba(aba)} em "${ABAS_PROSP[aba][0]}"</span>${aba === 'sem_tel' && contaAba('sem_tel') ? '<button class="btn mini ouro" data-acao="localizarTodos">🔍 Localizar todos</button>' : ''}${filtrosAtivos ? '<button class="btn mini sec" data-acao="limparFiltroProsp">✕ Limpar filtros</button>' : ''}</div></div>
+      <div class="linha"><span class="desc">${filtrada.length} de ${contaAba(aba)} em "${ABAS_PROSP[aba][0]}"</span>${aba === 'sem_tel' && contaAba('sem_tel') ? '<button class="btn mini ouro" data-acao="localizarTodos">🔍 Localizar todos</button>' : ''}${semEmailComSite() ? `<button class="btn mini sec" data-acao="buscarEmailsProsp" title="Abre o site de cada escritório e pega o e-mail de contato publicado">✉ Buscar e-mails (${semEmailComSite()})</button>` : ''}${filtrosAtivos ? '<button class="btn mini sec" data-acao="limparFiltroProsp">✕ Limpar filtros</button>' : ''}</div></div>
       <div class="seg" style="margin:12px 0 4px;flex-wrap:wrap">${Object.entries(ABAS_PROSP).map(([k, [rot]]) => `<button class="${k === aba ? 'on' : ''}" data-aba-prosp="${k}">${rot} <span class="desc">(${contaAba(k)})</span></button>`).join('')}</div>
       <div class="linha" style="flex-wrap:wrap;gap:8px;margin:10px 0 4px">
       <input class="f" id="buscaProsp" placeholder="Buscar nome, telefone, obs…" value="${esc(f.q || '')}" style="flex:1;min-width:200px">
@@ -2181,17 +2182,42 @@ function telaListas() {
 async function addAchados() {
   const A = S.achados; if (!A || !A.sel.size) return;
   const escolhidos = A.lugares.filter(l => A.sel.has(l.id) && !l.ja);
-  let n = 0;
+  let n = 0; const comSite = [];
   await seguro(async () => {
     for (const l of escolhidos) {
       if (duplicado({ nome: l.nome, cidade: l.cidade, whatsapp: l.telefone })) { l.ja = true; continue; }
       const fixo = tipoTel(l.telefone) === 'fixo';
-      await criar('prospects', { nome: l.nome, escritorio: l.nome, cidade: l.cidade, whatsapp: l.telefone || null, site: l.site || null, maps: l.maps || null, area: 'Trabalhista', fonte: 'Google Maps', status: 'a_contatar',
+      const novo = await criar('prospects', { nome: l.nome, escritorio: l.nome, cidade: l.cidade, whatsapp: l.telefone || null, site: l.site || null, maps: l.maps || null, area: 'Trabalhista', fonte: 'Google Maps', status: 'a_contatar',
         obs: [fixo ? 'Telefone fixo: ligar ou procurar o WhatsApp no site.' : '', l.nota ? `Google: ★ ${l.nota} (${l.avaliacoes} avaliações).` : '', l.endereco || ''].filter(Boolean).join(' ').slice(0, 500) || null });
-      l.ja = true; n++;
+      l.ja = true; n++; if (novo && novo.site) comSite.push(novo);
     }
   });
   A.sel = new Set(); toast(`${n} contato(s) adicionado(s) à fila de prospecção`); render();
+  if (comSite.length) buscarEmailsProsp(comSite, true); // em segundo plano: e-mail publicado no site de cada escritório
+}
+// ✉ procura o e-mail de contato no site de cada escritório (o Google Maps não informa e-mail)
+const semEmailComSite = () => S.prospects.filter(p => p.site && !p.email && contatavel(p)).length;
+async function buscarEmailsProsp(lista, silencioso) {
+  lista = (lista || S.prospects.filter(p => p.site && !p.email && contatavel(p))).filter(p => p.site && !p.email);
+  if (!lista.length) { if (!silencioso) toast('Nenhum contato com site e sem e-mail.'); return 0; }
+  if (DEMO) { if (!silencioso) toast('Modo demonstração: a busca de e-mails só funciona com o Supabase.'); return 0; }
+  let achou = 0, feitos = 0;
+  for (let i = 0; i < lista.length; i += 8) {
+    const lote = lista.slice(i, i + 8);
+    progresso(`✉ Procurando e-mails nos sites… ${feitos}/${lista.length} (${achou} achados)`);
+    try {
+      const { data, error } = await sb.functions.invoke('buscar-escritorios', { body: { acao: 'emails', sites: lote.map(p => p.site) } });
+      if (error) throw error;
+      for (const p of lote) {
+        const e = ((data.emails || {})[p.site] || [])[0];
+        if (e) { await atualizar('prospects', p.id, { email: e }).catch(() => { }); achou++; }
+      }
+    } catch (e) { console.warn('emails', e); }
+    feitos += lote.length;
+  }
+  progresso(null); render();
+  if (!silencioso || achou) toast(`✉ ${achou} e-mail(s) encontrado(s) em ${lista.length} site(s)${achou < lista.length ? '. Os outros sites não publicam e-mail.' : ''}`);
+  return achou;
 }
 
 async function editarProsp(p) {
@@ -3633,7 +3659,7 @@ document.addEventListener('click', e => {
   if (d.despesa) return editarDespesa(S.despesas.find(x => x.id === d.despesa));
   ({
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
-    novaDespesa: () => editarDespesa(null), diagnosticoWa, apresentacaoEmail: () => apresentacaoEmail(), atualizarJornada: () => carregarJornada(true), mostrarRobos: () => { S.mostrarRobos = !S.mostrarRobos; render(); }, abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
+    novaDespesa: () => editarDespesa(null), diagnosticoWa, apresentacaoEmail: () => apresentacaoEmail(), buscarEmailsProsp: () => buscarEmailsProsp(), atualizarJornada: () => carregarJornada(true), mostrarRobos: () => { S.mostrarRobos = !S.mostrarRobos; render(); }, abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
     selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
