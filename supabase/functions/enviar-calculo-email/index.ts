@@ -40,7 +40,7 @@ Deno.serve(async req => {
 
     // apresentação do serviço para um escritório (prospecção): não depende de cálculo
     if (b.tipo === 'apresentacao') {
-      const d = { tratamento: String(b.tratamento || 'Prezado(a) Dr(a).').slice(0, 80), abertura: String(b.abertura || '').slice(0, 600), assinatura: String(b.assinatura || 'Equipe Pontes Ferreira').slice(0, 80) };
+      const d = { tratamento: String(b.tratamento || 'Prezado(a) Dr(a).').slice(0, 80), abertura: String(b.abertura || '').slice(0, 600), assinatura: String(b.assinatura || 'Equipe Pontes Ferreira').slice(0, 80), ref: String(b.ref || '').replace(/[^0-9a-z-]/gi, '').slice(0, 8) };
       const html = apresentacaoHtml(d);
       await smtp.sendMail({ from: `"${d.assinatura.replace(/"/g, '')} · Pontes Ferreira Cálculos" <${user}>`, to: para, bcc: user, replyTo: user,
         subject: String(b.assunto || 'Proposta de parceria – cálculos trabalhistas no PJe-Calc em até 48h').slice(0, 200), html, text: html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ') });
@@ -198,8 +198,8 @@ function apresentacaoHtml(d: any) {
   </td></tr>
   <tr><td style="padding:16px 28px 4px"><p style="margin:0;color:#33405a;font-size:15px;line-height:1.6">Se fizer sentido para o escritório, basta responder este e-mail com o número de um processo que enviamos o orçamento. Também podemos atender demandas recorrentes, com prioridade na fila e condições para volume.</p></td></tr>
   <tr><td align="center" style="padding:22px 28px 8px">
-    <a href="https://wa.me/5521987708652" style="display:inline-block;background:#1f8a5b;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 20px;border-radius:10px;margin:0 4px 8px">💬 WhatsApp (21) 98770-8652</a>
-    <a href="https://pontesferreiracalculos.com/?utm_source=email&amp;utm_medium=prospeccao&amp;utm_campaign=apresentacao" style="display:inline-block;background:#e3b13c;background-image:linear-gradient(135deg,#fbe7a1,#e2b13c 45%,#b07a12);color:#1b1203;text-decoration:none;font-weight:700;font-size:14px;padding:12px 20px;border-radius:10px;margin:0 4px 8px">Conhecer o site</a>
+    <a href="https://wa.me/5521987708652${d.ref ? '?text=' + encodeURIComponent('Olá! Recebi a apresentação de vocês por e-mail e gostaria de um orçamento. (ref. ' + d.ref + ')') : ''}" style="display:inline-block;background:#1f8a5b;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 20px;border-radius:10px;margin:0 4px 8px">💬 WhatsApp (21) 98770-8652</a>
+    <a href="https://pontesferreiracalculos.com/?utm_source=email&amp;utm_medium=prospeccao&amp;utm_campaign=apresentacao${d.ref ? '&amp;utm_content=' + d.ref : ''}" style="display:inline-block;background:#e3b13c;background-image:linear-gradient(135deg,#fbe7a1,#e2b13c 45%,#b07a12);color:#1b1203;text-decoration:none;font-weight:700;font-size:14px;padding:12px 20px;border-radius:10px;margin:0 4px 8px">Conhecer o site</a>
   </td></tr>
   <tr><td style="padding:8px 28px 24px"><p style="margin:0;color:#33405a;font-size:15px;line-height:1.6">Atenciosamente,<br><b>${esc(d.assinatura)}</b><br><span style="color:#6b7690;font-size:13px">Pontes Ferreira Cálculos Judiciais</span></p></td></tr>
   <tr><td style="background:#0b1a3d;padding:18px 28px;text-align:center;color:#aab4c8;font-size:12px;line-height:1.6">
@@ -239,7 +239,7 @@ async function roboEmail(teste: boolean) {
   if (!fila.length) return { ok: false, motivo: 'fila vazia: nenhum contato "A contatar" com e-mail', voltaram };
   const p = fila[0], nome = String(p.nome || '').trim(), dr = /^(dr|dra)\.?\s/i.test(nome), esc2 = p.escritorio || (!dr ? nome : '');
   const d = { tratamento: dr ? (/^dra/i.test(nome) ? 'Prezada ' : 'Prezado ') + nome.split(/\s+/).slice(0, 2).join(' ') : 'Prezados(as) Drs.',
-    abertura: `Gostaríamos de apresentar nossos serviços ao escritório${esc2 ? ' ' + esc2 : ''}.`, assinatura: String(cfg.assinatura || 'Amanda Pontes').slice(0, 80) };
+    abertura: `Gostaríamos de apresentar nossos serviços ao escritório${esc2 ? ' ' + esc2 : ''}.`, assinatura: String(cfg.assinatura || 'Amanda Pontes').slice(0, 80), ref: String(p.id).slice(0, 8) };
   const reg: any = { em: new Date().toISOString(), dia, id: p.id, nome: nome.slice(0, 80), email: String(p.email).trim(), ok: false, ...(urgente ? { reposicao: true } : {}) };
   try {
     const user = Deno.env.get('SMTP_USER'), pass = Deno.env.get('SMTP_PASS');

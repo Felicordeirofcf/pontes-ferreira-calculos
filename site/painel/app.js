@@ -1031,7 +1031,7 @@ async function apresentacaoEmail(opc = {}) {
   let ok = false;
   await seguro(async () => {
     if (DEMO) { ok = true; return toast('Modo demonstração: apresentação para ' + para + ' simulada.'); }
-    const { error } = await sb.functions.invoke('enviar-calculo-email', { body: { tipo: 'apresentacao', para, tratamento: v.tratamento, abertura: v.abertura, assunto: v.assunto, assinatura: v.assinatura } });
+    const { error } = await sb.functions.invoke('enviar-calculo-email', { body: { tipo: 'apresentacao', para, tratamento: v.tratamento, abertura: v.abertura, assunto: v.assunto, assinatura: v.assinatura, ref: opc.ref || '' } });
     if (error) { let d = {}; try { d = await error.context.json(); } catch { } throw new Error(d.mensagem || error.message); }
     ok = true; toast('✉ Apresentação enviada para ' + para + ' (você recebe uma cópia oculta)');
     const l = !opc.semConversa && c && leadDaConversa(c);
@@ -1044,7 +1044,7 @@ async function apresentacaoProsp(id) {
   let p = S.prospects.find(x => x.id === id); if (!p) return;
   if (!p.email && p.site && !DEMO) { toast('Procurando o e-mail no site do escritório…'); await buscarEmailsProsp([p], true); p = S.prospects.find(x => x.id === id) || p; }
   const nome = String(p.nome || '').trim(), dr = /^(dr|dra)\.?\s/i.test(nome);
-  const para = await apresentacaoEmail({ semConversa: true, para: p.email || '',
+  const para = await apresentacaoEmail({ semConversa: true, ref: String(p.id).slice(0, 8), para: p.email || '',
     tratamento: dr ? (/^dra/i.test(nome) ? 'Prezada ' : 'Prezado ') + nome.split(/\s+/).slice(0, 2).join(' ') : 'Prezados(as) Drs.',
     abertura: `Gostaríamos de apresentar nossos serviços ao escritório${p.escritorio || (!dr && nome) ? ' ' + (p.escritorio || nome) : ''}.` });
   if (!para) return false;
@@ -2899,7 +2899,7 @@ function sessoesJornada() {
   const ev = S.jornada?.lista || [], m = new Map();
   for (const e of ev) {
     let s = m.get(e.sessao);
-    if (!s) m.set(e.sessao, s = { id: e.sessao, ref: e.ref || ('PF' + String(e.sessao || '').replace(/[^a-z0-9]/gi, '').slice(0, 5).toUpperCase()), inicio: e.created_at, fim: e.created_at, fonte: FONTE_ROT(e.utm_source), campanha: e.utm_campaign || '', termo: e.utm_term || '', disp: e.dispositivo || '?', local: [e.cidade, e.uf].filter(Boolean).join('/'), entrada: e.pagina || '/', paginas: new Set(), cliques: [], rol: 0, tempo: 0, wa: false, form: false, pedido: false, eventos: [] });
+    if (!s) m.set(e.sessao, s = { id: e.sessao, ref: e.ref || ('PF' + String(e.sessao || '').replace(/[^a-z0-9]/gi, '').slice(0, 5).toUpperCase()), inicio: e.created_at, fim: e.created_at, fonte: FONTE_ROT(e.utm_source), campanha: e.utm_campaign || '', termo: e.utm_term || '', conteudo: e.utm_content || '', disp: e.dispositivo || '?', local: [e.cidade, e.uf].filter(Boolean).join('/'), entrada: e.pagina || '/', paginas: new Set(), cliques: [], rol: 0, tempo: 0, wa: false, form: false, pedido: false, eventos: [] });
     s.fim = e.created_at; s.eventos.push(e); if (e.pagina) s.paginas.add(e.pagina);
     if (e.tipo === 'rolagem') s.rol = Math.max(s.rol, parseInt(e.alvo) || 0);
     if (e.tipo === 'tempo') { s.tempo = Math.max(s.tempo, parseInt(e.alvo) || 0); s.rol = Math.max(s.rol, parseInt(e.secao) || 0); }
@@ -2912,10 +2912,12 @@ function sessoesJornada() {
   const semCodigo = S.leads.filter(l => !l.ref && !l.sessao);
   // lead sem código (feito antes do rastreador): liga pelo horário do envio do formulário (até 5 min)
   const pelaHora = s => { const p = s.eventos.find(e => e.tipo === 'pedido'); if (!p) return null; const t = new Date(p.created_at).getTime(); return semCodigo.find(l => Math.abs(new Date(l.created_at).getTime() - t) < 5 * 60e3) || null; };
+  // e-mail de apresentação: utm_content = início do id do contato da Prospecção → mostra quem abriu
+  const prospDe = s => s.conteudo && /^[0-9a-f-]{6,}$/i.test(s.conteudo) ? S.prospects.find(p => String(p.id).startsWith(s.conteudo)) || null : null;
   return [...m.values()].map(s => {
     const l = porSes.get(s.id) || porRef.get(s.ref) || pelaHora(s) || null;
     const dur = Math.max(s.tempo, Math.round((new Date(s.fim) - new Date(s.inicio)) / 1000));
-    return { ...s, lead: l, dur, engajou: dur >= 10 || s.rol >= 25 || s.cliques.length > 0, leu: s.rol >= 50, clicou: s.wa || s.form || s.pedido, contato: !!l, pedidoSemLead: s.pedido && !l, orcado: !!l && ['orcamento', 'fechado'].includes(l.status), fechou: !!l && l.status === 'fechado' };
+    return { ...s, prosp: prospDe(s), lead: l, dur, engajou: dur >= 10 || s.rol >= 25 || s.cliques.length > 0, leu: s.rol >= 50, clicou: s.wa || s.form || s.pedido, contato: !!l, pedidoSemLead: s.pedido && !l, orcado: !!l && ['orcamento', 'fechado'].includes(l.status), fechou: !!l && l.status === 'fechado' };
   }).sort((a, b) => b.inicio.localeCompare(a.inicio));
 }
 const PASSOS_JORNADA = [
@@ -2978,10 +2980,10 @@ function trafegoJornada() {
     ${tabela('Por página de entrada', grupos(s => s.entrada))}
     <div class="card larga"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h2 style="margin:0">Visitantes</h2>
       <input class="f" id="buscaJornada" placeholder="Código (PF…) ou nome do lead" value="${esc(S.buscaJornada || '')}" style="width:240px"></div>
-      ${achada ? `<div class="card" style="margin:10px 0;background:#f8fafc"><h3 style="margin:0 0 6px">${esc(achada.ref)} · ${esc(achada.fonte)}${achada.termo ? ' · "' + esc(achada.termo) + '"' : ''} · ${esc(achada.disp)}${achada.local ? ' · ' + esc(achada.local) : ''}${achada.lead ? ` · lead: <b>${esc(achada.lead.nome || '')}</b> (${esc(STATUS_LEAD[achada.lead.status] || achada.lead.status)})` : ''}</h3>${linhaTempo(achada)}</div>` : busca ? '<div class="desc">Nenhum visitante com esse código no período.</div>' : ''}
+      ${achada ? `<div class="card" style="margin:10px 0;background:#f8fafc"><h3 style="margin:0 0 6px">${esc(achada.ref)} · ${esc(achada.fonte)}${achada.termo ? ' · "' + esc(achada.termo) + '"' : ''} · ${esc(achada.disp)}${achada.local ? ' · ' + esc(achada.local) : ''}${achada.prosp ? ` · ✉ <b>${esc(achada.prosp.nome)}</b> <button class="btn mini sec" data-prosp="${achada.prosp.id}">ver contato</button>` : ''}${achada.lead ? ` · lead: <b>${esc(achada.lead.nome || '')}</b> (${esc(STATUS_LEAD[achada.lead.status] || achada.lead.status)})` : ''}</h3>${linhaTempo(achada)}</div>` : busca ? '<div class="desc">Nenhum visitante com esse código no período.</div>' : ''}
       ${ses.length ? `<div class="tabela"><table><tr><th>Código</th><th>Quando</th><th>Origem / palavra-chave</th><th>Aparelho</th><th>Entrou em</th><th class="n">Tempo</th><th class="n">Rolou</th><th>Cliques</th><th>Até onde foi</th></tr>
       ${ses.slice(0, 60).map(s => { const [c, t] = etapa(s); return `<tr class="clic" data-jornada="${esc(s.ref)}"><td><code>${esc(s.ref)}</code></td><td style="white-space:nowrap">${esc(new Date(s.inicio).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}</td>
-        <td>${esc(s.fonte)}${s.termo ? `<div class="desc">"${esc(s.termo)}"</div>` : ''}</td><td>${s.disp === 'celular' ? '📱' : '💻'}</td><td class="desc">${esc(s.entrada)}</td><td class="n">${s.dur}s</td><td class="n">${s.rol}%</td>
+        <td>${esc(s.fonte)}${s.termo ? `<div class="desc">"${esc(s.termo)}"</div>` : ''}${s.prosp ? `<div class="desc">✉ ${esc(s.prosp.nome)}</div>` : ''}</td><td>${s.disp === 'celular' ? '📱' : '💻'}</td><td class="desc">${esc(s.entrada)}</td><td class="n">${s.dur}s</td><td class="n">${s.rol}%</td>
         <td class="desc" style="max-width:220px">${esc(s.cliques.slice(0, 3).join(' · ')) || '—'}</td><td><span class="tag ${c}">${t}</span>${s.lead ? `<div class="desc">${esc(s.lead.nome || '')}</div>` : ''}${s.contato ? ` <button class="btn mini sec" data-jornada-teste="${esc(s.ref)}" title="Foi um teste seu: tirar do diagnóstico">é teste</button>` : ''}</td></tr>`; }).join('')}</table></div><div class="desc" style="margin-top:6px">Clique numa linha para ver o caminho completo do visitante, passo a passo.</div>` : '<div class="vazio">Sem visitantes no período.</div>'}</div>
   </div>`;
 }
