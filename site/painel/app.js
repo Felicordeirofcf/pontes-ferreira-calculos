@@ -2933,7 +2933,13 @@ function trafegoJornada() {
   // testes não entram no diagnóstico: campanha "teste", lead com "teste" no nome/origem/obs, ou marcado como teste aqui
   const ehTeste = s => /teste/i.test(s.campanha || '') || (s.lead && /teste/i.test([s.lead.nome, s.lead.origem, s.lead.obs, s.lead.motivo_perda].join(' '))) || (S.ajustes.jornada_testes || []).includes(s.ref);
   // provável robô: chegou sem origem, não rolou, não clicou e não ficou (robôs do Google conferindo a página, buscadores, testes automáticos)
-  const ehRobo = s => s.fonte === 'Direto / sem origem' && !s.engajou && !s.clicou && !s.lead;
+  // também robô: rajada de visitas do anúncio no mesmo minuto sem ninguém ficar (o Google conferindo a página depois de editar o anúncio)
+  // e visita "do Google Ads" fora do horário em que o anúncio roda (regras do 🛡 Vigia), sem nenhuma interação
+  const rajada = new Set(), porMin = {};
+  todasComTeste.filter(s => !s.engajou && !s.clicou && !s.lead).forEach(s => { const k = s.fonte + '|' + s.termo + '|' + String(s.inicio).slice(0, 16); (porMin[k] = porMin[k] || []).push(s.id); });
+  Object.values(porMin).filter(ids => ids.length >= 3).forEach(ids => ids.forEach(id => rajada.add(id)));
+  const cv = cfgVigia(), foraAnuncio = s => { const d = new Date(s.inicio); return !cv.anuncio_dias.map(Number).includes(d.getDay()) || d.getHours() < cv.anuncio_ini || d.getHours() >= cv.anuncio_fim; };
+  const ehRobo = s => !s.engajou && !s.clicou && !s.lead && (s.fonte === 'Direto / sem origem' || rajada.has(s.id) || (/google ads/i.test(s.fonte) && foraAnuncio(s)));
   const semTeste = todasComTeste.filter(s => !ehTeste(s)), nTestes = todasComTeste.length - semTeste.length;
   const todas = S.mostrarRobos ? semTeste : semTeste.filter(s => !ehRobo(s)), nRobos = semTeste.length - todas.length;
   const f = S.filtroJornada || '', ses = f ? todas.filter(s => s.fonte === f) : todas;
@@ -2955,7 +2961,7 @@ function trafegoJornada() {
   const fontes = [...new Set(todas.map(s => s.fonte))];
   return `
   <div class="card larga" style="margin-bottom:14px"><div class="linha" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <div><h2 style="margin:0">🧭 Jornada do cliente</h2><div class="desc">Cada visitante recebe um código (ex.: PF7K2QA) que vai na mensagem do WhatsApp. Assim o painel liga a conversa ao caminho dele no site e mostra onde as pessoas desistem. ${PERIODOS[S.periodo]}.${nTestes ? ` <b>${nTestes} visita(s) de teste fora da conta.</b>` : ''}${nRobos ? ` <b>${nRobos} acesso(s) sem origem e sem nenhuma interação (provavelmente robôs) fora da conta.</b> <button class="btn mini sec" data-acao="mostrarRobos">mostrar</button>` : S.mostrarRobos ? ' <button class="btn mini sec" data-acao="mostrarRobos">esconder robôs</button>' : ''}</div></div>
+    <div><h2 style="margin:0">🧭 Jornada do cliente</h2><div class="desc">Cada visitante recebe um código (ex.: PF7K2QA) que vai na mensagem do WhatsApp. Assim o painel liga a conversa ao caminho dele no site e mostra onde as pessoas desistem. ${PERIODOS[S.periodo]}.${nTestes ? ` <b>${nTestes} visita(s) de teste fora da conta.</b>` : ''}${nRobos ? ` <b>${nRobos} acesso(s) de robô fora da conta</b> (sem nenhuma interação: sem origem, rajada do Google conferindo o anúncio, ou "Google Ads" fora do horário do anúncio). <button class="btn mini sec" data-acao="mostrarRobos">mostrar</button>` : S.mostrarRobos ? ' <button class="btn mini sec" data-acao="mostrarRobos">esconder robôs</button>' : ''}</div></div>
     <div class="linha"><select class="f" id="filtroJornada"><option value="">Todas as origens</option>${fontes.map(x => `<option ${x === f ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select><button class="btn sec" data-acao="atualizarJornada">↻</button></div></div>
     ${J.erro ? `<div class="demo" style="margin-top:10px"><span>⚠ ${esc(J.erro)}</span></div>` : ''}
     ${todas.filter(s => s.pedidoSemLead).length ? `<div class="demo" style="margin-top:10px"><span>⚠ ${todas.filter(s => s.pedidoSemLead).length} visitante(s) enviaram o formulário e nenhum lead apareceu no painel (${todas.filter(s => s.pedidoSemLead).map(s => s.ref).join(', ')}). Se não foram testes, me avise: pode ser falha no envio.</span></div>` : ''}${J.carregando && !todas.length ? '<div class="demo" style="margin-top:10px"><span>Carregando a jornada…</span></div>' : ''}</div>
