@@ -272,7 +272,8 @@ async function guardarEmEnviados(msg: any) {
     await cli.append(enviados ? enviados.path : 'INBOX.enviadas', bruto, ['\\Seen']);
   } finally { await cli.logout().catch(() => { }); }
 }
-// lê na caixa de entrada os avisos de "e-mail não entregue" ainda não lidos e devolve os endereços que falharam de vez
+// lê na caixa de entrada os avisos de "e-mail não entregue" (lidos ou não: você pode abrir antes do robô)
+// e devolve os endereços que falharam de vez. Guarda quais avisos já conferiu para não reler.
 async function lerDevolucoes(): Promise<string[]> {
   const user = Deno.env.get('SMTP_USER'), pass = Deno.env.get('SMTP_PASS');
   if (!user || !pass) return [];
@@ -282,17 +283,22 @@ async function lerDevolucoes(): Promise<string[]> {
   const trava = await cli.getMailboxLock('INBOX');
   try {
     const desde = new Date(Date.now() - 10 * 864e5);
-    const uids = await cli.search({ seen: false, since: desde, or: [{ from: 'postmaster' }, { from: 'mailer-daemon' }, { subject: 'Delivery' }, { subject: 'Undeliver' }, { subject: 'não entregue' }, { subject: 'Returned mail' }, { subject: 'Falha na entrega' }] }, { uid: true });
+    const uids = await cli.search({ since: desde, or: [{ from: 'postmaster' }, { from: 'mailer-daemon' }, { subject: 'Delivery' }, { subject: 'Undeliver' }, { subject: 'não entregue' }, { subject: 'Returned mail' }, { subject: 'Falha na entrega' }] }, { uid: true });
     const lidas: number[] = [];
-    if (uids && uids.length) for await (const m of cli.fetch(uids.slice(-50), { uid: true, source: { maxLength: 300000 } }, { uid: true })) {
+    const memo = await lerAjuste('robo_email_imap'), validade = String(cli.mailbox?.uidValidity || '');
+    const feitos = new Set<number>(memo.validade === validade ? (memo.uids || []) : []);
+    const novos = (uids || []).filter((u: number) => !feitos.has(u)).slice(-50);
+    if (novos.length) for await (const m of cli.fetch(novos, { uid: true, source: { maxLength: 300000 } }, { uid: true })) {
       const txt = (m.source ? new TextDecoder().decode(m.source) : '');
-      if (!/Action:\s*failed|Status:\s*5\.\d+\.\d+|\b55\d[ -]5\.\d|permanent|permanente|does not exist|não existe|user unknown|mailbox unavailable|relay access denied/i.test(txt)) continue; // 4.x = só atrasou, ignora
+      feitos.add(m.uid);
+      if (!/Action:\s*failed|Status:\s*5\.\d+\.\d+|\b55\d[ -]5\.\d|permanent|permanente|does not exist|não existe|user unknown|unknown to address|wasn't found|mailbox unavailable|relay access denied/i.test(txt)) continue; // 4.x = só atrasou, ignora
       const ems = [...txt.matchAll(/(?:Final|Original)-Recipient:\s*rfc822;\s*<?([^\s<>;]+@[^\s<>;]+)>?/gi)].map(x => x[1].toLowerCase());
       if (!ems.length) (txt.match(/<([^\s<>@]+@[^\s<>@]+\.[a-z]{2,})>:/gi) || []).forEach(x => ems.push(x.replace(/[<>:]/g, '').toLowerCase()));
+      if (!ems.length) for (const x of txt.matchAll(/message to\s+<?([^\s<>@]+@[^\s<>@]+\.[a-z]{2,})>?\s+couldn'?t be delivered/gi)) ems.push(x[1].toLowerCase()); // Office 365
       ems.filter(e => e !== user.toLowerCase()).forEach(e => achados.add(e.replace(/\.$/, '')));
       lidas.push(m.uid);
     }
-    if (lidas.length) await cli.messageFlagsAdd(lidas, ['\\Seen'], { uid: true });
+    if (novos.length) await db.from('ajustes').upsert({ chave: 'robo_email_imap', publico: false, valor: { validade, uids: [...feitos].slice(-2000) } });
   } finally { trava.release(); await cli.logout().catch(() => { }); }
   return [...achados];
 }
