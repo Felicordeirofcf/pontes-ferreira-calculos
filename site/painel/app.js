@@ -1766,8 +1766,10 @@ const STATUS_PROSP = { a_contatar: 'A contatar', contatado: 'Contatado', respond
 const TAG_PROSP = { a_contatar: 't-neutro', contatado: 't-azul', respondeu: 't-warn', interessado: 't-warn', cliente: 't-good', sem_interesse: 't-neutro', nao_contatar: 't-crit' };
 // abas da lista: quem já foi abordado sai de "A contatar" e vai para "Contatados"
 const ABAS_PROSP = { a_contatar: ['A contatar', ['a_contatar']], contatados: ['Contatados', ['contatado']], responderam: ['Responderam', ['respondeu', 'interessado']],
-  clientes: ['Clientes', ['cliente']], encerrados: ['Encerrados', ['sem_interesse', 'nao_contatar']], sem_tel: ['📞 Sem telefone', null], com_email: ['✉ Com e-mail', null], todos: ['Todos', null] };
-const comEmail = p => !!p.email && p.status !== 'nao_contatar';
+  clientes: ['Clientes', ['cliente']], encerrados: ['Encerrados', ['sem_interesse', 'nao_contatar']], sem_tel: ['📞 Sem telefone', null], com_email: ['✉ Fila do e-mail', null], todos: ['Todos', null] };
+// abas auxiliares mostram só quem ainda não foi abordado: depois do 1º contato, o contato fica só em "Contatados"
+const aContatar = p => (p.status || 'a_contatar') === 'a_contatar' && !p.tentativas;
+const comEmail = p => !!p.email && aContatar(p);
 const FONTES_PROSP = ['Credenciados CAIXA (TST)', 'Google Maps', 'Instagram', 'LinkedIn', 'Site do escritório', 'Jusbrasil', 'Indicação', 'Evento / OAB', 'Outros'];
 const PROSP_PADRAO = {
   meta_dia: 20, dias_follow1: 3, dias_follow2: 7, max_tentativas: 3, remetente: '',
@@ -1825,7 +1827,7 @@ function telaProspeccao() {
   const ORDENS = { prioridade: (a, b) => scoreProsp(b) - scoreProsp(a) || (b.ultimo_contato || b.created_at).localeCompare(a.ultimo_contato || a.created_at), recentes: (a, b) => (b.ultimo_contato || b.created_at).localeCompare(a.ultimo_contato || a.created_at), novos: (a, b) => b.created_at.localeCompare(a.created_at),
     retorno: (a, b) => (a.proximo_contato || '9999').localeCompare(b.proximo_contato || '9999'), nome: (a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'), cidade: (a, b) => cidadeDe(a).localeCompare(cidadeDe(b), 'pt-BR') || (a.nome || '').localeCompare(b.nome || '', 'pt-BR') };
   const aba = ABAS_PROSP[f.aba] ? f.aba : 'a_contatar', grupoAba = ABAS_PROSP[aba][1];
-  const semTel = p => !digitos(p.whatsapp) && !['cliente', 'sem_interesse', 'nao_contatar'].includes(p.status);
+  const semTel = p => !digitos(p.whatsapp) && aContatar(p);
   const naAba = p => aba === 'sem_tel' ? semTel(p) : aba === 'com_email' ? comEmail(p) : (!grupoAba || grupoAba.includes(p.status || 'a_contatar'));
   const filtrada = S.prospects.filter(p => naAba(p) && (!q || [p.nome, p.escritorio, p.cidade, p.email, p.whatsapp, p.obs].join(' ').toLowerCase().includes(q))
       && (!f.cidade || cidadeDe(p) === f.cidade) && (!f.fonte || (p.fonte || '(sem origem)') === f.fonte)
@@ -1838,7 +1840,7 @@ function telaProspeccao() {
   const contaPor = fn => { const m = {}; S.prospects.forEach(p => { const k = fn(p); m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR')); };
   const opt = (v, rot, atual) => `<option value="${esc(v)}" ${v === (atual || '') ? 'selected' : ''}>${esc(rot)}</option>`;
   const filtrosAtivos = ['q', 'cidade', 'fonte', 'tel', 'retorno', 'nota'].filter(k => f[k]).length;
-  const contaAba = k => S.prospects.filter(p => k === 'sem_tel' ? !digitos(p.whatsapp) && !['cliente', 'sem_interesse', 'nao_contatar'].includes(p.status) : k === 'com_email' ? comEmail(p) : (!ABAS_PROSP[k][1] || ABAS_PROSP[k][1].includes(p.status || 'a_contatar'))).length;
+  const contaAba = k => S.prospects.filter(p => k === 'sem_tel' ? !digitos(p.whatsapp) && aContatar(p) : k === 'com_email' ? comEmail(p) : (!ABAS_PROSP[k][1] || ABAS_PROSP[k][1].includes(p.status || 'a_contatar'))).length;
   const numsPag = (() => { const out = []; for (let i = 1; i <= paginas; i++) if (i === 1 || i === paginas || Math.abs(i - pag) <= 2) out.push(i); else if (out[out.length - 1] !== '…') out.push('…'); return out; })();
   const paginacao = paginas > 1 ? `<div class="linha" style="justify-content:space-between;margin-top:12px;flex-wrap:wrap;gap:8px">
       <span class="desc">Mostrando ${(pag - 1) * POR_PAG + 1}–${Math.min(pag * POR_PAG, filtrada.length)} de ${filtrada.length}</span>
@@ -1869,6 +1871,7 @@ function telaProspeccao() {
     <div class="card larga"><div class="linha" style="justify-content:space-between"><h2>Lista</h2>
       <div class="linha"><span class="desc">${filtrada.length} de ${contaAba(aba)} em "${ABAS_PROSP[aba][0]}"</span>${aba === 'sem_tel' && contaAba('sem_tel') ? '<button class="btn mini ouro" data-acao="localizarTodos">🔍 Localizar todos</button>' : ''}${semEmailComSite() ? `<button class="btn mini sec" data-acao="buscarEmailsProsp" title="Abre o site de cada escritório e pega o e-mail de contato publicado">✉ Buscar e-mails (${semEmailComSite()})</button>` : ''}${filtrosAtivos ? '<button class="btn mini sec" data-acao="limparFiltroProsp">✕ Limpar filtros</button>' : ''}</div></div>
       <div class="seg" style="margin:12px 0 4px;flex-wrap:wrap">${Object.entries(ABAS_PROSP).map(([k, [rot]]) => `<button class="${k === aba ? 'on' : ''}" data-aba-prosp="${k}">${rot} <span class="desc">(${contaAba(k)})</span></button>`).join('')}</div>
+      <div class="desc" style="margin:2px 0 6px">${{ a_contatar: 'Ainda não abordados. Depois do 1º contato (WhatsApp, e-mail ou robô), o contato sai daqui e vai para <b>Contatados</b>. Falou por fora? Use <b>✓ Já contatei</b>.', contatados: 'Já abordados e sem resposta. A coluna Retorno mostra o próximo follow-up; quando vence, o contato volta para a fila.', responderam: 'Responderam ou demonstraram interesse.', clientes: 'Viraram clientes.', encerrados: 'Sem interesse ou pediram para não ser contatados.', sem_tel: 'Ainda não abordados e sem telefone: use 🔍 Localizar todos.', com_email: 'Ainda não abordados e com e-mail: é a fila do 🤖 robô de e-mail.', todos: 'Todos os contatos, em qualquer etapa.' }[aba] || ''}</div>
       <div class="linha" style="flex-wrap:wrap;gap:8px;margin:10px 0 4px">
       <input class="f" id="buscaProsp" placeholder="Buscar nome, telefone, obs…" value="${esc(f.q || '')}" style="flex:1;min-width:200px">
       <select class="f" data-filtro-prosp="cidade">${opt('', 'Todas as cidades', f.cidade)}${contaPor(cidadeDe).map(([c, n]) => opt(c, `${c} (${n})`, f.cidade)).join('')}</select>
@@ -1885,7 +1888,7 @@ function telaProspeccao() {
         <td><span class="tag ${TAG_PROSP[p.status] || 't-neutro'}">${STATUS_PROSP[p.status] || p.status}</span>${p.tentativas ? ` <span class="desc">${p.tentativas}×</span>` : ''}</td>
         <td>${p.ultimo_contato ? dataBR(p.ultimo_contato) : '—'}</td>
         <td>${p.proximo_contato && contatavel(p) ? `<span class="${p.proximo_contato <= hoje() ? 'tag t-warn' : ''}">${dataBR(p.proximo_contato)}</span>` : '—'}</td>
-        <td style="white-space:nowrap">${contatavel(p) ? `<button class="btn mini ouro" data-abordar="${p.id}">📲 Abordar</button>` : ''}</td></tr>`).join('')}</table></div>`
+        <td style="white-space:nowrap">${contatavel(p) ? `<button class="btn mini ouro" data-abordar="${p.id}">📲 Abordar</button>` : ''}${aContatar(p) && contatavel(p) ? ` <button class="btn mini sec" data-ja-contatei="${p.id}" title="Já falei com esse contato por fora (celular, e-mail): mover para Contatados e agendar o retorno">✓ Já contatei</button>` : ''}</td></tr>`).join('')}</table></div>`
       : `<div class="vazio">${S.prospects.length ? 'Nada com esse filtro' : 'Lista vazia. Comece pesquisando acima e adicionando contatos.'}</div>`}${paginacao}</div>
   </div>`;
 }
@@ -3787,7 +3790,7 @@ function render() {
 }
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-jornada-teste],[data-jornada],[data-localizar-lista],[data-msg-lista],[data-mover-lista],[data-filtro-lista],[data-localizar],[data-usar-local],[data-aba-prosp],[data-pag-prosp],[data-cidade-prosp],[data-filtro-wa],[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
+  const t = e.target.closest('[data-ja-contatei],[data-jornada-teste],[data-jornada],[data-localizar-lista],[data-msg-lista],[data-mover-lista],[data-filtro-lista],[data-localizar],[data-usar-local],[data-aba-prosp],[data-pag-prosp],[data-cidade-prosp],[data-filtro-wa],[data-cadastro],[data-cadastro-ok],[data-excluir-lead],[data-portal],[data-entregas],[data-aba-fin],[data-filtro-agenda],[data-aba-config],[data-filtro-monitor],[data-conv-monitor],[data-acao-monitor],[data-wa-abrir],[data-wa-prosp],[data-mail-prosp],[data-uf-mapa],[data-metrica-mapa],[data-prospectar-uf],[data-prosp],[data-abordar],[data-robo-assumir],[data-robo-devolver],[data-copiar],[data-aba-trafego],[data-feito],[data-acao],[data-calc],[data-lead],[data-converter],[data-pdf],[data-pagar],[data-cliente],[data-despesa],[data-ficha],[data-fechar-ficha],[data-prox],[data-adiar],[data-vista],[data-wa-lead],[data-conv],[data-usar-pdf]');
   if (!t) return;
   const d = t.dataset;
   if (d.filtroWa) { S.filtroWa = d.filtroWa; return render(); }
@@ -3805,6 +3808,7 @@ document.addEventListener('click', e => {
   if (d.waAbrir) { e.stopPropagation(); return abrirNoPainel(d.waAbrir, d.waNome, d.waTxt, { lead_id: d.waLeadId, cliente_id: d.waClienteId }); }
   if (d.waProsp) return enviarDiretoProsp(d.waProsp, 'wa');
   if (d.mailProsp) return apresentacaoProsp(d.mailProsp);
+  if (d.jaContatei) { const p = S.prospects.find(x => x.id === d.jaContatei); if (p) return seguro(async () => { await marcarContatado(p); render(); }); }
   if (d.ufMapa !== undefined) { S.ufMapa = d.ufMapa || null; if (rota() !== 'mapa') location.hash = 'mapa'; return render(); }
   if (d.metricaMapa) { S.metricaMapa = d.metricaMapa; localSet('pf_metrica_mapa', d.metricaMapa); return render(); }
   if (d.prospectarUf) return prospectarUF(d.prospectarUf);
