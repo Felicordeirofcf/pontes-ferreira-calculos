@@ -1881,7 +1881,7 @@ function telaProspeccao() {
       <div class="seg" style="margin:12px 0 4px;flex-wrap:wrap">${Object.entries(ABAS_PROSP).map(([k, [rot]]) => `<button class="${k === aba ? 'on' : ''}" data-aba-prosp="${k}">${rot} <span class="desc">(${contaAba(k)})</span></button>`).join('')}</div>
       <div class="desc" style="margin:2px 0 6px">${{ a_contatar: 'Ainda não abordados. Depois do 1º contato (WhatsApp, e-mail ou robô), o contato sai daqui e vai para <b>Contatados</b>. Falou por fora? Use <b>✓ Já contatei</b>.', contatados: 'Já abordados e sem resposta. A coluna Retorno mostra o próximo follow-up; quando vence, o contato volta para a fila.', responderam: 'Responderam ou demonstraram interesse.', clientes: 'Viraram clientes.', encerrados: 'Sem interesse ou pediram para não ser contatados.', sem_tel: 'Ainda não abordados e sem telefone: use 🔍 Localizar todos.', com_email: 'Ainda não abordados e com e-mail: é a fila do 🤖 robô de e-mail.', todos: 'Todos os contatos, em qualquer etapa.' }[aba] || ''}</div>
       <div class="linha" style="flex-wrap:wrap;gap:8px;margin:10px 0 4px">
-      <input class="f" id="buscaProsp" placeholder="Buscar nome, telefone, obs…" value="${esc(f.q || '')}" style="flex:1;min-width:200px">
+      <input class="f" id="buscaProsp" placeholder="Buscar nome, bairro, telefone, obs…" value="${esc(f.q || '')}" style="flex:1;min-width:200px">
       <select class="f" data-filtro-prosp="uf">${opt('', 'Todos os estados', f.uf)}${contaPor(ufDe).map(([c, n]) => opt(c, `${c} (${n})`, f.uf)).join('')}</select>
       <select class="f" data-filtro-prosp="cidade">${opt('', f.uf ? 'Todas as cidades de ' + f.uf : 'Todas as cidades', f.cidade)}${(f.uf ? (() => { const m = {}; S.prospects.filter(p => ufDe(p) === f.uf).forEach(p => { const k = cidadeDe(p); m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); })() : contaPor(cidadeDe)).map(([c, n]) => opt(c, `${c} (${n})`, f.cidade)).join('')}</select>
       <select class="f" data-filtro-prosp="tel">${opt('', 'Qualquer telefone', f.tel)}${opt('celular', '📱 Celular (WhatsApp)', f.tel)}${opt('fixo', '☎ Fixo', f.tel)}${opt('sem', 'Sem telefone', f.tel)}</select>
@@ -2088,10 +2088,12 @@ function cardBuscaAuto(termo, cidade, qBusca, busca) {
     <div class="desc">Digite a cidade e clique em <b>Buscar</b>: o painel traz os escritórios do Google Maps com telefone, site e nota. Marque quem quer abordar e adicione com um clique. Só dados públicos de empresas.</div>
     <div class="form-trafego linha" style="margin-top:10px;flex-wrap:wrap">
       <input class="f" data-busca-prosp="termo" value="${esc(termo)}" placeholder="advogado trabalhista" list="termosProsp" style="flex:1;min-width:200px">
-      <input class="f" data-busca-prosp="cidade" value="${esc(cidade)}" placeholder="cidade (ex.: Niterói)" list="cidadesProsp" style="flex:1;min-width:180px">
-      <label class="linha" style="gap:6px;font-size:.9rem;white-space:nowrap" title="O Google também devolve escritórios de cidades vizinhas. Marcado, o painel mostra só os da cidade digitada."><input type="checkbox" data-acao="soCidadeProsp" ${S.buscaProsp.soCidade !== false ? 'checked' : ''}> Só desta cidade</label>
+      <input class="f" data-busca-prosp="cidade" value="${esc(cidade)}" placeholder="cidade (ex.: Rio de Janeiro)" list="cidadesProsp" style="flex:1;min-width:180px">
+      <input class="f" data-busca-prosp="bairro" value="${esc(S.buscaProsp.bairro || '')}" placeholder="bairro (opcional, ex.: Barra da Tijuca)" list="bairrosProsp" style="flex:1;min-width:180px">
+      <label class="linha" style="gap:6px;font-size:.9rem;white-space:nowrap" title="O Google também devolve escritórios de lugares vizinhos. Marcado, o painel mostra só os da cidade (e do bairro, se preenchido)."><input type="checkbox" data-acao="soCidadeProsp" ${S.buscaProsp.soCidade !== false ? 'checked' : ''}> ${S.buscaProsp.bairro ? 'Só deste bairro' : 'Só desta cidade'}</label>
       <button class="btn" data-acao="buscarAuto" ${A.carregando ? 'disabled' : ''}>${A.carregando ? 'Buscando…' : '🔍 Buscar'}</button>${lugares.length ? '<button class="btn sec" data-acao="limparBuscaProsp" title="Limpar os resultados da busca">✕ Limpar busca</button>' : ''}</div>
     <datalist id="termosProsp">${TERMOS_PROSP.map(t => `<option value="${esc(t)}">`).join('')}</datalist>
+    <datalist id="bairrosProsp">${(BAIRROS_PROSP[semAcento(cidade)] || []).map(t => `<option value="${esc(t)}">`).join('')}</datalist>
     <datalist id="cidadesProsp">${CIDADES_PROSP.map(t => `<option value="${esc(t)}">`).join('')}</datalist>
     ${naoBuscadas.length ? `<div class="linha" style="margin-top:8px;flex-wrap:wrap;gap:6px"><span class="desc">Cidades sem nenhum contato na lista:</span>${naoBuscadas.map(c => `<button class="btn mini sec" data-cidade-prosp="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
     ${A.erro === 'sem_chave' ? `<div class="demo" style="margin-top:12px;display:block"><b>Falta ligar a busca automática (uma vez só):</b><ol style="margin:6px 0 0 18px;line-height:1.6">
@@ -2117,9 +2119,19 @@ function cardBuscaAuto(termo, cidade, qBusca, busca) {
         ${busca('https://pontesferreiracalculos.com/', '👁 Ver site')}</div></details></div>`;
 }
 const DEMO_ACHADOS = n => Array.from({ length: 6 }, (_, i) => ({ id: 'demo' + n + i, nome: ['Silva & Souza Advogados', 'Dra. Carla Mendes Advocacia', 'Oliveira Advocacia Trabalhista', 'Escritório Ramos', 'Lima e Costa Sociedade de Advogados', 'Dr. Paulo Nunes'][i], cidade: S.buscaProsp.cidade || 'Niterói', telefone: i % 3 === 2 ? '(21) 2722-10' + (10 + i) : '(21) 9' + (8100 + i * 37) + '-' + (4100 + i * 11), site: i % 2 ? '' : 'https://exemplo.com.br', maps: 'https://maps.google.com', nota: [4.8, 4.5, null, 5, 4.2, 3.9][i], avaliacoes: [52, 18, 0, 7, 31, 3][i], tipo: 'Advogado' }));
+// bairros com mais escritórios (sugestões; qualquer bairro funciona digitando)
+const semAcento = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const BAIRROS_PROSP = {
+  'rio de janeiro': ['Centro', 'Barra da Tijuca', 'Tijuca', 'Copacabana', 'Botafogo', 'Flamengo', 'Ipanema', 'Méier', 'Madureira', 'Campo Grande', 'Recreio dos Bandeirantes', 'Jacarepaguá', 'Bangu', 'Ilha do Governador'],
+  'niteroi': ['Centro', 'Icaraí', 'Santa Rosa', 'Fonseca', 'São Francisco'],
+  'sao paulo': ['Sé', 'República', 'Bela Vista', 'Pinheiros', 'Itaim Bibi', 'Moema', 'Vila Mariana', 'Santana', 'Tatuapé', 'Lapa', 'Santo Amaro', 'Liberdade', 'Barra Funda'],
+  'belo horizonte': ['Centro', 'Funcionários', 'Savassi', 'Santo Agostinho', 'Lourdes', 'Barro Preto'],
+  'campinas': ['Centro', 'Cambuí', 'Guanabara', 'Taquaral']
+};
 async function buscarAuto(mais) {
-  const termo = (S.buscaProsp.termo || 'advogado trabalhista').trim(), cidade = (S.buscaProsp.cidade || '').trim();
-  if (!cidade) return toast('Digite a cidade');
+  const termo = (S.buscaProsp.termo || 'advogado trabalhista').trim(), cidadeSo = (S.buscaProsp.cidade || '').trim(), bairro = (S.buscaProsp.bairro || '').trim();
+  if (!cidadeSo) return toast('Digite a cidade');
+  const cidade = bairro ? `${bairro}, ${cidadeSo}` : cidadeSo; // o Google entende "Barra da Tijuca, Rio de Janeiro"
   const ant = S.achados || {};
   const continuar = mais && ant.termo === termo && ant.cidade === cidade;
   S.achados = { ...(continuar ? ant : { lugares: [], sel: new Set() }), termo, cidade, carregando: true, erro: null };
@@ -2133,10 +2145,11 @@ async function buscarAuto(mais) {
       lugares = data.lugares || []; proxima = data.proxima;
     }
     const semAc = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-    const alvo = semAc(cidade.split(/[\/,-]/)[0]);
+    const alvo = semAc(cidadeSo.split(/[\/,-]/)[0]), alvoBairro = semAc(bairro);
     if (S.buscaProsp.soCidade !== false && alvo) {
       const antes = lugares.length;
-      lugares = lugares.filter(l => semAc(String(l.cidade || '').split('/')[0]) === alvo || (!l.cidade && semAc(l.endereco).includes(alvo)));
+      lugares = lugares.filter(l => (semAc(String(l.cidade || '').split('/')[0]) === alvo || (!l.cidade && semAc(l.endereco).includes(alvo)))
+        && (!alvoBairro || semAc(l.endereco).includes(alvoBairro))); // com bairro: só quem tem o bairro no endereço
       S.achados.foraCidade = (continuar ? ant.foraCidade || 0 : 0) + (antes - lugares.length);
     } else S.achados.foraCidade = 0;
     lugares.forEach(l => { l.ja = !!duplicado({ nome: l.nome, cidade: l.cidade, whatsapp: l.telefone }) || S.prospects.some(p => p.maps && l.maps && p.maps === l.maps); });
@@ -3949,7 +3962,7 @@ document.addEventListener('change', e => {
   });
   if (id === 'fProsp') { S.filtroProsp.status = e.target.value; S.filtroProsp.pag = 1; return render(); }
   if (e.target.dataset && e.target.dataset.filtroProsp) { const k = e.target.dataset.filtroProsp; S.filtroProsp[k] = e.target.value; if (k === 'uf') S.filtroProsp.cidade = ''; S.filtroProsp.pag = 1; return render(); }
-  if (e.target.dataset.buscaProsp) { const k = e.target.dataset.buscaProsp; if (S.buscaProsp[k] === e.target.value) return; S.buscaProsp[k] = e.target.value; return render(); } // o input já guardou: não redesenha à toa
+  if (e.target.dataset.buscaProsp) { const k = e.target.dataset.buscaProsp; if (S.buscaProsp[k] === e.target.value && k === 'termo') return; S.buscaProsp[k] = e.target.value; return setTimeout(render); } // cidade/bairro: redesenha (fora do blur) para atualizar as sugestões de bairro
   if (id === 'periodo') { S.periodo = e.target.value; localSet('pf_periodo', S.periodo); render(); }
   if (id === 'filtroCalc') { S.filtroCalc = e.target.value; render(); }
   if (id === 'fStatus') { S.filtroLeads.status = e.target.value; render(); }
