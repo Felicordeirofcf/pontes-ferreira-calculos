@@ -1830,13 +1830,14 @@ function telaProspeccao() {
   const c = cfgProsp(), fila = filaProsp(), feitosHoje = contatadosHoje();
   const f = S.filtroProsp, q = (f.q || '').toLowerCase(), hj = hoje();
   const cidadeDe = p => (p.cidade || '').split('/')[0].trim() || '(sem cidade)';
+  const ufDe = p => ((p.cidade || '').split('/')[1] || '').trim().toUpperCase() || '(sem UF)';
   const ORDENS = { prioridade: (a, b) => scoreProsp(b) - scoreProsp(a) || (b.ultimo_contato || b.created_at).localeCompare(a.ultimo_contato || a.created_at), recentes: (a, b) => (b.ultimo_contato || b.created_at).localeCompare(a.ultimo_contato || a.created_at), novos: (a, b) => b.created_at.localeCompare(a.created_at),
     retorno: (a, b) => (a.proximo_contato || '9999').localeCompare(b.proximo_contato || '9999'), nome: (a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'), cidade: (a, b) => cidadeDe(a).localeCompare(cidadeDe(b), 'pt-BR') || (a.nome || '').localeCompare(b.nome || '', 'pt-BR') };
   const aba = ABAS_PROSP[f.aba] ? f.aba : 'a_contatar', grupoAba = ABAS_PROSP[aba][1];
   const semTel = p => !digitos(p.whatsapp) && aContatar(p);
   const naAba = p => aba === 'sem_tel' ? semTel(p) : aba === 'com_email' ? comEmail(p) : (!grupoAba || grupoAba.includes(p.status || 'a_contatar'));
   const filtrada = S.prospects.filter(p => naAba(p) && (!q || [p.nome, p.escritorio, p.cidade, p.email, p.whatsapp, p.obs].join(' ').toLowerCase().includes(q))
-      && (!f.cidade || cidadeDe(p) === f.cidade) && (!f.fonte || (p.fonte || '(sem origem)') === f.fonte)
+      && (!f.uf || ufDe(p) === f.uf) && (!f.cidade || cidadeDe(p) === f.cidade) && (!f.fonte || (p.fonte || '(sem origem)') === f.fonte)
       && (!f.tel || (f.tel === 'sem' ? !digitos(p.whatsapp) : tipoTel(p.whatsapp) === f.tel))
       && (!f.retorno || (f.retorno === 'vencido' ? contatavel(p) && p.proximo_contato && p.proximo_contato <= hj : f.retorno === 'semana' ? contatavel(p) && p.proximo_contato && p.proximo_contato <= somaDias(hj, 7) : !p.tentativas))
       && (!f.canal || (() => { const c = canaisProsp(p); return f.canal === 'wa' ? c.wa && !c.email : f.canal === 'email' ? c.email && !c.wa : f.canal === 'ambos' ? c.wa && c.email : f.canal === 'algum_wa' ? !!c.wa : f.canal === 'algum_email' ? !!c.email : !c.wa && !c.email; })())
@@ -1846,7 +1847,7 @@ function telaProspeccao() {
   const lista = filtrada.slice((pag - 1) * POR_PAG, pag * POR_PAG);
   const contaPor = fn => { const m = {}; S.prospects.forEach(p => { const k = fn(p); m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR')); };
   const opt = (v, rot, atual) => `<option value="${esc(v)}" ${v === (atual || '') ? 'selected' : ''}>${esc(rot)}</option>`;
-  const filtrosAtivos = ['q', 'cidade', 'fonte', 'tel', 'retorno', 'nota', 'canal'].filter(k => f[k]).length;
+  const filtrosAtivos = ['q', 'uf', 'cidade', 'fonte', 'tel', 'retorno', 'nota', 'canal'].filter(k => f[k]).length;
   const contaAba = k => S.prospects.filter(p => k === 'sem_tel' ? !digitos(p.whatsapp) && aContatar(p) : k === 'com_email' ? comEmail(p) : (!ABAS_PROSP[k][1] || ABAS_PROSP[k][1].includes(p.status || 'a_contatar'))).length;
   const numsPag = (() => { const out = []; for (let i = 1; i <= paginas; i++) if (i === 1 || i === paginas || Math.abs(i - pag) <= 2) out.push(i); else if (out[out.length - 1] !== '…') out.push('…'); return out; })();
   const paginacao = paginas > 1 ? `<div class="linha" style="justify-content:space-between;margin-top:12px;flex-wrap:wrap;gap:8px">
@@ -1876,12 +1877,13 @@ function telaProspeccao() {
   <div class="grade">
     ${cardBuscaAuto(termo, cidade, qBusca, busca)}
     <div class="card larga"><div class="linha" style="justify-content:space-between"><h2>Lista</h2>
-      <div class="linha"><span class="desc">${filtrada.length} de ${contaAba(aba)} em "${ABAS_PROSP[aba][0]}"</span>${aba === 'sem_tel' && contaAba('sem_tel') ? '<button class="btn mini ouro" data-acao="localizarTodos">🔍 Localizar todos</button>' : ''}${semEmailComSite() ? `<button class="btn mini sec" data-acao="buscarEmailsProsp" title="Abre o site de cada escritório e pega o e-mail de contato publicado">✉ Buscar e-mails (${semEmailComSite()})</button>` : ''}${filtrosAtivos ? '<button class="btn mini sec" data-acao="limparFiltroProsp">✕ Limpar filtros</button>' : ''}</div></div>
+      <div class="linha"><span class="desc">${filtrada.length} de ${contaAba(aba)} em "${ABAS_PROSP[aba][0]}"</span>${aba === 'sem_tel' && contaAba('sem_tel') ? '<button class="btn mini ouro" data-acao="localizarTodos">🔍 Localizar todos</button>' : ''}${semEmailComSite() ? `<button class="btn mini sec" data-acao="buscarEmailsProsp" title="Abre o site de cada escritório e pega o e-mail de contato publicado">✉ Buscar e-mails (${semEmailComSite()})</button>` : ''}${filtrosAtivos ? '<button class="btn mini sec" data-acao="limparFiltroProsp">✕ Limpar filtros</button>' : ''}<button class="btn mini sec" data-acao="limparListaProsp" title="Remover contatos que ainda não foram abordados (o histórico de quem já recebeu mensagem é mantido)">🧹 Limpar lista</button></div></div>
       <div class="seg" style="margin:12px 0 4px;flex-wrap:wrap">${Object.entries(ABAS_PROSP).map(([k, [rot]]) => `<button class="${k === aba ? 'on' : ''}" data-aba-prosp="${k}">${rot} <span class="desc">(${contaAba(k)})</span></button>`).join('')}</div>
       <div class="desc" style="margin:2px 0 6px">${{ a_contatar: 'Ainda não abordados. Depois do 1º contato (WhatsApp, e-mail ou robô), o contato sai daqui e vai para <b>Contatados</b>. Falou por fora? Use <b>✓ Já contatei</b>.', contatados: 'Já abordados e sem resposta. A coluna Retorno mostra o próximo follow-up; quando vence, o contato volta para a fila.', responderam: 'Responderam ou demonstraram interesse.', clientes: 'Viraram clientes.', encerrados: 'Sem interesse ou pediram para não ser contatados.', sem_tel: 'Ainda não abordados e sem telefone: use 🔍 Localizar todos.', com_email: 'Ainda não abordados e com e-mail: é a fila do 🤖 robô de e-mail.', todos: 'Todos os contatos, em qualquer etapa.' }[aba] || ''}</div>
       <div class="linha" style="flex-wrap:wrap;gap:8px;margin:10px 0 4px">
       <input class="f" id="buscaProsp" placeholder="Buscar nome, telefone, obs…" value="${esc(f.q || '')}" style="flex:1;min-width:200px">
-      <select class="f" data-filtro-prosp="cidade">${opt('', 'Todas as cidades', f.cidade)}${contaPor(cidadeDe).map(([c, n]) => opt(c, `${c} (${n})`, f.cidade)).join('')}</select>
+      <select class="f" data-filtro-prosp="uf">${opt('', 'Todos os estados', f.uf)}${contaPor(ufDe).map(([c, n]) => opt(c, `${c} (${n})`, f.uf)).join('')}</select>
+      <select class="f" data-filtro-prosp="cidade">${opt('', f.uf ? 'Todas as cidades de ' + f.uf : 'Todas as cidades', f.cidade)}${(f.uf ? (() => { const m = {}; S.prospects.filter(p => ufDe(p) === f.uf).forEach(p => { const k = cidadeDe(p); m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); })() : contaPor(cidadeDe)).map(([c, n]) => opt(c, `${c} (${n})`, f.cidade)).join('')}</select>
       <select class="f" data-filtro-prosp="tel">${opt('', 'Qualquer telefone', f.tel)}${opt('celular', '📱 Celular (WhatsApp)', f.tel)}${opt('fixo', '☎ Fixo', f.tel)}${opt('sem', 'Sem telefone', f.tel)}</select>
       <select class="f" data-filtro-prosp="canal">${opt('', 'Qualquer canal', f.canal)}${opt('algum_wa', '💬 Já recebeu WhatsApp', f.canal)}${opt('algum_email', '✉ Já recebeu e-mail', f.canal)}${opt('wa', '💬 Só WhatsApp (falta e-mail)', f.canal)}${opt('email', '✉ Só e-mail (falta WhatsApp)', f.canal)}${opt('ambos', '💬+✉ WhatsApp e e-mail', f.canal)}${opt('nenhum', 'Nenhum contato ainda', f.canal)}</select>
       <select class="f" data-filtro-prosp="retorno">${opt('', 'Qualquer retorno', f.retorno)}${opt('vencido', '⏰ Retorno vencido/hoje', f.retorno)}${opt('semana', 'Retorno nos próximos 7 dias', f.retorno)}${opt('nunca', 'Nunca abordados', f.retorno)}</select>
@@ -1934,6 +1936,33 @@ function canaisProsp(p) {
   return { wa: p.wa_contato_em || null, email: p.email_contato_em || rob || null };
 }
 const tagsCanais = p => { const c = canaisProsp(p); return [c.wa ? `<span class="tag t-good" title="Abordado por WhatsApp/telefone em ${dataBR(c.wa)}">💬 ${dataBR(c.wa).slice(0, 5)}</span>` : '', c.email ? `<span class="tag t-azul" title="E-mail enviado em ${dataBR(c.email)}">✉ ${dataBR(c.email).slice(0, 5)}</span>` : ''].filter(Boolean).join(' '); };
+// 🧹 Limpar lista: remove só quem nunca recebeu mensagem. Quem já foi abordado fica (é o que impede mandar de novo).
+async function limparListaProsp() {
+  const f = S.filtroProsp || {}, ufDe = p => ((p.cidade || '').split('/')[1] || '').trim().toUpperCase(), cidDe = p => (p.cidade || '').split('/')[0].trim();
+  const ufs = [...new Set(S.prospects.map(ufDe).filter(Boolean))].sort();
+  const fontes = [...new Set(S.prospects.map(p => p.fonte || '(sem origem)'))].sort();
+  const v = await abrirForm('🧹 Limpar lista', [
+    { k: 'oque', rot: 'Remover', tipo: 'select', vazio: false, full: true, opcoes: [['nao_abordados', 'Contatos ainda não abordados'], ['sem_contato', 'Não abordados sem telefone e sem e-mail'], ['encerrados_sem', 'Encerrados por "sem interesse"']] },
+    { k: 'uf', rot: 'Estado', tipo: 'select', opcoes: ufs.map(u => [u, u]) },
+    { k: 'cidade', rot: 'Cidade (opcional)', ph: 'ex.: Niterói' },
+    { k: 'fonte', rot: 'Origem', tipo: 'select', opcoes: fontes.map(x => [x, x]), full: true }
+  ], { oque: 'nao_abordados', uf: f.uf || '', cidade: f.cidade || '', fonte: f.fonte || '' }, { ok: 'Ver quantos e remover' });
+  if (!v) return;
+  const semAc = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const alvo = S.prospects.filter(p => {
+    const c = canaisProsp(p), nunca = (p.status || 'a_contatar') === 'a_contatar' && !p.tentativas && !c.wa && !c.email;
+    const ok = v.oque === 'nao_abordados' ? nunca : v.oque === 'sem_contato' ? nunca && !digitos(p.whatsapp) && !p.email : p.status === 'sem_interesse';
+    return ok && (!v.uf || ufDe(p) === v.uf) && (!v.cidade || semAc(cidDe(p)) === semAc(v.cidade)) && (!v.fonte || (p.fonte || '(sem origem)') === v.fonte);
+  });
+  if (!alvo.length) return toast('Nenhum contato nesse critério.');
+  const onde = [v.cidade, v.uf, v.fonte].filter(Boolean).join(' · ') || 'toda a lista';
+  if (!confirm(`Remover ${alvo.length} contato(s) (${onde})?\n\nQuem já recebeu WhatsApp ou e-mail NÃO é removido, para não ser abordado de novo. Esta ação não pode ser desfeita.`)) return;
+  await seguro(async () => {
+    let n = 0;
+    for (const p of alvo) { progresso(`🧹 Removendo… ${n}/${alvo.length}`); await apagar('prospects', p.id); n++; }
+    progresso(null); S.filtroProsp.pag = 1; render(); toast(`🧹 ${n} contato(s) removido(s) da lista`);
+  });
+}
 async function jaContatei(p) {
   const v = await abrirForm('✓ Já contatei: ' + p.nome, [{ k: 'canal', rot: 'Por onde você falou com esse contato?', tipo: 'select', vazio: false, opcoes: [['wa', '💬 WhatsApp ou telefone'], ['email', '✉ E-mail'], ['ambos', 'Os dois']], full: true }], { canal: 'wa' }, { ok: 'Mover para Contatados' });
   if (!v) return;
@@ -2060,7 +2089,8 @@ function cardBuscaAuto(termo, cidade, qBusca, busca) {
     <div class="form-trafego linha" style="margin-top:10px;flex-wrap:wrap">
       <input class="f" data-busca-prosp="termo" value="${esc(termo)}" placeholder="advogado trabalhista" list="termosProsp" style="flex:1;min-width:200px">
       <input class="f" data-busca-prosp="cidade" value="${esc(cidade)}" placeholder="cidade (ex.: Niterói)" list="cidadesProsp" style="flex:1;min-width:180px">
-      <button class="btn" data-acao="buscarAuto" ${A.carregando ? 'disabled' : ''}>${A.carregando ? 'Buscando…' : '🔍 Buscar'}</button></div>
+      <label class="linha" style="gap:6px;font-size:.9rem;white-space:nowrap" title="O Google também devolve escritórios de cidades vizinhas. Marcado, o painel mostra só os da cidade digitada."><input type="checkbox" data-acao="soCidadeProsp" ${S.buscaProsp.soCidade !== false ? 'checked' : ''}> Só desta cidade</label>
+      <button class="btn" data-acao="buscarAuto" ${A.carregando ? 'disabled' : ''}>${A.carregando ? 'Buscando…' : '🔍 Buscar'}</button>${lugares.length ? '<button class="btn sec" data-acao="limparBuscaProsp" title="Limpar os resultados da busca">✕ Limpar busca</button>' : ''}</div>
     <datalist id="termosProsp">${TERMOS_PROSP.map(t => `<option value="${esc(t)}">`).join('')}</datalist>
     <datalist id="cidadesProsp">${CIDADES_PROSP.map(t => `<option value="${esc(t)}">`).join('')}</datalist>
     ${naoBuscadas.length ? `<div class="linha" style="margin-top:8px;flex-wrap:wrap;gap:6px"><span class="desc">Cidades sem nenhum contato na lista:</span>${naoBuscadas.map(c => `<button class="btn mini sec" data-cidade-prosp="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
@@ -2071,7 +2101,7 @@ function cardBuscaAuto(termo, cidade, qBusca, busca) {
         <div class="desc" style="margin-top:6px">O Google dá uma cota gratuita por mês (cada busca traz até 20 escritórios). Enquanto isso, use os links abaixo.</div></div>`
       : A.erro ? `<div class="demo" style="margin-top:12px"><span>⚠ ${esc(A.erro)}</span></div>` : ''}
     ${lugares.length ? `<div class="linha" style="margin:14px 0 6px;justify-content:space-between;flex-wrap:wrap;gap:8px">
-        <div><b>${lugares.length}</b> encontrado(s) para "${esc(A.termo)}" em ${esc(A.cidade)} · ${novos.length} novo(s) · ${celNovos.length} com celular · ${novos.filter(l => l.nota >= 4 && l.avaliacoes >= 5).length} ⭐ bem avaliado(s) <span class="desc">(aparecem primeiro)</span></div>
+        <div><b>${lugares.length}</b> encontrado(s) para "${esc(A.termo)}" em ${esc(A.cidade)}${A.foraCidade ? ` <span class="desc">(${A.foraCidade} de outras cidades ocultado(s))</span>` : ''} · ${novos.length} novo(s) · ${celNovos.length} com celular · ${novos.filter(l => l.nota >= 4 && l.avaliacoes >= 5).length} ⭐ bem avaliado(s) <span class="desc">(aparecem primeiro)</span></div>
         <div class="linha"><button class="btn mini sec" data-acao="selCelulares">Marcar novos com celular</button><button class="btn mini sec" data-acao="selNenhum">Desmarcar</button>
         <button class="btn" data-acao="addAchados" ${sel.size ? '' : 'disabled'}>+ Adicionar ${sel.size} à lista</button></div></div>
       <div class="tabela"><table><tr><th></th><th>Escritório</th><th>Cidade</th><th>Telefone</th><th>Google</th><th>Links</th><th></th></tr>${lugares.map(linha).join('')}</table></div>
@@ -2102,6 +2132,13 @@ async function buscarAuto(mais) {
       if (error) { let d = {}; try { d = await error.context.json(); } catch { } throw Object.assign(new Error(d.mensagem || error.message), { codigo: d.erro || (error.context?.status === 404 ? 'sem_funcao' : '') }); }
       lugares = data.lugares || []; proxima = data.proxima;
     }
+    const semAc = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    const alvo = semAc(cidade.split(/[\/,-]/)[0]);
+    if (S.buscaProsp.soCidade !== false && alvo) {
+      const antes = lugares.length;
+      lugares = lugares.filter(l => semAc(String(l.cidade || '').split('/')[0]) === alvo || (!l.cidade && semAc(l.endereco).includes(alvo)));
+      S.achados.foraCidade = (continuar ? ant.foraCidade || 0 : 0) + (antes - lugares.length);
+    } else S.achados.foraCidade = 0;
     lugares.forEach(l => { l.ja = !!duplicado({ nome: l.nome, cidade: l.cidade, whatsapp: l.telefone }) || S.prospects.some(p => p.maps && l.maps && p.maps === l.maps); });
     const vistos = new Set(S.achados.lugares.map(l => l.id));
     // bem avaliados e com mais avaliações no topo (escritório ativo gera mais cálculo)
@@ -3872,7 +3909,10 @@ document.addEventListener('click', e => {
     novoLead: () => editarLead(null), novoCalculo: () => editarCalculo(null), novoCliente: () => editarCliente(null),
     novaDespesa: () => editarDespesa(null), diagnosticoWa, verificarVigia, testeAvisoVigia, regrasVigia, ligarVigia, ligarRoboEmail, configRoboEmail, verRoboEmail, apresentacaoEmail: () => apresentacaoEmail(), buscarEmailsProsp: () => buscarEmailsProsp(), atualizarJornada: () => carregarJornada(true), mostrarRobos: () => { S.mostrarRobos = !S.mostrarRobos; render(); }, abrirForaCrm, localizarTodos: () => localizarTodos('prosp'), localizarTodosLista: () => localizarTodos('lista'), importarLista, editarMsgLista, excluirLista, orcamentoRapido, dataEntrega, prontoPagamento, cobrancaRapida, envioPago, buscarAuto: () => buscarAuto(false), limparFiltroProsp: () => { S.filtroProsp = { status: '', q: '', aba: S.filtroProsp.aba, ordem: S.filtroProsp.ordem || '' }; render(); }, buscarMais: () => buscarAuto(true), addAchados,
     selCelulares: () => { const A = S.achados; if (A) { A.sel = new Set(A.lugares.filter(l => !l.ja && tipoTel(l.telefone) === 'celular').map(l => l.id)); render(); } },
-    selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } }, importarPJC, limparDemo, novaConversa,
+    selNenhum: () => { if (S.achados) { S.achados.sel = new Set(); render(); } },
+    soCidadeProsp: () => { S.buscaProsp.soCidade = S.buscaProsp.soCidade === false; render(); },
+    limparBuscaProsp: () => { S.achados = null; render(); },
+    limparListaProsp: () => limparListaProsp(), importarPJC, limparDemo, novaConversa,
     novoGasto: () => novoGasto(), importarGads, gadsLancarGasto, novoProsp: () => editarProsp(null), definirMeta, emailTesteDiario: () => testarEmail('diario'), emailTesteSemanal: () => testarEmail('semanal'), atualizarMonitor: () => carregarMensagensMonitor(true), configMonitor, outraVersao: () => S.ultRapida && preencherRapida(S.ultRapida.i), configRespostas, waConectar: () => conectarWhatsapp('qr'), waStatus: () => atualizarEstadoWa(false), waDesconectar: () => confirm('Desconectar o WhatsApp do painel? O celular continua funcionando normalmente.') && seguro(async () => { await chamarConexao('desconectar'); S.waEstado = 'close'; render(); }), paleta: abrirPaleta, atualizarMapa: () => carregarMapa(true), colarProsp, exportProsp, configProsp, proximoProsp: () => proximoDaFila(null), configurarRobo, testarRobo: () => { SIM.etapa = null; SIM.msgs = []; SIM.fora = undefined; renderSimulador(); }, salvarRast, salvarMetas, exportGoogle, exportMeta, copiarUtm: () => copiarTexto(urlUtm()), trocarSenha: () => trocarSenha(false),
     waEnviar: waEnviarTexto, waAnexar,
     waModelo: () => seguro(() => waEnviar({ template: CFG.WA_TEMPLATE || 'retomar_contato', idioma: CFG.WA_TEMPLATE_IDIOMA || 'pt_BR' })),
@@ -3908,7 +3948,7 @@ document.addEventListener('change', e => {
     toast(novo.aviso_whatsapp_off ? 'Aviso no WhatsApp desligado' : `Avisos de pedido vão para ${num ? fmtTel(num.length <= 11 ? '55' + num : num) : 'o WhatsApp da empresa (conversa "Você")'}`);
   });
   if (id === 'fProsp') { S.filtroProsp.status = e.target.value; S.filtroProsp.pag = 1; return render(); }
-  if (e.target.dataset && e.target.dataset.filtroProsp) { S.filtroProsp[e.target.dataset.filtroProsp] = e.target.value; S.filtroProsp.pag = 1; return render(); }
+  if (e.target.dataset && e.target.dataset.filtroProsp) { const k = e.target.dataset.filtroProsp; S.filtroProsp[k] = e.target.value; if (k === 'uf') S.filtroProsp.cidade = ''; S.filtroProsp.pag = 1; return render(); }
   if (e.target.dataset.buscaProsp) { const k = e.target.dataset.buscaProsp; if (S.buscaProsp[k] === e.target.value) return; S.buscaProsp[k] = e.target.value; return render(); } // o input já guardou: não redesenha à toa
   if (id === 'periodo') { S.periodo = e.target.value; localSet('pf_periodo', S.periodo); render(); }
   if (id === 'filtroCalc') { S.filtroCalc = e.target.value; render(); }
