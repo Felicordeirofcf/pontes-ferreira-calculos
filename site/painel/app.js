@@ -1045,6 +1045,8 @@ async function apresentacaoEmail(opc = {}) {
 const ehGrandeProsp = p => /credenciad/i.test(String(p.fonte || '')) || /#grande|grande escrit/i.test(String(p.obs || ''));
 async function apresentacaoProsp(id) {
   let p = S.prospects.find(x => x.id === id); if (!p) return;
+  const ja = canaisProsp(p).email;
+  if (ja && !confirm(`${p.nome} já recebeu a apresentação por e-mail em ${dataBR(ja)}. Enviar de novo?`)) return false;
   if (!p.email && p.site && !DEMO) { toast('Procurando o e-mail no site do escritório…'); await buscarEmailsProsp([p], true); p = S.prospects.find(x => x.id === id) || p; }
   const nome = String(p.nome || '').trim(), dr = /^(dr|dra)\.?\s/i.test(nome);
   const para = await apresentacaoEmail({ semConversa: true, ref: String(p.id).slice(0, 8), modelo: ehGrandeProsp(p) ? 'volume' : 'padrao', para: p.email || '',
@@ -1053,7 +1055,7 @@ async function apresentacaoProsp(id) {
   if (!para) return false;
   await seguro(async () => {
     if (!p.email) { const n = await atualizar('prospects', p.id, { email: para }); Object.assign(p, n || { email: para }); }
-    await marcarContatado(p); render();
+    await marcarContatado(p, 'email'); render();
   });
   return true;
 }
@@ -1443,9 +1445,13 @@ async function waEnviar(opts) {
     const lp = S.listaPendente; S.listaPendente = null;
     await salvarItemLista(lp.item, { status: 'contatado', contatado_em: new Date().toISOString() }).catch(er => console.warn('lista', er));
   }
+  if (!S.prospPendente || digitos(c.wa_id).slice(-8) !== S.prospPendente.chave) {
+    const pw = S.prospects.find(x => digitos(x.whatsapp).slice(-8) === digitos(c.wa_id).slice(-8) && !x.wa_contato_em);
+    if (pw) marcarCanal(pw, 'wa');
+  }
   if (S.prospPendente && digitos(c.wa_id).slice(-8) === S.prospPendente.chave) { // abordagem de prospecção enviada: agora conta
     const pr = S.prospects.find(x => x.id === S.prospPendente.id); S.prospPendente = null;
-    if (pr) await marcarContatado(pr).catch(e => console.warn('prospecção', e));
+    if (pr) await marcarContatado(pr, 'wa').catch(e => console.warn('prospecção', e));
   }
   const resumo = msg.tipo === 'document' ? `📎 ${msg.arquivo_nome}` : msg.texto;
   await atualizar('wa_conversas', c.id, { ultima_msg: (resumo || '').slice(0, 200), ultima_msg_em: msg.created_at, nao_lidas: 0, humano_ate: new Date(Date.now() + (Number(cfgRobo().pausa_horas) || 12) * 36e5).toISOString(), bot_etapa: 'humano' });
@@ -1766,7 +1772,7 @@ const STATUS_PROSP = { a_contatar: 'A contatar', contatado: 'Contatado', respond
 const TAG_PROSP = { a_contatar: 't-neutro', contatado: 't-azul', respondeu: 't-warn', interessado: 't-warn', cliente: 't-good', sem_interesse: 't-neutro', nao_contatar: 't-crit' };
 // abas da lista: quem já foi abordado sai de "A contatar" e vai para "Contatados"
 const ABAS_PROSP = { a_contatar: ['A contatar', ['a_contatar']], contatados: ['Contatados', ['contatado']], responderam: ['Responderam', ['respondeu', 'interessado']],
-  clientes: ['Clientes', ['cliente']], encerrados: ['Encerrados', ['sem_interesse', 'nao_contatar']], sem_tel: ['📞 Sem telefone', null], com_email: ['✉ Fila do e-mail', null], todos: ['Todos', null] };
+  clientes: ['Clientes', ['cliente']], encerrados: ['Encerrados', ['sem_interesse', 'nao_contatar']], sem_tel: ['📞 Sem telefone', null], com_email: ['✉ Fila do e-mail', null], todos: ['Todos (histórico)', null] };
 // abas auxiliares mostram só quem ainda não foi abordado: depois do 1º contato, o contato fica só em "Contatados"
 const aContatar = p => (p.status || 'a_contatar') === 'a_contatar' && !p.tentativas;
 const comEmail = p => !!p.email && aContatar(p);
@@ -1833,13 +1839,14 @@ function telaProspeccao() {
       && (!f.cidade || cidadeDe(p) === f.cidade) && (!f.fonte || (p.fonte || '(sem origem)') === f.fonte)
       && (!f.tel || (f.tel === 'sem' ? !digitos(p.whatsapp) : tipoTel(p.whatsapp) === f.tel))
       && (!f.retorno || (f.retorno === 'vencido' ? contatavel(p) && p.proximo_contato && p.proximo_contato <= hj : f.retorno === 'semana' ? contatavel(p) && p.proximo_contato && p.proximo_contato <= somaDias(hj, 7) : !p.tentativas))
+      && (!f.canal || (() => { const c = canaisProsp(p); return f.canal === 'wa' ? c.wa && !c.email : f.canal === 'email' ? c.email && !c.wa : f.canal === 'ambos' ? c.wa && c.email : f.canal === 'algum_wa' ? !!c.wa : f.canal === 'algum_email' ? !!c.email : !c.wa && !c.email; })())
       && (!f.nota || (f.nota === 'top' ? prioritario(p) : f.nota === 'com' ? !!notaGoogle(p) : !notaGoogle(p))))
     .sort(ORDENS[f.ordem] || (aba === 'contatados' ? ORDENS.retorno : aba === 'a_contatar' || aba === 'todos' ? ORDENS.prioridade : ORDENS.recentes));
   const POR_PAG = 20, paginas = Math.max(1, Math.ceil(filtrada.length / POR_PAG)), pag = Math.min(Math.max(1, f.pag || 1), paginas);
   const lista = filtrada.slice((pag - 1) * POR_PAG, pag * POR_PAG);
   const contaPor = fn => { const m = {}; S.prospects.forEach(p => { const k = fn(p); m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR')); };
   const opt = (v, rot, atual) => `<option value="${esc(v)}" ${v === (atual || '') ? 'selected' : ''}>${esc(rot)}</option>`;
-  const filtrosAtivos = ['q', 'cidade', 'fonte', 'tel', 'retorno', 'nota'].filter(k => f[k]).length;
+  const filtrosAtivos = ['q', 'cidade', 'fonte', 'tel', 'retorno', 'nota', 'canal'].filter(k => f[k]).length;
   const contaAba = k => S.prospects.filter(p => k === 'sem_tel' ? !digitos(p.whatsapp) && aContatar(p) : k === 'com_email' ? comEmail(p) : (!ABAS_PROSP[k][1] || ABAS_PROSP[k][1].includes(p.status || 'a_contatar'))).length;
   const numsPag = (() => { const out = []; for (let i = 1; i <= paginas; i++) if (i === 1 || i === paginas || Math.abs(i - pag) <= 2) out.push(i); else if (out[out.length - 1] !== '…') out.push('…'); return out; })();
   const paginacao = paginas > 1 ? `<div class="linha" style="justify-content:space-between;margin-top:12px;flex-wrap:wrap;gap:8px">
@@ -1876,6 +1883,7 @@ function telaProspeccao() {
       <input class="f" id="buscaProsp" placeholder="Buscar nome, telefone, obs…" value="${esc(f.q || '')}" style="flex:1;min-width:200px">
       <select class="f" data-filtro-prosp="cidade">${opt('', 'Todas as cidades', f.cidade)}${contaPor(cidadeDe).map(([c, n]) => opt(c, `${c} (${n})`, f.cidade)).join('')}</select>
       <select class="f" data-filtro-prosp="tel">${opt('', 'Qualquer telefone', f.tel)}${opt('celular', '📱 Celular (WhatsApp)', f.tel)}${opt('fixo', '☎ Fixo', f.tel)}${opt('sem', 'Sem telefone', f.tel)}</select>
+      <select class="f" data-filtro-prosp="canal">${opt('', 'Qualquer canal', f.canal)}${opt('algum_wa', '💬 Já recebeu WhatsApp', f.canal)}${opt('algum_email', '✉ Já recebeu e-mail', f.canal)}${opt('wa', '💬 Só WhatsApp (falta e-mail)', f.canal)}${opt('email', '✉ Só e-mail (falta WhatsApp)', f.canal)}${opt('ambos', '💬+✉ WhatsApp e e-mail', f.canal)}${opt('nenhum', 'Nenhum contato ainda', f.canal)}</select>
       <select class="f" data-filtro-prosp="retorno">${opt('', 'Qualquer retorno', f.retorno)}${opt('vencido', '⏰ Retorno vencido/hoje', f.retorno)}${opt('semana', 'Retorno nos próximos 7 dias', f.retorno)}${opt('nunca', 'Nunca abordados', f.retorno)}</select>
       <select class="f" data-filtro-prosp="fonte">${opt('', 'Qualquer origem', f.fonte)}${contaPor(p => p.fonte || '(sem origem)').map(([c, n]) => opt(c, `${c} (${n})`, f.fonte)).join('')}</select>
       <select class="f" data-filtro-prosp="nota">${opt('', 'Qualquer avaliação', f.nota)}${opt('top', '⭐ Nota 4+ e 5+ avaliações', f.nota)}${opt('com', 'Com nota no Google', f.nota)}${opt('sem', 'Sem nota', f.nota)}</select>
@@ -1886,7 +1894,7 @@ function telaProspeccao() {
         <td style="white-space:nowrap">${digitos(p.whatsapp) ? celTelefone(p) : `<button class="btn mini ouro" data-localizar="${p.id}" title="Procurar o telefone deste escritório no Google Maps">🔍 Localizar</button>`}</td>
         <td style="white-space:nowrap">${linkExt(p.site, '🌐')}${linkExt(linkInsta(p.instagram), '📸')}${linkExt(p.linkedin, '💼')}${linkExt(p.maps, '📍')}</td>
         <td><span class="tag ${TAG_PROSP[p.status] || 't-neutro'}">${STATUS_PROSP[p.status] || p.status}</span>${p.tentativas ? ` <span class="desc">${p.tentativas}×</span>` : ''}</td>
-        <td>${p.ultimo_contato ? dataBR(p.ultimo_contato) : '—'}</td>
+        <td>${p.ultimo_contato ? dataBR(p.ultimo_contato) : '—'}${tagsCanais(p) ? `<div style="margin-top:3px">${tagsCanais(p)}</div>` : ''}</td>
         <td>${p.proximo_contato && contatavel(p) ? `<span class="${p.proximo_contato <= hoje() ? 'tag t-warn' : ''}">${dataBR(p.proximo_contato)}</span>` : '—'}</td>
         <td style="white-space:nowrap">${contatavel(p) ? `<button class="btn mini ouro" data-abordar="${p.id}">📲 Abordar</button>` : ''}${aContatar(p) && contatavel(p) ? ` <button class="btn mini sec" data-ja-contatei="${p.id}" title="Já falei com esse contato por fora (celular, e-mail): mover para Contatados e agendar o retorno">✓ Já contatei</button>` : ''}</td></tr>`).join('')}</table></div>`
       : `<div class="vazio">${S.prospects.length ? 'Nada com esse filtro' : 'Lista vazia. Comece pesquisando acima e adicionando contatos.'}</div>`}${paginacao}</div>
@@ -1917,10 +1925,26 @@ async function registrarAbordagem(p, canal, txt) {
     window.open(waLink(p.whatsapp, txt), ALVO_WA);
   }
   else window.open(`mailto:${encodeURIComponent(p.email)}?subject=${encodeURIComponent(c.textos.email_assunto)}&body=${encodeURIComponent(txt.replace(/\*/g, ''))}`, '_blank');
-  await marcarContatado(p);
+  await marcarContatado(p, canal === 'email' ? 'email' : 'wa');
 }
 // conta a tentativa de prospecção (1º contato, lembrete, último) e agenda o próximo retorno
-async function marcarContatado(p) {
+// por onde o contato já foi abordado (evita mandar a mesma coisa duas vezes): datas gravadas no contato + envios do robô
+function canaisProsp(p) {
+  const rob = logRoboEmail().filter(x => x.id === p.id && x.ok && !x.voltou).map(x => x.em).sort().pop();
+  return { wa: p.wa_contato_em || null, email: p.email_contato_em || rob || null };
+}
+const tagsCanais = p => { const c = canaisProsp(p); return [c.wa ? `<span class="tag t-good" title="Abordado por WhatsApp/telefone em ${dataBR(c.wa)}">💬 ${dataBR(c.wa).slice(0, 5)}</span>` : '', c.email ? `<span class="tag t-azul" title="E-mail enviado em ${dataBR(c.email)}">✉ ${dataBR(c.email).slice(0, 5)}</span>` : ''].filter(Boolean).join(' '); };
+async function jaContatei(p) {
+  const v = await abrirForm('✓ Já contatei: ' + p.nome, [{ k: 'canal', rot: 'Por onde você falou com esse contato?', tipo: 'select', vazio: false, opcoes: [['wa', '💬 WhatsApp ou telefone'], ['email', '✉ E-mail'], ['ambos', 'Os dois']], full: true }], { canal: 'wa' }, { ok: 'Mover para Contatados' });
+  if (!v) return;
+  await seguro(async () => { await marcarContatado(p, v.canal); render(); });
+}
+async function marcarCanal(p, canal) {
+  const agora = new Date().toISOString(), patch = canal === 'email' ? { email_contato_em: agora } : canal === 'ambos' ? { email_contato_em: agora, wa_contato_em: agora } : { wa_contato_em: agora };
+  try { await atualizar('prospects', p.id, patch); } catch (e) { console.warn('canal (rode o SQL prospeccao-canais)', e); }
+}
+async function marcarContatado(p, canal) {
+  if (canal) await marcarCanal(p, canal);
   if (!contatavel(p)) return;
   const c = cfgProsp(), agora = new Date().toISOString();
   const t = (p.tentativas || 0) + 1, prox = t >= c.max_tentativas ? null : somaDias(hoje(), t === 1 ? c.dias_follow1 : c.dias_follow2 - c.dias_follow1);
@@ -1946,7 +1970,7 @@ function abrirAbordagem(id) {
     <div class="linha" style="justify-content:space-between"><h2 style="margin:0">📲 ${esc(p.nome)}</h2><span class="desc">${pos >= 0 ? `${pos + 1} de ${fila.length} na fila · ` : ''}hoje: ${contatadosHoje()}/${cfgProsp().meta_dia}</span></div>
     <div class="desc">${[p.escritorio !== p.nome ? p.escritorio : '', p.cidade, p.area, p.oab ? 'OAB ' + p.oab : '', p.fonte ? 'fonte: ' + p.fonte : ''].filter(Boolean).map(esc).join(' · ')}</div>
     <div class="linha" style="margin:8px 0">${linkExt(p.site, '🌐 Site')}${linkExt(linkInsta(p.instagram), '📸 Instagram')}${linkExt(p.linkedin, '💼 LinkedIn')}${linkExt(p.maps, '📍 Maps')}
-      <span class="tag t-azul">${rotEtapa}</span>${p.ultimo_contato ? `<span class="desc">último: ${dataBR(p.ultimo_contato)}</span>` : ''}</div>
+      <span class="tag t-azul">${rotEtapa}</span>${p.ultimo_contato ? `<span class="desc">último: ${dataBR(p.ultimo_contato)}</span>` : ''}${tagsCanais(p) ? ` <span class="desc">já recebeu:</span> ${tagsCanais(p)}` : ''}</div>
     ${p.obs ? `<div class="obs">${esc(p.obs)}</div>` : ''}
     <label class="rotulo" style="margin-top:8px">Mensagem (pode editar antes de enviar)</label>
     <textarea id="abTexto" rows="9" style="width:100%;border:1px solid var(--axis);border-radius:8px;padding:10px;font:inherit">${esc(textoProsp(p, etapa))}</textarea>
@@ -3808,7 +3832,7 @@ document.addEventListener('click', e => {
   if (d.waAbrir) { e.stopPropagation(); return abrirNoPainel(d.waAbrir, d.waNome, d.waTxt, { lead_id: d.waLeadId, cliente_id: d.waClienteId }); }
   if (d.waProsp) return enviarDiretoProsp(d.waProsp, 'wa');
   if (d.mailProsp) return apresentacaoProsp(d.mailProsp);
-  if (d.jaContatei) { const p = S.prospects.find(x => x.id === d.jaContatei); if (p) return seguro(async () => { await marcarContatado(p); render(); }); }
+  if (d.jaContatei) { const p = S.prospects.find(x => x.id === d.jaContatei); if (p) return jaContatei(p); }
   if (d.ufMapa !== undefined) { S.ufMapa = d.ufMapa || null; if (rota() !== 'mapa') location.hash = 'mapa'; return render(); }
   if (d.metricaMapa) { S.metricaMapa = d.metricaMapa; localSet('pf_metrica_mapa', d.metricaMapa); return render(); }
   if (d.prospectarUf) return prospectarUF(d.prospectarUf);

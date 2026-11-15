@@ -328,6 +328,7 @@ async function roboEmail(teste: boolean) {
     const pr = await lerAjuste('prospeccao'), dias = Number(pr.dias_follow1) || 3;
     const prox = new Date(agoraBR.getTime() + dias * 864e5).toISOString().slice(0, 10);
     await db.from('prospects').update({ status: 'contatado', tentativas: 1, ultimo_contato: reg.em, proximo_contato: prox }).eq('id', p.id);
+    await db.from('prospects').update({ email_contato_em: reg.em }).eq('id', p.id).then(() => { }, () => { }); // canal do contato (coluna do SQL prospeccao-canais)
     reg.ok = true;
   } catch (e) { reg.erro = String((e as Error)?.message || e).slice(0, 160); console.error('robo-email', reg.email, e); }
   await db.from('ajustes').upsert({ chave: 'robo_email_log', publico: false, valor: { lista: [reg, ...log].slice(0, 400) } });
