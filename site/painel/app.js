@@ -1018,20 +1018,21 @@ async function apresentacaoEmail(opc = {}) {
   const emailConv = ((textoConv.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || []).pop() || '').replace(/\.+$/, ''); // o último e-mail que o contato mandou
   const nomeEmail = (emailConv.split('@')[0] || '').replace(/[^a-zà-ú]/gi, ' ').trim().split(/\s+/)[0] || '';
   const v = await abrirForm('✉ Apresentação por e-mail', [
+    { k: 'modelo', rot: 'Modelo do e-mail', tipo: 'select', vazio: false, opcoes: [['padrao', 'Advogados e escritórios (1º cálculo por R$ 200)'], ['volume', 'Grandes escritórios e jurídicos (contrato por volume)']], full: true },
     { k: 'para', rot: 'E-mail do escritório', ph: 'contato@escritorio.com.br', full: true },
     { k: 'tratamento', rot: 'Saudação', ph: 'Prezado Dr. Fulano', full: true },
     { k: 'abertura', rot: 'Primeira frase (contexto)', tipo: 'textarea', full: true },
-    { k: 'assunto', rot: 'Assunto', full: true },
+    { k: 'assunto', rot: 'Assunto (deixe vazio para usar o do modelo)', ph: 'automático pelo modelo', full: true },
     { k: 'assinatura', rot: 'Assina', full: true }
   ], { para: opc.para || emailConv || (c && emailDoCalculo(null, c)) || '', tratamento: opc.tratamento || (nomeEmail ? 'Prezado Dr. ' + nomeEmail[0].toUpperCase() + nomeEmail.slice(1).toLowerCase() : 'Prezado(a) Dr(a).'),
-    abertura: opc.abertura ?? (c ? 'Obrigado pelo retorno no WhatsApp. Conforme orientado, seguimos por e-mail.' : ''), assunto: 'Proposta de parceria – cálculos trabalhistas no PJe-Calc em até 48h', assinatura: S.ajustes?.assinatura_email || 'Amanda Pontes' }, { ok: '✉ Enviar e-mail' });
+    abertura: opc.abertura ?? (c ? 'Obrigado pelo retorno no WhatsApp. Conforme orientado, seguimos por e-mail.' : ''), modelo: opc.modelo || 'padrao', assunto: '', assinatura: S.ajustes?.assinatura_email || 'Amanda Pontes' }, { ok: '✉ Enviar e-mail' });
   if (!v) return null;
   const para = (v.para || '').trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) { toast('E-mail inválido: ' + para); return null; }
   let ok = false;
   await seguro(async () => {
     if (DEMO) { ok = true; return toast('Modo demonstração: apresentação para ' + para + ' simulada.'); }
-    const { error } = await sb.functions.invoke('enviar-calculo-email', { body: { tipo: 'apresentacao', para, tratamento: v.tratamento, abertura: v.abertura, assunto: v.assunto, assinatura: v.assinatura, ref: opc.ref || '' } });
+    const { error } = await sb.functions.invoke('enviar-calculo-email', { body: { tipo: 'apresentacao', modelo: v.modelo || 'padrao', para, tratamento: v.tratamento, abertura: v.abertura, assunto: v.assunto || '', assinatura: v.assinatura, ref: opc.ref || '' } });
     if (error) { let d = {}; try { d = await error.context.json(); } catch { } throw new Error(d.mensagem || error.message); }
     ok = true; toast('✉ Apresentação enviada para ' + para + ' (você recebe uma cópia oculta)');
     const l = !opc.semConversa && c && leadDaConversa(c);
@@ -1040,11 +1041,13 @@ async function apresentacaoEmail(opc = {}) {
   return ok ? para : null;
 }
 // prospecção: a mesma apresentação, saudando o escritório; conta como abordagem e guarda o e-mail no contato
+// escritório grande: veio da lista de credenciados (contencioso de massa) ou tem "#grande" nas observações (o robô usa a mesma regra)
+const ehGrandeProsp = p => /credenciad/i.test(String(p.fonte || '')) || /#grande|grande escrit/i.test(String(p.obs || ''));
 async function apresentacaoProsp(id) {
   let p = S.prospects.find(x => x.id === id); if (!p) return;
   if (!p.email && p.site && !DEMO) { toast('Procurando o e-mail no site do escritório…'); await buscarEmailsProsp([p], true); p = S.prospects.find(x => x.id === id) || p; }
   const nome = String(p.nome || '').trim(), dr = /^(dr|dra)\.?\s/i.test(nome);
-  const para = await apresentacaoEmail({ semConversa: true, ref: String(p.id).slice(0, 8), para: p.email || '',
+  const para = await apresentacaoEmail({ semConversa: true, ref: String(p.id).slice(0, 8), modelo: ehGrandeProsp(p) ? 'volume' : 'padrao', para: p.email || '',
     tratamento: dr ? (/^dra/i.test(nome) ? 'Prezada ' : 'Prezado ') + nome.split(/\s+/).slice(0, 2).join(' ') : 'Prezados(as) Drs.',
     abertura: `Gostaríamos de apresentar nossos serviços ao escritório${p.escritorio || (!dr && nome) ? ' ' + (p.escritorio || nome) : ''}.` });
   if (!para) return false;
@@ -2348,7 +2351,7 @@ async function verRoboEmail() {
   const log = logRoboEmail().slice(0, 60);
   const f = document.createElement('div'); f.className = 'modal-fundo';
   f.innerHTML = `<div class="modal" style="width:min(760px,100%)"><h2>📜 Envios do robô de e-mail</h2>
-    ${log.length ? `<div class="tabela"><table><tr><th>Quando</th><th>Escritório</th><th>E-mail</th><th>Resultado</th></tr>${log.map(x => `<tr><td style="white-space:nowrap">${esc(new Date(x.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}</td><td>${esc(x.nome || '')}</td><td>${esc(x.email || '')}</td><td>${x.devolucao ? `<span class="tag t-warn">↩ voltou</span> <span class="desc">${esc(x.erro || '')}</span>` : x.ok && x.voltou ? '<span class="tag t-crit">enviado, mas voltou</span>' : x.ok ? `<span class="tag t-good">enviado</span>${x.reposicao ? ' <span class="desc">(reposição imediata)</span>' : ''}${x.aviso ? ` <span class="desc" title="${esc(x.aviso)}">⚠ sem cópia em Enviados</span>` : ''}` : `<span class="tag t-crit" title="${esc(x.erro || '')}">erro</span> <span class="desc">${esc((x.erro || '').slice(0, 60))}</span>`}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Nenhum envio ainda.</div>'}
+    ${log.length ? `<div class="tabela"><table><tr><th>Quando</th><th>Escritório</th><th>E-mail</th><th>Resultado</th></tr>${log.map(x => `<tr><td style="white-space:nowrap">${esc(new Date(x.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}</td><td>${esc(x.nome || '')}${x.modelo === 'volume' ? ' <span class="tag t-azul" title="Modelo para grandes escritórios">🏛 volume</span>' : ''}</td><td>${esc(x.email || '')}</td><td>${x.devolucao ? `<span class="tag t-warn">↩ voltou</span> <span class="desc">${esc(x.erro || '')}</span>` : x.ok && x.voltou ? '<span class="tag t-crit">enviado, mas voltou</span>' : x.ok ? `<span class="tag t-good">enviado</span>${x.reposicao ? ' <span class="desc">(reposição imediata)</span>' : ''}${x.aviso ? ` <span class="desc" title="${esc(x.aviso)}">⚠ sem cópia em Enviados</span>` : ''}` : `<span class="tag t-crit" title="${esc(x.erro || '')}">erro</span> <span class="desc">${esc((x.erro || '').slice(0, 60))}</span>`}</td></tr>`).join('')}</table></div>` : '<div class="vazio">Nenhum envio ainda.</div>'}
     <div class="rodape"><button class="btn sec" data-r="agora" title="Manda 1 e-mail agora, mesmo fora do horário (respeita o limite do dia)">Enviar 1 agora</button><button class="btn sec" data-r="fechar">Fechar</button></div></div>`;
   document.body.appendChild(f);
   f.addEventListener('click', e => { if (e.target === f) f.remove(); });
