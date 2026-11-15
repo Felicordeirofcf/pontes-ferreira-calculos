@@ -93,6 +93,23 @@ SERVICOS = [
               ('Existe contrato mínimo?', 'Não. Você pode pedir cálculos avulsos. O pacote mensal é opcional.'),
               ('Como fica o sigilo?', 'Os arquivos são usados só para o cálculo e tratados conforme a LGPD. Podemos assinar termo de confidencialidade.'),
               ('Como pago?', 'Combinamos no orçamento. O valor é fechado antes de começar.')]),
+    dict(slug='terceirizacao-de-calculos-trabalhistas', curto='Escritórios com volume',
+         wa='Olá! Sou de um escritório com volume de processos trabalhistas e quero conversar sobre a terceirização dos cálculos.',
+         fatos='<div><b>Mensal</b>contrato por volume</div><div><b>Polo ativo</b>e passivo</div><div><b>.PJC</b>+ relatório em PDF</div>',
+         titulo='Terceirização de cálculos trabalhistas para escritórios e jurídicos',
+         h1='Cálculos trabalhistas <em>em volume</em> para escritórios e departamentos jurídicos',
+         desc='Terceirização de cálculos trabalhistas no PJe-Calc para escritórios com volume e departamentos jurídicos: polo ativo e passivo, prazo por processo, contrato mensal e confidencialidade.',
+         intro='Para escritórios com carteira grande e departamentos jurídicos, a Pontes Ferreira funciona como a equipe de cálculos da casa, sem custo fixo de contratação: liquidações, impugnações e atualizações no PJe-Calc, com prazo combinado por processo e um único canal de atendimento.',
+         itens=['Polo ativo e passivo: liquidação, impugnação aos cálculos do reclamante e do perito, atualização',
+                'Contrato mensal com preço por volume e prioridade na fila',
+                'Prazo combinado por processo, com controle de entregas',
+                'Relação mensal dos cálculos entregues, para conferência e faturamento',
+                'Termo de confidencialidade e tratamento dos dados conforme a LGPD',
+                'Arquivo .PJC, relatório em PDF e resumo do que foi deferido em cada entrega'],
+         faq=[('Vocês atendem a defesa (reclamada)?', 'Sim. Fazemos impugnação aos cálculos do reclamante e do perito e cálculos de liquidação para o polo passivo.'),
+              ('Como funciona o contrato mensal?', 'Combinamos o volume previsto, o prazo por processo e o preço por cálculo. O escritório envia os processos pelo canal combinado e recebe a relação mensal das entregas.'),
+              ('Dá para fazer um teste antes de fechar contrato?', 'Sim. Comece com alguns processos avulsos para avaliar a qualidade e o prazo.'),
+              ('Como fica o sigilo?', 'Os arquivos são usados só para o cálculo e tratados conforme a LGPD. Assinamos termo de confidencialidade.')]),
 ]
 
 # cidades que pedem artigo: "no Rio de Janeiro", "do Recife"
@@ -259,8 +276,8 @@ COMO = '''<section style="background:#fff"><div class="wrap"><div class="eyebrow
 def gerar_servico(s):
     corpo = f'''<div class="eyebrow">Cálculos trabalhistas para advogados</div>
 <h1>{s["h1"]}</h1><p>{e(s["intro"])}</p>
-<div class="ctas"><a class="btn" href="{form_link(s["slug"])}">Enviar processo para orçamento</a><a class="btn ghost" href="{wa_link(f'Olá! Preciso de {s["curto"].lower()}. Pode me passar um orçamento?')}" target="_blank" rel="noopener">Falar no WhatsApp</a></div>
-<div class="fatos"><div><b>48h</b>prazo padrão</div><div><b>R$ 200</b>seu 1º cálculo</div><div><b>.PJC</b>+ relatório em PDF</div></div>
+<div class="ctas"><a class="btn" href="{form_link(s["slug"])}">Enviar processo para orçamento</a><a class="btn ghost" href="{wa_link(s.get('wa') or f'Olá! Preciso de {s["curto"].lower()}. Pode me passar um orçamento?')}" target="_blank" rel="noopener">Falar no WhatsApp</a></div>
+<div class="fatos">{s.get('fatos') or '<div><b>48h</b>prazo padrão</div><div><b>R$ 200</b>seu 1º cálculo</div><div><b>.PJC</b>+ relatório em PDF</div>'}</div>
 </div></div>
 <section><div class="wrap duas"><div><div class="eyebrow">O que está incluído</div><h2>Tudo pronto para juntar ao processo</h2><ul class="lista">{''.join(f'<li>{e(i)}</li>' for i in s["itens"])}</ul></div>
 <div class="box"><h3>Outros serviços</h3><div class="links" style="grid-template-columns:1fr">{''.join(f'<a href="/{o["slug"]}/">{e(o["curto"])}</a>' for o in SERVICOS if o is not s)}</div>
@@ -268,7 +285,7 @@ def gerar_servico(s):
 {COMO}
 <div style="display:none"><div><div>'''  # fecha as divs do hero (o template abre .hero > .wrap)
     corpo = corpo.replace('</div></div>\n<section>', '</div></div>\n<section>', 1)
-    html_ = pagina(s['slug'], s['titulo'], s['desc'], [('Início', '/'), (s['curto'], f'/{s["slug"]}/')], corpo, s['faq'], f'Olá! Preciso de {s["curto"].lower()}.')
+    html_ = pagina(s['slug'], s['titulo'], s['desc'], [('Início', '/'), (s['curto'], f'/{s["slug"]}/')], corpo, s['faq'], s.get('wa') or f'Olá! Preciso de {s["curto"].lower()}.')
     return html_.replace('<div style="display:none"><div><div>\n</div></div>', '')
 
 
