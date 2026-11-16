@@ -590,7 +590,7 @@ const tagStatus = c => {
 };
 
 /* ---------------- 🛡 Vigia da captação ---------------- */
-const VIGIA_PADRAO = { ativo: true, desligadas: [], aviso_dias: [0, 1, 2, 3, 4, 5, 6], aviso_ini: 8, aviso_fim: 21, anuncio_dias: [1, 2, 3, 4, 5], anuncio_ini: 8, anuncio_fim: 19, horas_sem_visita: 3, horas_sem_mensagem: 24, cliques_sem_conversa: 3 };
+const VIGIA_PADRAO = { ativo: true, desligadas: [], aviso_dias: [0, 1, 2, 3, 4, 5, 6], aviso_ini: 8, aviso_fim: 21, anuncio_dias: [1, 2, 3, 4, 5], anuncio_ini: 8, anuncio_fim: 19, horas_sem_visita: 3, horas_sem_mensagem: 24, horas_sem_mensagem_util: 3, cliques_sem_conversa: 3 };
 const VIGIA_ITENS = {
   site: ['🌐 Site no ar', 'Abre o site e confere se o formulário e os botões de WhatsApp estão lá.'],
   anuncio: ['📈 Visitas do anúncio', 'Em horário de anúncio, avisa se passar muito tempo sem nenhuma visita vinda do Google Ads (campanha pausada, saldo acabou, reprovação).'],
@@ -660,7 +660,8 @@ async function regrasVigia() {
     { k: 'anuncio_ini', rot: 'Anúncio roda a partir das (hora)', tipo: 'number' }, { k: 'anuncio_fim', rot: 'Anúncio roda até as (hora)', tipo: 'number' },
     ...DIAS_SEMANA.map((d, i) => ({ k: 'an' + i, rot: 'Anúncio ' + d.toLowerCase(), tipo: 'checkbox' })),
     { k: 'horas_sem_visita', rot: 'Alertar sem visitas do Google por (horas)', tipo: 'number' },
-    { k: 'horas_sem_mensagem', rot: 'Alertar sem mensagens no WhatsApp por (horas)', tipo: 'number' },
+    { k: 'horas_sem_mensagem_util', rot: 'Alertar sem mensagens no WhatsApp, em horário comercial, por (horas)', tipo: 'number' },
+    { k: 'horas_sem_mensagem', rot: 'Alertar sem mensagens no WhatsApp, fora do horário, por (horas)', tipo: 'number' },
     { k: 'cliques_sem_conversa', rot: 'Alertar com quantos cliques sem conversa (24h)', tipo: 'number' }
   ], { ...c, ...Object.fromEntries(Object.keys(VIGIA_ITENS).map(id => ['v_' + id, !off.includes(id)])),
     ...Object.fromEntries(DIAS_SEMANA.map((d, i) => ['ad' + i, c.aviso_dias.map(Number).includes(i)])), ...Object.fromEntries(DIAS_SEMANA.map((d, i) => ['an' + i, c.anuncio_dias.map(Number).includes(i)])) });
@@ -670,7 +671,7 @@ async function regrasVigia() {
   await salvarVigia({ desligadas: Object.keys(VIGIA_ITENS).filter(id => !v['v_' + id]),
     aviso_ini: hora(v.aviso_ini, 8), aviso_fim: hora(v.aviso_fim, 21), aviso_dias: dias('ad').length ? dias('ad') : c.aviso_dias,
     anuncio_ini: hora(v.anuncio_ini, 8), anuncio_fim: hora(v.anuncio_fim, 19), anuncio_dias: dias('an').length ? dias('an') : c.anuncio_dias,
-    horas_sem_visita: Math.max(1, Number(v.horas_sem_visita) || 3), horas_sem_mensagem: Math.max(2, Number(v.horas_sem_mensagem) || 24), cliques_sem_conversa: Math.max(1, Number(v.cliques_sem_conversa) || 3) });
+    horas_sem_visita: Math.max(1, Number(v.horas_sem_visita) || 3), horas_sem_mensagem: Math.max(2, Number(v.horas_sem_mensagem) || 24), horas_sem_mensagem_util: Math.max(1, Number(v.horas_sem_mensagem_util) || 3), cliques_sem_conversa: Math.max(1, Number(v.cliques_sem_conversa) || 3) });
   toast('Regras do vigia salvas');
 }
 function telaPainel() {
@@ -1206,6 +1207,7 @@ async function diagnosticoWa() {
     : d.estado !== 'open' ? 'O WhatsApp NÃO está conectado. Clique em Conectar e escaneie o QR code.'
     : !w.ligado || !w.url_ok ? 'O webhook está desligado ou apontando para o lugar errado: clique em "Corrigir webhook".'
     : w.chave_ok === false ? 'A senha do webhook não confere com a do Supabase: clique em "Corrigir webhook".'
+    : d.ajustes && (d.ajustes.status_lidos || !d.ajustes.grupos_ignorados || d.ajustes.historico) ? 'O servidor está carregando Status dos contatos, grupos ou histórico, o que derruba a conexão: clique em "Corrigir webhook" (ele também desliga isso).'
     : !evs.includes('MESSAGES_UPSERT') ? 'O webhook não está recebendo mensagens (falta MESSAGES_UPSERT): clique em "Corrigir webhook".'
     : !lista.length ? 'Conectado e configurado, mas nenhuma mensagem chegou ao sistema desde a última atualização. Mande uma mensagem de outro celular e abra este diagnóstico de novo.'
     : !recebidas.length ? 'O servidor do WhatsApp está avisando o painel (veja a tabela), mas nenhuma mensagem recebida de cliente chegou. Se você já mandou uma mensagem de outro celular, a sessão do WhatsApp no servidor não está recebendo: desconecte e conecte de novo pelo QR code.'
@@ -1215,8 +1217,9 @@ async function diagnosticoWa() {
   $('#diagCorpo').innerHTML = `<div class="demo" style="margin-bottom:12px"><span><b>Conclusão:</b> ${conclusao}</span></div>
     <div class="linha" style="flex-wrap:wrap;gap:6px;margin-bottom:6px">${ok(d.estado === 'open', 'WhatsApp conectado' + (d.numero ? ' (' + fmtTel(d.numero) + ')' : ''), 'WhatsApp desconectado (' + (d.estado || '?') + ')')}
       ${ok(w.ligado && w.url_ok, 'Webhook aponta para o painel', 'Webhook errado ou desligado')} ${ok(w.chave_ok !== false, 'Senha do webhook confere', 'Senha do webhook não confere')}
-      ${ok(evs.includes('MESSAGES_UPSERT'), 'Recebe mensagens', 'Não recebe mensagens')}</div>
-    <div class="linha" style="margin:8px 0 12px"><button class="btn mini ouro" id="diagCorrigir">🔧 Corrigir webhook</button><span class="desc">Reconfigura o webhook com o endereço e a senha certos.</span></div>
+      ${ok(evs.includes('MESSAGES_UPSERT'), 'Recebe mensagens', 'Não recebe mensagens')}
+      ${d.ajustes ? ok(!d.ajustes.status_lidos && d.ajustes.grupos_ignorados && !d.ajustes.historico, 'Status e grupos ignorados', 'Status ou grupos sendo carregados') : ''}</div>
+    <div class="linha" style="margin:8px 0 12px"><button class="btn mini ouro" id="diagCorrigir">🔧 Corrigir webhook</button><span class="desc">Reconfigura o webhook e desliga o carregamento de Status dos contatos, grupos e histórico.</span></div>
     <h3 class="sub">Últimas mensagens que chegaram ao sistema</h3>
     ${lista.length ? `<div class="tabela"><table><tr><th>Quando</th><th>Tipo</th><th>De/para</th><th>O que aconteceu</th></tr>${lista.slice(0, 25).map(x => `<tr><td style="white-space:nowrap">${esc(new Date(x.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }))}</td><td>${esc(x.tipo)}</td><td>${esc((x.nome ? x.nome + ' · ' : '') + (x.quem || ''))}</td><td><span class="tag ${/gravada|tiques|open/.test(x.res) ? 't-good' : /ERRO|DESCART/.test(x.res) ? 't-crit' : 't-neutro'}">${esc(x.res)}</span></td></tr>`).join('')}</table></div>` : '<div class="desc">Nenhum registro ainda (os registros começam depois de publicar a versão nova da função whatsapp-webhook).</div>'}`;
   $('#diagCorrigir', fundo).onclick = () => seguro(async () => { await chamarConexao('webhook'); toast('Webhook reconfigurado'); fundo.remove(); diagnosticoWa(); });

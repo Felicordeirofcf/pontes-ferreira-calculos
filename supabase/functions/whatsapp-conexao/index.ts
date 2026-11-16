@@ -38,6 +38,14 @@ async function configurarWebhook() {
   if (!r.ok) throw new Error('Falha ao configurar o webhook: ' + JSON.stringify(r.dados).slice(0, 200));
 }
 
+// configuração que deixa a conexão mais estável: não ler Status dos contatos (as confirmações de Status
+// derrubavam a conexão), ignorar grupos (o painel não usa), não baixar histórico e não ficar "online" o tempo todo
+const AJUSTES_ESTAVEIS = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false, readMessages: false, readStatus: false, syncFullHistory: false };
+async function ajustarInstancia() {
+  const r = await evo('POST', `/settings/set/${INST}`, AJUSTES_ESTAVEIS);
+  return r.ok;
+}
+
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   try {
@@ -70,27 +78,30 @@ Deno.serve(async req => {
     if (acao === 'conectar' || acao === 'codigo') {
       let st = await estado();
       if (st === 'inexistente') {
-        const r = await evo('POST', '/instance/create', { instanceName: INST, integration: 'WHATSAPP-BAILEYS', qrcode: true, groupsIgnore: true, alwaysOnline: false, readMessages: false, syncFullHistory: false });
+        const r = await evo('POST', '/instance/create', { instanceName: INST, integration: 'WHATSAPP-BAILEYS', qrcode: true, ...AJUSTES_ESTAVEIS });
         if (!r.ok) return resp({ erro: 'criar', mensagem: 'Não foi possível criar a instância: ' + JSON.stringify(r.dados).slice(0, 200) }, 502);
         st = 'close';
       }
       await configurarWebhook();
+      await ajustarInstancia().catch(() => false);
       if (st === 'open') return resp({ estado: 'open' });
       const num = String(b.numero || '').replace(/\D/g, '');
       const r = await evo('GET', `/instance/connect/${INST}${acao === 'codigo' && num ? `?number=${num.length <= 11 ? '55' + num : num}` : ''}`);
       return resp({ estado: st, qrcode: r.dados?.base64 || null, codigo: r.dados?.pairingCode || null });
     }
 
-    if (acao === 'webhook') { await configurarWebhook(); return resp({ ok: true }); }
+    if (acao === 'webhook') { await configurarWebhook(); const ajustes = await ajustarInstancia().catch(() => false); return resp({ ok: true, ajustes }); }
     if (acao === 'diagnostico') { // estado da conexão e configuração do webhook (senha mascarada)
       const st = await estado();
       const w = await evo('GET', `/webhook/find/${INST}`).catch(() => ({ dados: null }));
       const r = await evo('GET', `/instance/fetchInstances?instanceName=${INST}`).catch(() => ({ dados: null }));
       const i = Array.isArray(r.dados) ? r.dados[0] : r.dados;
       const url = String(w.dados?.url || '');
+      const cfg = await evo('GET', `/settings/find/${INST}`).catch(() => ({ dados: null }));
       return resp({ estado: st, numero: String(i?.ownerJid || i?.owner || '').split('@')[0] || null, nome: i?.profileName || null,
         webhook: { ligado: !!w.dados?.enabled, url_ok: url.includes('/functions/v1/whatsapp-webhook') && url.includes('k='), chave_ok: url.includes('k=' + encodeURIComponent(Deno.env.get('EVOLUTION_WEBHOOK_KEY') || '§')),
-          url: url.replace(/k=[^&]+/, 'k=***'), eventos: w.dados?.events || [], por_evento: !!w.dados?.webhookByEvents } });
+          url: url.replace(/k=[^&]+/, 'k=***'), eventos: w.dados?.events || [], por_evento: !!w.dados?.webhookByEvents },
+        ajustes: cfg.dados ? { status_lidos: !!cfg.dados.readStatus, grupos_ignorados: !!cfg.dados.groupsIgnore, historico: !!cfg.dados.syncFullHistory } : null });
     }
 
     if (acao === 'desconectar') {

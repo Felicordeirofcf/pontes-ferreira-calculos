@@ -28,7 +28,7 @@ export const PADRAO = {
   aviso_dias: [0, 1, 2, 3, 4, 5, 6], aviso_ini: 8, aviso_fim: 21,
   // horário em que o anúncio roda (para o alerta de "sem visitas")
   anuncio_dias: [1, 2, 3, 4, 5], anuncio_ini: 8, anuncio_fim: 19, horas_sem_visita: 3,
-  horas_sem_mensagem: 24, cliques_sem_conversa: 3
+  horas_sem_mensagem: 24, horas_sem_mensagem_util: 3, cliques_sem_conversa: 3
 };
 export const VERIFICACOES: Record<string, string> = {
   site: '🌐 Site no ar', anuncio: '📈 Visitas do anúncio', whatsapp: '💬 WhatsApp conectado', mensagens: '📥 Mensagens chegando',
@@ -150,11 +150,13 @@ async function checarWhatsapp() {
 }
 
 async function checarMensagens(cfg: any) {
-  const lim = Number(cfg.horas_sem_mensagem) || 24;
+  // em horário comercial (o mesmo do anúncio) o WhatsApp costuma receber mensagem toda hora: alerta bem mais cedo
+  const util = dentro(cfg.anuncio_dias, cfg.anuncio_ini, cfg.anuncio_fim);
+  const lim = util ? (Number(cfg.horas_sem_mensagem_util) || 3) : (Number(cfg.horas_sem_mensagem) || 24);
   const { data: m } = await db.from('wa_mensagens').select('created_at').eq('direcao', 'in').order('created_at', { ascending: false }).limit(1);
   const diag = ((await ajuste('wa_diag')).lista || []).find((x: any) => x.tipo === 'recebida');
   const ult = [m?.[0]?.created_at, diag?.em].filter(Boolean).sort().pop(), h = ha(ult);
-  if (h > lim) return { nivel: 'warn', msg: `Nenhuma mensagem recebida no WhatsApp há ${horas(h)}. Se alguém escreveu e não apareceu, o recebimento travou: abra WhatsApp > 🩺 Diagnóstico.` };
+  if (h > lim) return { nivel: 'warn', msg: `Nenhuma mensagem recebida no WhatsApp há ${horas(h)}${util ? ', em horário comercial' : ''}. Mande uma mensagem de teste de outro celular; se não aparecer no painel, o recebimento travou: Desconectar → remover aparelhos no celular → Conectar (QR code).` };
   return { nivel: 'ok', msg: `Última mensagem recebida: há ${horas(h)}.` };
 }
 
