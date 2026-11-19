@@ -60,6 +60,22 @@
           "value": "camera=(), microphone=(), geolocation=(), payment=()"
         }
       ]
+    },
+    {
+      "source": "/encerrado/(.*)",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/:caminho((?!painel|cliente|encerrado|img/|config\\.js|robots\\.txt).*)",
+      "destination": "/encerrado/",
+      "permanent": false
     }
   ]
 }

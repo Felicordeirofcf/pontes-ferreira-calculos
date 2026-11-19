@@ -1,6 +1,2 @@
 User-agent: *
-Disallow: /painel/
-Disallow: /cliente/
-Allow: /
-
-Sitemap: https://pontesferreiracalculos.com/sitemap.xml
+Disallow: /
